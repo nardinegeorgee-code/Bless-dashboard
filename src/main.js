@@ -1,4 +1,5 @@
 import { upload } from '@vercel/blob/client';
+import { zipSync } from 'fflate';
 import './style.css';
 
 const ROLES=[
@@ -13,7 +14,7 @@ const ROLES=[
 const ROLE=Object.fromEntries(ROLES.map(r=>[r.key,r]));
 const TYPES={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml',mp4:'video/mp4',webm:'video/webm',pdf:'application/pdf',txt:'text/plain',csv:'text/csv',md:'text/markdown',json:'application/json'};
 
-const S={assets:true,lastJson:'',users:[],instructions:[],subs:[],usersReady:false,screen:null,me:null,route:'home',param:null,
+const S={sel:new Set(),assets:true,lastJson:'',users:[],instructions:[],subs:[],usersReady:false,screen:null,me:null,route:'home',param:null,
   sendRoles:new Set(),sendUsers:new Set(),fRole:'',fUser:'',fKind:'',pwOpen:null,picked:{}};
 
 /* ---------- helpers ---------- */
@@ -67,7 +68,7 @@ function onData(){
     return;
   }
 }
-async function logout(msg){try{await api('POST','/api/auth?action=logout')}catch(e){}S.lastJson='';S.me=null;S.mode='login';showLogin();if(msg)toast(msg)}
+async function logout(msg){try{await api('POST','/api/auth?action=logout')}catch(e){}S.lastJson='';S.me=null;S.sel.clear();renderSelBar();S.mode='login';showLogin();if(msg)toast(msg)}
 
 /* ---------- auth screens ---------- */
 const brandHTML=`<div class="brand"><div class="mark">B</div><div><b>Bless Team Hub</b><small>Briefs, files and roles in one place</small></div></div>`;
@@ -163,7 +164,7 @@ function update(){
   else if(r==='send')updateSend();
   else if(r==='content')updateContent();
   else if(r==='users')L.innerHTML=usersHTML();
-  syncUploadAvail();
+  syncUploadAvail();renderSelBar();
 }
 
 function overviewHTML(){
@@ -239,14 +240,67 @@ function subHTML(s,hideIns){
   const ins=s.instructionId&&S.instructions.find(i=>i.id===s.instructionId);
   const canDel=isAdmin()||s.userId===S.me.id;
   const ctx=hideIns?'':s.instructionId?`<button class="btn sm ghost" style="padding:0;justify-content:flex-start" data-act="go" data-route="ins" data-param="${s.instructionId}">Re: ${esc(ins?ins.title:'deleted instruction')}</button>`:'<span class="muted" style="font-size:.85rem">Upload without instruction</span>';
-  return `<article class="item"><div class="item-top"><div class="row" style="gap:8px"><span class="mono">${esc(s.username)}</span>${roleChip(s.role)}</div><div class="row" style="gap:8px"><span class="mono muted">${fmtDate(s.createdAt)}</span>${canDel?`<button class="btn sm danger" data-act="del-sub" data-id="${s.id}">Delete</button>`:''}</div></div>
+  return `<article class="item"><div class="item-top"><div class="row" style="gap:8px"><span class="mono">${esc(s.username)}</span>${roleChip(s.role)}</div><div class="row" style="gap:8px"><span class="mono muted">${fmtDate(s.createdAt)}</span>${(s.files||[]).length>1?`<button class="btn sm" data-act="sel-sub" data-id="${s.id}">Select all files</button>`:''}${canDel?`<button class="btn sm danger" data-act="del-sub" data-id="${s.id}">Delete</button>`:''}</div></div>
     ${ctx}${s.note?`<p class="body-text">${esc(s.note)}</p>`:''}
     ${(s.files||[]).length?`<div class="files">${s.files.map(fileHTML).join('')}</div>`:''}</article>`;
 }
 function fileHTML(f){
   const url=f.url;const ext=(f.name.split('.').pop()||'file').slice(0,5);
   const inner=f.type.startsWith('image/')?`<img src="${url}" alt="${esc(f.name)}" loading="lazy">`:f.type.startsWith('video/')?`<video src="${url}" muted preload="metadata"></video>`:`<span class="ext">${esc(ext)}</span>`;
-  return `<a class="thumb" href="${url}" target="_blank" rel="noopener"><span class="frame">${inner}</span><span class="nm" title="${esc(f.name)}">${esc(f.name)}</span><span class="mono muted">${fmtSize(f.size||0)}</span></a>`;
+  const on=S.sel.has(url);
+  return `<div class="ftile${on?' on':''}"><a class="thumb" href="${url}" target="_blank" rel="noopener"><span class="frame">${inner}</span><span class="nm" title="${esc(f.name)}">${esc(f.name)}</span><span class="mono muted">${fmtSize(f.size||0)}</span></a>
+    <label class="fsel" title="Select for bulk download"><input type="checkbox" data-act="sel-file" data-url="${esc(url)}" aria-label="Select ${esc(f.name)}" ${on?'checked':''}></label>
+    <a class="fdl" href="${esc(dlUrl(url))}" download="${esc(f.name)}" title="Download ${esc(f.name)}" aria-label="Download ${esc(f.name)}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/></svg></a></div>`;
+}
+
+/* ---------- downloads ---------- */
+const dlUrl=u=>u+(u.includes('?')?'&':'?')+'download=1';
+function allFiles(){const m=new Map();S.subs.forEach(s=>(s.files||[]).forEach(f=>m.set(f.url,{...f,owner:s.username})));return m}
+function pruneSel(){const all=allFiles();[...S.sel].forEach(u=>{if(!all.has(u))S.sel.delete(u)})}
+function renderSelBar(){
+  let bar=$('#selbar');if(!bar)return;
+  pruneSel();
+  const n=S.sel.size;
+  if(!n||S.screen!=='app'){bar.hidden=true;return}
+  bar.hidden=false;
+  if(bar.dataset.busy)return;
+  bar.innerHTML=`<span class="mono">${n} selected</span><span class="row" style="gap:8px"><button class="btn sm" data-act="sel-page">Select all on page</button><button class="btn sm ghost" data-act="sel-clear">Clear</button><button class="btn sm primary" data-act="dl-zip">Download ${n===1?'file':'as ZIP'}</button></span>`;
+}
+function syncChecks(){
+  document.querySelectorAll('input[data-act="sel-file"]').forEach(c=>{const on=S.sel.has(c.dataset.url);c.checked=on;c.closest('.ftile')?.classList.toggle('on',on)});
+  renderSelBar();
+}
+function saveBlob(blob,name){
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+}
+async function downloadSelected(){
+  const bar=$('#selbar');const all=allFiles();const items=[...S.sel].map(u=>all.get(u)).filter(Boolean);
+  if(!items.length)return;
+  if(items.length===1){const f=items[0];const a=document.createElement('a');a.href=dlUrl(f.url);a.download=f.name;document.body.appendChild(a);a.click();a.remove();return}
+  bar.dataset.busy='1';const files={},used=new Set(),failed=[];
+  for(let i=0;i<items.length;i++){
+    const f=items[i];bar.innerHTML=`<span class="mono">Preparing ${i+1} of ${items.length}…</span>`;
+    try{
+      const r=await fetch(f.url);if(!r.ok)throw new Error('http '+r.status);
+      const data=new Uint8Array(await r.arrayBuffer());
+      const base=(isAdmin()?f.owner+'/':'')+f.name;let path=base,n=2;
+      while(used.has(path)){const d=base.lastIndexOf('.');path=d>base.lastIndexOf('/')?base.slice(0,d)+' ('+n+')'+base.slice(d):base+' ('+n+')';n++}
+      used.add(path);files[path]=[data,{level:0}];
+    }catch(e){failed.push(f.name)}
+  }
+  delete bar.dataset.busy;
+  if(!Object.keys(files).length){
+    toast('Could not build a ZIP, downloading the files one by one instead.');
+    for(const f of items){const a=document.createElement('a');a.href=dlUrl(f.url);a.download=f.name;document.body.appendChild(a);a.click();a.remove();await new Promise(r=>setTimeout(r,500))}
+    renderSelBar();return;
+  }
+  try{
+    const zip=zipSync(files);
+    saveBlob(new Blob([zip],{type:'application/zip'}),'bless-hub-files-'+new Date().toISOString().slice(0,10)+'.zip');
+    toast(failed.length?`ZIP ready. ${failed.length} file(s) could not be added: ${failed.slice(0,3).join(', ')}`:`ZIP ready with ${Object.keys(files).length} files`);
+  }catch(e){toast('Could not create the ZIP.')}
+  renderSelBar();
 }
 
 /* ---------- upload form ---------- */
@@ -297,6 +351,11 @@ document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
   if(a==='go'){e.preventDefault();go(b.dataset.route,b.dataset.param)}
   else if(a==='logout')logout();
+  else if(a==='sel-file'){b.checked?S.sel.add(b.dataset.url):S.sel.delete(b.dataset.url);syncChecks()}
+  else if(a==='sel-sub'){const s=S.subs.find(x=>x.id===b.dataset.id);if(s){const urls=(s.files||[]).map(f=>f.url);const allOn=urls.every(u=>S.sel.has(u));urls.forEach(u=>allOn?S.sel.delete(u):S.sel.add(u));syncChecks()}}
+  else if(a==='sel-page'){document.querySelectorAll('input[data-act="sel-file"]').forEach(c=>S.sel.add(c.dataset.url));syncChecks()}
+  else if(a==='sel-clear'){S.sel.clear();syncChecks()}
+  else if(a==='dl-zip')downloadSelected();
   else if(a==='unpick'){S.picked[b.dataset.kind].splice(+b.dataset.i,1);renderPicked(b.dataset.kind)}
   else if(a==='pick-role'){b.checked?S.sendRoles.add(b.value):S.sendRoles.delete(b.value);updateSendCount()}
   else if(a==='pick-user'){b.checked?S.sendUsers.add(b.value):S.sendUsers.delete(b.value);updateSendCount()}
