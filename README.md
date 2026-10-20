@@ -34,3 +34,6 @@ When the Super Admin sends an instruction, everyone it reaches who has an email 
 4. Optional: set `SITE_URL` (for example `https://your-site.vercel.app`) so the email button links to the right address.
 5. Redeploy.
 
+
+### Free alternative: send through Gmail (no domain needed)
+Set `GMAIL_USER` (your Gmail address) and `GMAIL_APP_PASSWORD` (a 16-character Google app password, created at myaccount.google.com/apppasswords with 2-Step Verification on). When both are set, instructions are emailed through Gmail instead of Resend (about 500 emails a day).

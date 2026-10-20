@@ -205,8 +205,11 @@ const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;
  *  Never throws: the instruction is already saved, so a mail problem must not undo it. */
 export async function emailInstruction(recipients, { title, body, senderName, link }) {
   const key = (process.env.RESEND_API_KEY || '').trim();
+  const gmailUser = (process.env.GMAIL_USER || '').trim();
+  const gmailPass = (process.env.GMAIL_APP_PASSWORD || '').replace(/\s+/g, '');
+  const useGmail = !!(gmailUser && gmailPass);
   if (!recipients.length) return { status: 'none', sent: 0, failed: 0 };
-  if (!key) return { status: 'not_configured', sent: 0, failed: recipients.length };
+  if (!key && !useGmail) return { status: 'not_configured', sent: 0, failed: recipients.length };
   const from = process.env.MAIL_FROM || 'Bless Team Hub <onboarding@resend.dev>';
   const subject = `New instruction: ${title}`;
   const text = `${title}\n\n${body}\n\nFrom ${senderName}\nOpen the hub to respond: ${link}`;
@@ -218,6 +221,29 @@ export async function emailInstruction(recipients, { title, body, senderName, li
     <p style="font-size:12px;color:#5A665F;margin:22px 0 0">Sign in with your username and password to send back your files.</p></div>`;
   let sent = 0, failed = 0, error = '';
   const failedUsers = [];
+
+  // Free option that needs no domain: send through a Gmail account using an app password.
+  if (useGmail) {
+    let transporter;
+    try {
+      const nodemailer = (await import('nodemailer')).default;
+      transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: gmailUser, pass: gmailPass } });
+    } catch (e) {
+      return { status: 'failed', sent: 0, failed: recipients.length, error: 'Gmail sending is not available: ' + e.message, failedUsers: recipients.map((u) => u.username) };
+    }
+    for (let i = 0; i < recipients.length; i += 5) {
+      const group = recipients.slice(i, i + 5);
+      const results = await Promise.allSettled(group.map((u) => transporter.sendMail({
+        from: `"Bless Team Hub" <${gmailUser}>`, to: u.email, subject, text, html,
+      })));
+      results.forEach((r, k) => {
+        if (r.status === 'fulfilled') sent++;
+        else { failed++; failedUsers.push(group[k].username); if (!error) error = String(r.reason?.message || r.reason).slice(0, 200); }
+      });
+    }
+    return { status: failed ? (sent ? 'partial' : 'failed') : 'sent', sent, failed, error, failedUsers };
+  }
+
   const mk = (u) => ({ from, to: [u.email], subject, html, text });
   const post = (url, payload) => fetch(url, {
     method: 'POST',
