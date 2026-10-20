@@ -36,7 +36,6 @@ export function ensureSchema() {
         sv INTEGER NOT NULL DEFAULT 0,
         created_at BIGINT NOT NULL
       )`;
-      await q`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT ''`;
       await q`CREATE TABLE IF NOT EXISTS instructions (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
@@ -70,7 +69,6 @@ export const mapUser = (r) => ({
   username: r.username,
   usernameLower: r.username_lower,
   role: r.role,
-  email: r.email || '',
   createdAt: Number(r.created_at),
 });
 export const mapInstruction = (r) => ({
@@ -169,12 +167,6 @@ export function cleanPassword(v) {
   if (p.length > 200) throw new HttpError(400, 'That password is too long.');
   return p;
 }
-export function cleanEmail(v) {
-  const e = String(v ?? '').trim().toLowerCase();
-  if (!e) return '';
-  if (e.length > 200 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) throw new HttpError(400, 'That email address does not look right.');
-  return e;
-}
 export function cleanRole(v) {
   if (!ROLES.includes(v)) throw new HttpError(400, 'Unknown role.');
   return v;
@@ -196,115 +188,4 @@ export function route(handler) {
 
 export function allow(req, methods) {
   if (!methods.includes(req.method)) throw new HttpError(405, 'Method not allowed.');
-}
-
-/* ---------- email (Resend) ---------- */
-const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
-/** Emails one copy of an instruction to each recipient (each person only sees their own address).
- *  Never throws: the instruction is already saved, so a mail problem must not undo it. */
-export async function emailInstruction(recipients, { title, body, senderName, link }) {
-  const key = (process.env.RESEND_API_KEY || '').trim();
-  const gmailUser = (process.env.GMAIL_USER || '').trim();
-  const gmailPass = (process.env.GMAIL_APP_PASSWORD || '').replace(/\s+/g, '');
-  const useGmail = !!(gmailUser && gmailPass);
-  const brevoKey = (process.env.BREVO_API_KEY || '').trim();
-  const brevoSender = (process.env.BREVO_SENDER || '').trim();
-  const useBrevo = !!(brevoKey && brevoSender);
-  if (!recipients.length) return { status: 'none', sent: 0, failed: 0 };
-  if (!key && !useGmail && !useBrevo) return { status: 'not_configured', sent: 0, failed: recipients.length };
-  const from = process.env.MAIL_FROM || 'Bless Team Hub <onboarding@resend.dev>';
-  const subject = `New instruction: ${title}`;
-  const text = `${title}\n\n${body}\n\nFrom ${senderName}\nOpen the hub to respond: ${link}`;
-  const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#18201C">
-    <p style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#5A665F;margin:0 0 6px">New instruction from ${escHtml(senderName)}</p>
-    <h2 style="margin:0 0 14px;font-size:20px">${escHtml(title)}</h2>
-    <div style="white-space:pre-wrap;line-height:1.55;margin:0 0 22px">${escHtml(body)}</div>
-    <a href="${escHtml(link)}" style="display:inline-block;background:#0E6A55;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600">Open the hub and respond</a>
-    <p style="font-size:12px;color:#5A665F;margin:22px 0 0">Sign in with your username and password to send back your files.</p></div>`;
-  let sent = 0, failed = 0, error = '';
-  const failedUsers = [];
-
-  // Free option that needs no domain: Brevo, with one verified sender address (for example an Outlook address).
-  if (useBrevo) {
-    for (let i = 0; i < recipients.length; i += 5) {
-      const group = recipients.slice(i, i + 5);
-      const results = await Promise.allSettled(group.map(async (u) => {
-        const r = await fetch('https://api.brevo.com/v3/smtp/email', {
-          method: 'POST',
-          headers: { 'api-key': brevoKey, 'Content-Type': 'application/json', accept: 'application/json' },
-          body: JSON.stringify({
-            sender: { name: 'Bless Team Hub', email: brevoSender },
-            to: [{ email: u.email }],
-            subject, htmlContent: html, textContent: text,
-          }),
-        });
-        if (!r.ok) {
-          let m = 'HTTP ' + r.status;
-          try { m = (await r.json()).message || m; } catch (e) {}
-          throw new Error(m);
-        }
-      }));
-      results.forEach((r, k) => {
-        if (r.status === 'fulfilled') sent++;
-        else { failed++; failedUsers.push(group[k].username); if (!error) error = String(r.reason?.message || r.reason).slice(0, 200); }
-      });
-    }
-    return { status: failed ? (sent ? 'partial' : 'failed') : 'sent', sent, failed, error, failedUsers };
-  }
-
-  // Free option that needs no domain: send through a Gmail account using an app password.
-  if (useGmail) {
-    let transporter;
-    try {
-      const nodemailer = (await import('nodemailer')).default;
-      transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: gmailUser, pass: gmailPass } });
-    } catch (e) {
-      return { status: 'failed', sent: 0, failed: recipients.length, error: 'Gmail sending is not available: ' + e.message, failedUsers: recipients.map((u) => u.username) };
-    }
-    for (let i = 0; i < recipients.length; i += 5) {
-      const group = recipients.slice(i, i + 5);
-      const results = await Promise.allSettled(group.map((u) => transporter.sendMail({
-        from: `"Bless Team Hub" <${gmailUser}>`, to: u.email, subject, text, html,
-      })));
-      results.forEach((r, k) => {
-        if (r.status === 'fulfilled') sent++;
-        else { failed++; failedUsers.push(group[k].username); if (!error) error = String(r.reason?.message || r.reason).slice(0, 200); }
-      });
-    }
-    return { status: failed ? (sent ? 'partial' : 'failed') : 'sent', sent, failed, error, failedUsers };
-  }
-
-  const mk = (u) => ({ from, to: [u.email], subject, html, text });
-  const post = (url, payload) => fetch(url, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const msg = async (r) => { try { return (await r.json()).message || ('HTTP ' + r.status); } catch (e) { return 'HTTP ' + r.status; } };
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-
-  for (let i = 0; i < recipients.length; i += 100) {
-    const chunk = recipients.slice(i, i + 100);
-    try {
-      const r = await post('https://api.resend.com/emails/batch', chunk.map(mk));
-      if (r.ok) { sent += chunk.length; continue; }
-      const why = await msg(r);
-      // A single bad address makes Resend reject the whole batch. Retry one by one (about
-      // 2 requests a second is Resend's limit) so everyone else still gets theirs.
-      if (r.status === 422 || r.status === 400) {
-        for (const u of chunk) {
-          try {
-            const one = await post('https://api.resend.com/emails', mk(u));
-            if (one.ok) sent++;
-            else { failed++; failedUsers.push(u.username); if (!error) error = await msg(one); }
-          } catch (e) { failed++; failedUsers.push(u.username); if (!error) error = e.message; }
-          await wait(600);
-        }
-      } else {
-        failed += chunk.length; chunk.forEach((u) => failedUsers.push(u.username)); if (!error) error = why;
-      }
-    } catch (e) { failed += chunk.length; chunk.forEach((u) => failedUsers.push(u.username)); if (!error) error = e.message; }
-  }
-  return { status: failed ? (sent ? 'partial' : 'failed') : 'sent', sent, failed, error, failedUsers };
 }

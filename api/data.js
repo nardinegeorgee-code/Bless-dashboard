@@ -25,7 +25,5 @@ export default route(async (req, res) => {
     submissions = (await q`SELECT * FROM submissions WHERE user_id = ${me.id} ORDER BY created_at DESC`).map(mapSubmission);
   }
 
-  // Email addresses are private to the Super Admin.
-  const visibleUsers = me.role === 'super_admin' ? users : users.map((u) => ({ ...u, email: undefined }));
-  res.json({ me: mapUser(me), users: visibleUsers, instructions, submissions });
+  res.json({ me: mapUser(me), users, instructions, submissions });
 });

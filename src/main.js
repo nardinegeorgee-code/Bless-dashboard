@@ -14,7 +14,7 @@ const ROLES=[
 const ROLE=Object.fromEntries(ROLES.map(r=>[r.key,r]));
 const TYPES={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml',mp4:'video/mp4',webm:'video/webm',pdf:'application/pdf',txt:'text/plain',csv:'text/csv',md:'text/markdown',json:'application/json'};
 
-const S={emOpen:null,sel:new Set(),assets:true,lastJson:'',users:[],instructions:[],subs:[],usersReady:false,screen:null,me:null,route:'home',param:null,
+const S={sel:new Set(),assets:true,lastJson:'',users:[],instructions:[],subs:[],usersReady:false,screen:null,me:null,route:'home',param:null,
   sendRoles:new Set(),sendUsers:new Set(),fRole:'',fUser:'',fKind:'',pwOpen:null,picked:{}};
 
 /* ---------- helpers ---------- */
@@ -147,7 +147,6 @@ function mount(){
   else if(S.route==='users')v.innerHTML=`<div class="head"><div><h1>Users</h1><p>Add people, change their role, or set a new password.</p></div></div>
     <form class="panel" data-form="adduser"><h2>Add a user</h2><div class="grid2">
       <div class="field"><label for="nu-u">Username</label><input class="input" id="nu-u" autocomplete="off" required></div>
-      <div class="field"><label for="nu-e">Email <span class="muted" style="font-weight:400">(for instructions)</span></label><input class="input" id="nu-e" type="email" autocomplete="off" placeholder="name@example.com"></div>
       <div class="field"><label for="nu-p">Password</label><input class="input" id="nu-p" type="text" autocomplete="off" minlength="4" required></div>
       <div class="field"><label for="nu-r">Role</label><select class="select" id="nu-r">${ROLES.map(r=>`<option value="${r.key}" ${r.key==='graphic_designer'?'selected':''}>${r.label}</option>`).join('')}</select></div></div>
       <div class="row" style="justify-content:space-between"><span class="err" id="nu-err"></span><button class="btn primary" type="submit">Add user</button></div></form><div id="live"></div>`;
@@ -226,11 +225,10 @@ function updateContent(){
 }
 function usersHTML(){
   const admins=S.users.filter(u=>u.role==='super_admin').length;
-  return `<div class="tablewrap"><table><thead><tr><th>Username</th><th>Role</th><th>Email</th><th>Password</th><th></th></tr></thead><tbody>${S.users.map(u=>{
+  return `<div class="tablewrap"><table><thead><tr><th>Username</th><th>Role</th><th>Password</th><th></th></tr></thead><tbody>${S.users.map(u=>{
     const self=u.id===S.me.id;const lastAdmin=u.role==='super_admin'&&admins<=1;
     return `<tr><td><span class="mono">${esc(u.username)}</span>${self?' <span class="muted">(you)</span>':''}</td>
     <td><select class="select" id="role-of-${u.id}" data-act="set-role" data-id="${u.id}" ${lastAdmin?'disabled title="The hub needs at least one Super Admin"':''} aria-label="Role for ${esc(u.username)}">${ROLES.map(r=>`<option value="${r.key}" ${u.role===r.key?'selected':''}>${r.label}</option>`).join('')}</select></td>
-    <td>${S.emOpen===u.id?`<form class="pwrow" data-form="em" data-id="${u.id}"><input class="input" id="em-${u.id}" type="email" value="${esc(u.email||'')}" placeholder="name@example.com" autocomplete="off" style="width:210px"><button class="btn sm primary" type="submit">Save</button><button class="btn sm ghost" type="button" data-act="em-close">Cancel</button></form>`:`<div class="row" style="gap:8px;flex-wrap:nowrap"><span class="${u.email?'mono':'muted'}" style="overflow-wrap:anywhere">${u.email?esc(u.email):'No email'}</span><button class="btn sm ghost" data-act="em-open" data-id="${u.id}">${u.email?'Edit':'Add'}</button></div>`}</td>
     <td>${S.pwOpen===u.id?`<form class="pwrow" data-form="pw" data-id="${u.id}"><input class="input" id="pw-${u.id}" type="text" minlength="4" placeholder="New password" autocomplete="off" required><button class="btn sm primary" type="submit">Save</button><button class="btn sm ghost" type="button" data-act="pw-close">Cancel</button></form>`:`<button class="btn sm" data-act="pw-open" data-id="${u.id}">Change password</button>`}</td>
     <td style="text-align:right">${self||lastAdmin?'':`<button class="btn sm danger" data-act="del-user" data-id="${u.id}">Remove</button>`}</td></tr>`}).join('')}</tbody></table></div>`;
 }
@@ -253,18 +251,6 @@ function fileHTML(f){
   return `<div class="ftile${on?' on':''}"><a class="thumb" href="${url}" target="_blank" rel="noopener"><span class="frame">${inner}</span><span class="nm" title="${esc(f.name)}">${esc(f.name)}</span><span class="mono muted">${fmtSize(f.size||0)}</span></a>
     <label class="fsel" title="Select for bulk download"><input type="checkbox" data-act="sel-file" data-url="${esc(url)}" aria-label="Select ${esc(f.name)}" ${on?'checked':''}></label>
     <a class="fdl" href="${esc(dlUrl(url))}" download="${esc(f.name)}" title="Download ${esc(f.name)}" aria-label="Download ${esc(f.name)}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/></svg></a></div>`;
-}
-
-/* ---------- email note shown after sending an instruction ---------- */
-function mailNote(m){
-  if(!m)return 'Instruction sent';
-  const miss=m.noEmail?` ${m.noEmail} ${m.noEmail===1?'person has':'people have'} no email.`:'';
-  if(m.status==='sent')return `Instruction sent. Emailed ${m.sent} ${m.sent===1?'person':'people'}.${miss}`;
-  const who=(m.failedUsers||[]).slice(0,4).join(', ')+((m.failedUsers||[]).length>4?'…':'');
-  if(m.status==='partial')return `Instruction sent. Emailed ${m.sent}, but ${m.failed} failed (${who}). Check their email addresses on the Users page.${miss}`;
-  if(m.status==='failed')return `Instruction sent, but the emails failed${who?' for '+who:''}${m.error?': '+m.error:''}`;
-  if(m.status==='not_configured')return 'Instruction sent. Email is not set up yet, so nobody was emailed.';
-  return `Instruction sent.${miss||' No one it reached has an email address yet.'}`;
 }
 
 /* ---------- downloads ---------- */
@@ -375,8 +361,6 @@ document.addEventListener('click',async e=>{
   else if(a==='pick-user'){b.checked?S.sendUsers.add(b.value):S.sendUsers.delete(b.value);updateSendCount()}
   else if(a==='pw-open'){S.pwOpen=b.dataset.id;update();$('#pw-'+b.dataset.id)?.focus()}
   else if(a==='pw-close'){S.pwOpen=null;update()}
-  else if(a==='em-open'){S.emOpen=b.dataset.id;update();$('#em-'+b.dataset.id)?.focus()}
-  else if(a==='em-close'){S.emOpen=null;update()}
   else if(a==='del-user'){if(!arm(b))return;try{await api('DELETE','/api/users?id='+encodeURIComponent(b.dataset.id));await sync();toast('User removed')}catch(x){toast(x.message||'Could not remove the user')}}
   else if(a==='del-ins'){if(!arm(b))return;try{await api('DELETE','/api/instructions?id='+encodeURIComponent(b.dataset.id));await sync();toast('Instruction deleted');go('send')}catch(x){toast(x.message||'Could not delete')}}
   else if(a==='del-sub'){if(!arm(b))return;try{await api('DELETE','/api/submissions?id='+encodeURIComponent(b.dataset.id));await sync();toast('Deleted')}catch(x){toast(x.message||'Could not delete')}}
@@ -412,21 +396,17 @@ document.addEventListener('submit',async e=>{
   else if(k==='send'){
     const title=$('#in-t').value.trim(),body=$('#in-b').value.trim(),err=$('#in-err');
     if(!S.sendRoles.size&&!S.sendUsers.size)return err.textContent='Choose at least one role or person.';
-    try{const j=await api('POST','/api/instructions',{title,body,roles:[...S.sendRoles],userIds:[...S.sendUsers]});await sync();
-      S.sendRoles.clear();S.sendUsers.clear();$('#in-t').value='';$('#in-b').value='';err.textContent='';f.querySelectorAll('input[type=checkbox]').forEach(c=>c.checked=false);updateSendCount();toast(mailNote(j.mail))}
+    try{await api('POST','/api/instructions',{title,body,roles:[...S.sendRoles],userIds:[...S.sendUsers]});await sync();
+      S.sendRoles.clear();S.sendUsers.clear();$('#in-t').value='';$('#in-b').value='';err.textContent='';f.querySelectorAll('input[type=checkbox]').forEach(c=>c.checked=false);updateSendCount();toast('Instruction sent')}
     catch(x){err.textContent=x.message||'Could not send. Try again.'}
   }
   else if(k==='adduser'){
-    const u=$('#nu-u').value.trim().replace(/\s+/g,' '),p=$('#nu-p').value,role=$('#nu-r').value,email=$('#nu-e').value.trim(),err=$('#nu-err');
+    const u=$('#nu-u').value.trim().replace(/\s+/g,' '),p=$('#nu-p').value,role=$('#nu-r').value,err=$('#nu-err');
     if(!validName(u))return err.textContent='Use 2 to 40 characters.';
     if(S.users.some(x=>x.usernameLower===u.toLowerCase()))return err.textContent='That username is taken.';
     if(p.length<4)return err.textContent='Use at least 4 characters.';
-    try{await api('POST','/api/users',{username:u,password:p,role,email});await sync();
-      $('#nu-u').value='';$('#nu-p').value='';$('#nu-e').value='';err.textContent='';toast(`Added ${u} as ${ROLE[role].label}`)}catch(x){err.textContent=x.message||'Could not add the user.'}
-  }
-  else if(k==='em'){
-    const id=f.dataset.id,email=$('#em-'+id).value.trim(),u=userById(id);
-    try{await api('PATCH','/api/users',{id,email});S.emOpen=null;await sync();update();toast(email?`Email saved for ${u.username}`:`Email removed for ${u.username}`)}catch(x){toast(x.message||'Could not save the email')}
+    try{await api('POST','/api/users',{username:u,password:p,role});await sync();
+      $('#nu-u').value='';$('#nu-p').value='';err.textContent='';toast(`Added ${u} as ${ROLE[role].label}`)}catch(x){err.textContent=x.message||'Could not add the user.'}
   }
   else if(k==='pw'){
     const id=f.dataset.id,p=$('#pw-'+id).value,u=userById(id);

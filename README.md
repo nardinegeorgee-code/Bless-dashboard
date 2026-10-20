@@ -25,21 +25,3 @@ npm i -g vercel
 vercel link && vercel env pull .env.local
 vercel dev
 ```
-
-## Email notifications (optional)
-When the Super Admin sends an instruction, everyone it reaches who has an email address on file is emailed. Add or edit addresses on the Users page. Emails are sent through Resend (resend.com):
-1. Create a free Resend account and an API key.
-2. Add `RESEND_API_KEY` in Vercel's environment variables.
-3. To email anyone (not just yourself), verify a sending domain in Resend and set `MAIL_FROM`, for example `Bless Team Hub <hub@yourdomain.com>`. Without it, Resend only delivers to the account owner's own address.
-4. Optional: set `SITE_URL` (for example `https://your-site.vercel.app`) so the email button links to the right address.
-5. Redeploy.
-
-
-### Free alternative: send through Gmail (no domain needed)
-Set `GMAIL_USER` (your Gmail address) and `GMAIL_APP_PASSWORD` (a 16-character Google app password, created at myaccount.google.com/apppasswords with 2-Step Verification on). When both are set, instructions are emailed through Gmail instead of Resend (about 500 emails a day).
-
-### Free alternative: Brevo (works with an Outlook address, no domain needed)
-1. Create a free account at brevo.com and verify your sender address under **Senders, Domains & Dedicated IPs → Senders**.
-2. Create an API key under **SMTP & API → API Keys**.
-3. In Vercel set `BREVO_API_KEY` (the key) and `BREVO_SENDER` (the verified sender address), then redeploy.
-Brevo takes priority over Gmail and Resend when its two variables are set.
