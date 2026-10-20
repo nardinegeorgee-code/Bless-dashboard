@@ -260,8 +260,9 @@ function mailNote(m){
   if(!m)return 'Instruction sent';
   const miss=m.noEmail?` ${m.noEmail} ${m.noEmail===1?'person has':'people have'} no email.`:'';
   if(m.status==='sent')return `Instruction sent. Emailed ${m.sent} ${m.sent===1?'person':'people'}.${miss}`;
-  if(m.status==='partial')return `Instruction sent. Emailed ${m.sent}, but ${m.failed} failed.${miss}`;
-  if(m.status==='failed')return `Instruction sent, but the emails failed${m.error?': '+m.error:''}.`;
+  const who=(m.failedUsers||[]).slice(0,4).join(', ')+((m.failedUsers||[]).length>4?'…':'');
+  if(m.status==='partial')return `Instruction sent. Emailed ${m.sent}, but ${m.failed} failed (${who}). Check their email addresses on the Users page.${miss}`;
+  if(m.status==='failed')return `Instruction sent, but the emails failed${who?' for '+who:''}${m.error?': '+m.error:''}`;
   if(m.status==='not_configured')return 'Instruction sent. Email is not set up yet, so nobody was emailed.';
   return `Instruction sent.${miss||' No one it reached has an email address yet.'}`;
 }

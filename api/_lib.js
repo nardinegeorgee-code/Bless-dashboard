@@ -217,20 +217,37 @@ export async function emailInstruction(recipients, { title, body, senderName, li
     <a href="${escHtml(link)}" style="display:inline-block;background:#0E6A55;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600">Open the hub and respond</a>
     <p style="font-size:12px;color:#5A665F;margin:22px 0 0">Sign in with your username and password to send back your files.</p></div>`;
   let sent = 0, failed = 0, error = '';
+  const failedUsers = [];
+  const mk = (u) => ({ from, to: [u.email], subject, html, text });
+  const post = (url, payload) => fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const msg = async (r) => { try { return (await r.json()).message || ('HTTP ' + r.status); } catch (e) { return 'HTTP ' + r.status; } };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
   for (let i = 0; i < recipients.length; i += 100) {
     const chunk = recipients.slice(i, i + 100);
     try {
-      const r = await fetch('https://api.resend.com/emails/batch', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(chunk.map((u) => ({ from, to: [u.email], subject, html, text }))),
-      });
-      if (r.ok) sent += chunk.length;
-      else {
-        failed += chunk.length;
-        if (!error) { try { error = (await r.json()).message || ''; } catch (e) {} error = error || 'HTTP ' + r.status; }
+      const r = await post('https://api.resend.com/emails/batch', chunk.map(mk));
+      if (r.ok) { sent += chunk.length; continue; }
+      const why = await msg(r);
+      // A single bad address makes Resend reject the whole batch. Retry one by one (about
+      // 2 requests a second is Resend's limit) so everyone else still gets theirs.
+      if (r.status === 422 || r.status === 400) {
+        for (const u of chunk) {
+          try {
+            const one = await post('https://api.resend.com/emails', mk(u));
+            if (one.ok) sent++;
+            else { failed++; failedUsers.push(u.username); if (!error) error = await msg(one); }
+          } catch (e) { failed++; failedUsers.push(u.username); if (!error) error = e.message; }
+          await wait(600);
+        }
+      } else {
+        failed += chunk.length; chunk.forEach((u) => failedUsers.push(u.username)); if (!error) error = why;
       }
-    } catch (e) { failed += chunk.length; if (!error) error = e.message; }
+    } catch (e) { failed += chunk.length; chunk.forEach((u) => failedUsers.push(u.username)); if (!error) error = e.message; }
   }
-  return { status: failed ? (sent ? 'partial' : 'failed') : 'sent', sent, failed, error };
+  return { status: failed ? (sent ? 'partial' : 'failed') : 'sent', sent, failed, error, failedUsers };
 }
