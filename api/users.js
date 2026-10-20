@@ -1,6 +1,6 @@
 import {
   route, allow, db, rid, HttpError, requireAdmin, mapUser, setSession,
-  hashPassword, cleanName, cleanPassword, cleanRole,
+  hashPassword, cleanName, cleanPassword, cleanRole, cleanEmail,
 } from './_lib.js';
 
 export default route(async (req, res) => {
@@ -12,11 +12,12 @@ export default route(async (req, res) => {
     const name = cleanName(req.body?.username);
     const pw = cleanPassword(req.body?.password);
     const role = cleanRole(req.body?.role);
+    const email = cleanEmail(req.body?.email);
     const hash = await hashPassword(pw);
     try {
       const rows = await q`
-        INSERT INTO users (id, username, username_lower, role, password_hash, sv, created_at)
-        VALUES (${rid('u')}, ${name}, ${name.toLowerCase()}, ${role}, ${hash}, 0, ${Date.now()})
+        INSERT INTO users (id, username, username_lower, role, email, password_hash, sv, created_at)
+        VALUES (${rid('u')}, ${name}, ${name.toLowerCase()}, ${role}, ${email}, ${hash}, 0, ${Date.now()})
         RETURNING *`;
       return res.json({ user: mapUser(rows[0]) });
     } catch (e) {
@@ -45,6 +46,10 @@ export default route(async (req, res) => {
       throw new HttpError(400, 'The hub needs at least one Super Admin.');
     }
     await q`UPDATE users SET role = ${role} WHERE id = ${id}`;
+  }
+  if (req.body?.email !== undefined) {
+    const email = cleanEmail(req.body.email);
+    await q`UPDATE users SET email = ${email} WHERE id = ${id}`;
   }
   if (req.body?.password !== undefined) {
     const pw = cleanPassword(req.body.password);

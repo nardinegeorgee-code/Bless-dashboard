@@ -25,3 +25,12 @@ npm i -g vercel
 vercel link && vercel env pull .env.local
 vercel dev
 ```
+
+## Email notifications (optional)
+When the Super Admin sends an instruction, everyone it reaches who has an email address on file is emailed. Add or edit addresses on the Users page. Emails are sent through Resend (resend.com):
+1. Create a free Resend account and an API key.
+2. Add `RESEND_API_KEY` in Vercel's environment variables.
+3. To email anyone (not just yourself), verify a sending domain in Resend and set `MAIL_FROM`, for example `Bless Team Hub <hub@yourdomain.com>`. Without it, Resend only delivers to the account owner's own address.
+4. Optional: set `SITE_URL` (for example `https://your-site.vercel.app`) so the email button links to the right address.
+5. Redeploy.
+

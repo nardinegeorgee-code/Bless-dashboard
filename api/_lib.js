@@ -36,6 +36,7 @@ export function ensureSchema() {
         sv INTEGER NOT NULL DEFAULT 0,
         created_at BIGINT NOT NULL
       )`;
+      await q`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT ''`;
       await q`CREATE TABLE IF NOT EXISTS instructions (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
@@ -69,6 +70,7 @@ export const mapUser = (r) => ({
   username: r.username,
   usernameLower: r.username_lower,
   role: r.role,
+  email: r.email || '',
   createdAt: Number(r.created_at),
 });
 export const mapInstruction = (r) => ({
@@ -167,6 +169,12 @@ export function cleanPassword(v) {
   if (p.length > 200) throw new HttpError(400, 'That password is too long.');
   return p;
 }
+export function cleanEmail(v) {
+  const e = String(v ?? '').trim().toLowerCase();
+  if (!e) return '';
+  if (e.length > 200 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) throw new HttpError(400, 'That email address does not look right.');
+  return e;
+}
 export function cleanRole(v) {
   if (!ROLES.includes(v)) throw new HttpError(400, 'Unknown role.');
   return v;
@@ -188,4 +196,41 @@ export function route(handler) {
 
 export function allow(req, methods) {
   if (!methods.includes(req.method)) throw new HttpError(405, 'Method not allowed.');
+}
+
+/* ---------- email (Resend) ---------- */
+const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/** Emails one copy of an instruction to each recipient (each person only sees their own address).
+ *  Never throws: the instruction is already saved, so a mail problem must not undo it. */
+export async function emailInstruction(recipients, { title, body, senderName, link }) {
+  const key = process.env.RESEND_API_KEY;
+  if (!recipients.length) return { status: 'none', sent: 0, failed: 0 };
+  if (!key) return { status: 'not_configured', sent: 0, failed: recipients.length };
+  const from = process.env.MAIL_FROM || 'Bless Team Hub <onboarding@resend.dev>';
+  const subject = `New instruction: ${title}`;
+  const text = `${title}\n\n${body}\n\nFrom ${senderName}\nOpen the hub to respond: ${link}`;
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#18201C">
+    <p style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#5A665F;margin:0 0 6px">New instruction from ${escHtml(senderName)}</p>
+    <h2 style="margin:0 0 14px;font-size:20px">${escHtml(title)}</h2>
+    <div style="white-space:pre-wrap;line-height:1.55;margin:0 0 22px">${escHtml(body)}</div>
+    <a href="${escHtml(link)}" style="display:inline-block;background:#0E6A55;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600">Open the hub and respond</a>
+    <p style="font-size:12px;color:#5A665F;margin:22px 0 0">Sign in with your username and password to send back your files.</p></div>`;
+  let sent = 0, failed = 0, error = '';
+  for (let i = 0; i < recipients.length; i += 100) {
+    const chunk = recipients.slice(i, i + 100);
+    try {
+      const r = await fetch('https://api.resend.com/emails/batch', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(chunk.map((u) => ({ from, to: [u.email], subject, html, text }))),
+      });
+      if (r.ok) sent += chunk.length;
+      else {
+        failed += chunk.length;
+        if (!error) { try { error = (await r.json()).message || ''; } catch (e) {} error = error || 'HTTP ' + r.status; }
+      }
+    } catch (e) { failed += chunk.length; if (!error) error = e.message; }
+  }
+  return { status: failed ? (sent ? 'partial' : 'failed') : 'sent', sent, failed, error };
 }

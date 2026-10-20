@@ -1,4 +1,4 @@
-import { route, allow, db, rid, HttpError, requireAdmin, mapInstruction, ROLES } from './_lib.js';
+import { route, allow, db, rid, HttpError, requireAdmin, mapInstruction, mapUser, emailInstruction, ROLES } from './_lib.js';
 
 export default route(async (req, res) => {
   allow(req, ['POST', 'DELETE']);
@@ -23,5 +23,14 @@ export default route(async (req, res) => {
     INSERT INTO instructions (id, title, body, roles, user_ids, created_by, created_at)
     VALUES (${rid('i')}, ${title}, ${body}, ${JSON.stringify(roles)}::jsonb, ${JSON.stringify(userIds)}::jsonb, ${admin.id}, ${Date.now()})
     RETURNING *`;
-  res.json({ instruction: mapInstruction(rows[0]) });
+  const instruction = mapInstruction(rows[0]);
+
+  // Email everyone this instruction reaches (their whole role, or named individually).
+  const people = (await q`SELECT * FROM users WHERE role <> 'super_admin'`).map(mapUser)
+    .filter((u) => roles.includes(u.role) || userIds.includes(u.id));
+  const withEmail = people.filter((u) => u.email);
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  const link = process.env.SITE_URL || (host ? `https://${host}` : '');
+  const mail = await emailInstruction(withEmail, { title, body, senderName: admin.username, link });
+  res.json({ instruction, mail: { ...mail, recipients: people.length, noEmail: people.length - withEmail.length } });
 });
