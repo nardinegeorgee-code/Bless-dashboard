@@ -14,7 +14,7 @@ const ROLES=[
 const ROLE=Object.fromEntries(ROLES.map(r=>[r.key,r]));
 const TYPES={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml',mp4:'video/mp4',webm:'video/webm',pdf:'application/pdf',txt:'text/plain',csv:'text/csv',md:'text/markdown',json:'application/json'};
 
-const S={sel:new Set(),assets:true,lastJson:'',users:[],instructions:[],subs:[],usersReady:false,screen:null,me:null,route:'home',param:null,
+const S={shop:{month:'',metric:'revenue',data:null,loading:false,err:'',syncing:false,syncMsg:''},sel:new Set(),assets:true,lastJson:'',users:[],instructions:[],subs:[],usersReady:false,screen:null,me:null,route:'home',param:null,
   sendRoles:new Set(),sendUsers:new Set(),fRole:'',fUser:'',fKind:'',pwOpen:null,picked:{}};
 
 /* ---------- helpers ---------- */
@@ -68,7 +68,7 @@ function onData(){
     return;
   }
 }
-async function logout(msg){try{await api('POST','/api/auth?action=logout')}catch(e){}S.lastJson='';S.me=null;S.sel.clear();renderSelBar();S.mode='login';showLogin();if(msg)toast(msg)}
+async function logout(msg){try{await api('POST','/api/auth?action=logout')}catch(e){}S.lastJson='';S.me=null;S.shop.data=null;S.sel.clear();renderSelBar();S.mode='login';showLogin();if(msg)toast(msg)}
 
 /* ---------- auth screens ---------- */
 const brandHTML=`<div class="brand"><div class="mark">B</div><div><b>Bless Team Hub</b><small>Briefs, files and roles in one place</small></div></div>`;
@@ -96,7 +96,7 @@ const validName=u=>u.length>=2&&u.length<=40;
 
 /* ---------- app shell ---------- */
 function navItems(){
-  if(isAdmin())return [['home','Overview'],['send','Send instruction'],['content','All content'],['team','Team by role'],['users','Users']];
+  if(isAdmin())return [['home','Overview'],['send','Send instruction'],['content','All content'],['shop','Shopify'],['team','Team by role'],['users','Users']];
   const pending=myInstructions().filter(i=>!responded(i.id)).length;
   return [['home','Instructions',pending],['uploads','My uploads'],['team','Team by role']];
 }
@@ -125,7 +125,7 @@ function targetChips(ins){
 /* ---------- views: mount builds static parts (forms), update fills live parts ---------- */
 function mount(){
   const v=$('#view');const r=S.route;
-  if(!isAdmin()&&['send','content','users'].includes(r)){S.route='home'}
+  if(!isAdmin()&&['send','content','users','shop'].includes(r)){S.route='home'}
   if(S.route==='home')v.innerHTML=isAdmin()?`<div class="head"><div><h1>Overview</h1><p>What the team has received from you and what they have sent back.</p></div><button class="btn primary" data-act="go" data-route="send">New instruction</button></div><div id="live"></div>`
     :`<div class="head"><div><h1>Instructions</h1><p>Briefs from your Super Admin. Open one to send back your files.</p></div><button class="btn" data-act="go" data-route="uploads">Upload without an instruction</button></div><div id="live"></div>`;
   else if(S.route==='ins')v.innerHTML=`<button class="btn ghost back" data-act="go" data-route="${isAdmin()?'send':'home'}">← Back</button><div id="live"></div>${isAdmin()?'':`<div class="panel"><div><h2>Respond</h2><p class="muted">Attach your files and add a note if needed.</p></div>${uploadForm('resp')}</div>`}<div id="live2"></div>`;
@@ -144,6 +144,7 @@ function mount(){
     <div class="row"><select class="select" id="f-role" style="width:auto" aria-label="Filter by role"><option value="">All roles</option>${ROLES.filter(r=>r.key!=='super_admin').map(r=>`<option value="${r.key}" ${S.fRole===r.key?'selected':''}>${r.label}</option>`).join('')}</select>
     <select class="select" id="f-user" style="width:auto" aria-label="Filter by person"></select>
     <select class="select" id="f-kind" style="width:auto" aria-label="Filter by type"><option value="">Responses and uploads</option><option value="resp" ${S.fKind==='resp'?'selected':''}>Responses to instructions</option><option value="free" ${S.fKind==='free'?'selected':''}>Uploads without instruction</option></select></div><div id="live"></div>`;
+  else if(S.route==='shop'){v.innerHTML=`<div class="head"><div><h1>Shopify</h1><p>Monthly sales, best sellers, areas, customers and carts left behind.</p></div></div><div id="live"></div>`;if(!S.shop.data&&!S.shop.loading)loadShop();}
   else if(S.route==='users')v.innerHTML=`<div class="head"><div><h1>Users</h1><p>Add people, change their role, or set a new password.</p></div></div>
     <form class="panel" data-form="adduser"><h2>Add a user</h2><div class="grid2">
       <div class="field"><label for="nu-u">Username</label><input class="input" id="nu-u" autocomplete="off" required></div>
@@ -164,6 +165,7 @@ function update(){
   else if(r==='send')updateSend();
   else if(r==='content')updateContent();
   else if(r==='users')L.innerHTML=usersHTML();
+  else if(r==='shop')renderShop();
   syncUploadAvail();renderSelBar();
 }
 
@@ -251,6 +253,101 @@ function fileHTML(f){
   return `<div class="ftile${on?' on':''}"><a class="thumb" href="${url}" target="_blank" rel="noopener"><span class="frame">${inner}</span><span class="nm" title="${esc(f.name)}">${esc(f.name)}</span><span class="mono muted">${fmtSize(f.size||0)}</span></a>
     <label class="fsel" title="Select for bulk download"><input type="checkbox" data-act="sel-file" data-url="${esc(url)}" aria-label="Select ${esc(f.name)}" ${on?'checked':''}></label>
     <a class="fdl" href="${esc(dlUrl(url))}" download="${esc(f.name)}" title="Download ${esc(f.name)}" aria-label="Download ${esc(f.name)}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/></svg></a></div>`;
+}
+
+/* ---------- Shopify dashboard ---------- */
+async function loadShop(month){
+  const sh=S.shop;sh.loading=true;sh.err='';if(month!==undefined)sh.month=month;renderShop();
+  try{sh.data=await api('GET','/api/shopify'+(sh.month?'?month='+encodeURIComponent(sh.month):''));if(sh.data.month)sh.month=sh.data.month}
+  catch(e){sh.err=e.message}
+  sh.loading=false;renderShop();
+}
+async function runSync(){
+  const sh=S.shop;if(sh.syncing)return;sh.syncing=true;sh.syncMsg='Starting…';sh.err='';renderShop();
+  try{
+    for(let i=0;i<300;i++){const j=await api('POST','/api/shopify-sync');sh.syncMsg=j.message||'';renderShop();if(j.done)break}
+    sh.syncing=false;await loadShop();toast('Shopify data synced');
+  }catch(e){sh.err=e.message;sh.syncing=false;renderShop()}
+}
+const fmtNum=n=>Math.round(n).toLocaleString();
+function money(n){const c=S.shop.data&&S.shop.data.currency;try{return new Intl.NumberFormat(undefined,c?{style:'currency',currency:c,maximumFractionDigits:0}:{maximumFractionDigits:0}).format(n)}catch(e){return fmtNum(n)}}
+function shortNum(n){return n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e4?Math.round(n/1e3)+'k':n>=1e3?(n/1e3).toFixed(1)+'k':String(Math.round(n))}
+function delta(v){if(v===null||v===undefined)return '';const up=v>=0;return `<span class="delta ${up?'up':'down'}">${up?'▲':'▼'} ${Math.abs(v)}% vs last month</span>`}
+function ageText(h){return h<48?h+' h':Math.round(h/24)+' days'}
+function rankList(list,valFn,sub){
+  if(!list.length)return '<p class="muted">Nothing here yet.</p>';
+  const max=Math.max(1,...list.map(valFn));
+  return `<div class="ranks">${list.map((x,i)=>`<div class="rrow"><span class="rn mono">${i+1}</span><span class="rt" title="${esc(x.title||x.name)}">${esc(x.title||x.name)}</span><span class="rbar"><i style="width:${Math.max(2,valFn(x)/max*100)}%"></i></span><span class="rv mono">${sub(x)}</span></div>`).join('')}</div>`;
+}
+function monthChart(ms,metric,sel){
+  const f=metric==='revenue'?money:fmtNum;const max=Math.max(1,...ms.map(m=>m[metric]));
+  return `<div class="mchart">${ms.map(m=>`<button class="mcol${m.key===sel?' on':''}" data-act="shop-month" data-m="${m.key}" title="${esc(m.label)}: ${esc(f(m[metric]))}"><span class="mval mono">${shortNum(m[metric])}</span><span class="mbar"><i style="height:${Math.max(2,m[metric]/max*100)}%"></i></span><span class="mlab">${esc(m.label.slice(0,3)+" '"+m.label.slice(-2))}</span></button>`).join('')}</div>`;
+}
+function renderShop(){
+  if(S.screen!=='app'||S.route!=='shop')return;const L=$('#live');if(!L)return;
+  const sh=S.shop,d=sh.data;
+  if(!d){L.innerHTML=sh.err?`<div class="empty"><b>Could not load Shopify data</b><span>${esc(sh.err)}</span><button class="btn" data-act="shop-reload">Try again</button></div>`:empty('Loading…','Reading your Shopify numbers.');return}
+  if(d.configured===false){
+    L.innerHTML=`<div class="panel"><h2>Connect your Shopify store</h2><p class="muted">Add these in Vercel (Settings, Environment Variables), then redeploy:</p>
+      <div class="list">${d.missing.map(m=>`<div class="item"><span class="mono">${esc(m)}</span></div>`).join('')}</div>
+      <p class="muted">The README in the project lists the full steps, including the permissions the Shopify app needs.</p></div>`;return}
+  const s=d.summary,a=d.abandoned,c=d.customers,sy=d.sync;
+  const monthOpts=d.months.slice().reverse().map(m=>`<option value="${m.key}" ${m.key===d.month?'selected':''}>${esc(m.label)}</option>`).join('');
+  const last=sy.lastSync?fmtDate(Date.parse(sy.lastSync)):'never';
+  const stat=(l,v,x)=>`<div class="stat"><div class="eyebrow">${l}</div><div class="n">${v}</div>${x||''}</div>`;
+  const small=t=>`<span class="muted mono" style="font-size:.75rem">${t}</span>`;
+  L.innerHTML=`
+  <div class="row" style="justify-content:space-between;gap:12px">
+    <div class="row" style="gap:10px"><label class="muted" for="shop-month" style="font-weight:600">Month</label><select class="select" id="shop-month" style="width:auto">${monthOpts}</select>${sh.loading?'<span class="muted">Loading…</span>':''}</div>
+    <div class="row" style="gap:10px"><span class="muted mono" style="font-size:.75rem">${sy.orders} orders stored · last sync ${esc(last)}</span><button class="btn primary" data-act="shop-sync" ${sh.syncing?'disabled':''}>${sh.syncing?'Syncing…':'Sync now'}</button></div>
+  </div>
+  ${sh.syncing?`<div class="panel" style="padding:12px 16px"><span class="mono">${esc(sh.syncMsg)}</span></div>`:''}
+  ${sh.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Sync problem</b><p class="body-text">${esc(sh.err)}</p></div>`:''}
+  ${sy.note?`<div class="panel" style="border-color:var(--warn)"><b style="color:var(--warn)">Heads up</b><p class="body-text">${esc(sy.note)}</p></div>`:''}
+  ${sy.cartsError?`<div class="panel" style="border-color:var(--warn)"><b style="color:var(--warn)">Carts could not be read</b><p class="body-text">${esc(sy.cartsError)}</p></div>`:''}
+  ${!sy.orders&&!sh.syncing?`<div class="empty"><b>No data yet</b><span>Press Sync now to pull your orders from Shopify. The first sync can take a few minutes.</span></div>`:''}
+
+  <div class="stats">
+    ${stat('Revenue',money(s.revenue),delta(s.change.revenue))}
+    ${stat('Orders',fmtNum(s.orders),delta(s.change.orders))}
+    ${stat('Units sold',fmtNum(s.units),delta(s.change.units))}
+    ${stat('Average order',money(s.aov))}
+    ${stat('Refunded',money(s.refunds),small(s.refundRate.toFixed(1)+'% of revenue'))}
+    ${stat('Cancelled orders',fmtNum(s.cancelled),small(s.cancelRate.toFixed(1)+'% of orders'))}
+  </div>
+
+  <section class="panel"><div class="item-top"><div><h2>Last 12 months</h2><p class="muted">Click a month to open it.</p></div>
+    <select class="select" id="shop-metric" style="width:auto" aria-label="Chart metric"><option value="revenue" ${sh.metric==='revenue'?'selected':''}>Revenue</option><option value="orders" ${sh.metric==='orders'?'selected':''}>Orders</option><option value="units" ${sh.metric==='units'?'selected':''}>Units sold</option></select></div>
+    ${monthChart(d.months,sh.metric,d.month)}</section>
+
+  <div class="two">
+    <section class="panel"><h2>Best sellers by units</h2>${rankList(d.bestByUnits,x=>x.units,x=>fmtNum(x.units)+' units')}</section>
+    <section class="panel"><h2>Best sellers by revenue</h2>${rankList(d.bestByRevenue,x=>x.revenue,x=>money(x.revenue))}</section>
+  </div>
+
+  <div class="two">
+    <section class="panel"><h2>Countries</h2>${rankList(d.countries,x=>x.revenue,x=>fmtNum(x.orders)+' orders · '+money(x.revenue))}</section>
+    <section class="panel"><h2>Cities</h2>${rankList(d.cities,x=>x.revenue,x=>fmtNum(x.orders)+' orders · '+money(x.revenue))}</section>
+  </div>
+
+  <section class="panel"><h2>Customers</h2>
+    ${c.distinct||c.guest?`<div class="stats">${stat('Customers who ordered',fmtNum(c.distinct))}${stat('First-time',fmtNum(c.fresh))}${stat('Returning',fmtNum(c.repeat))}${stat('Repeat rate',c.repeatRate.toFixed(0)+'%')}</div>
+      <p class="muted" style="font-size:.85rem">Returning means the customer has more than one order with you in total.${c.guest?` ${fmtNum(c.guest)} order(s) had no customer record.`:''}</p>`:'<p class="muted">No customer data for this month.</p>'}</section>
+
+  <section class="panel"><div><h2>Carts left behind</h2><p class="muted">Customers who added items and never checked out (last 90 days).</p></div>
+    <div class="stats">
+      ${stat('Open carts',fmtNum(a.openCount))}
+      ${stat('Value sitting in carts',money(a.openValue))}
+      ${stat('Abandoned in '+esc(d.monthLabel),fmtNum(a.monthCount),small(money(a.monthValue)))}
+      ${stat('Abandonment rate',a.monthRate.toFixed(0)+'%',small('carts vs orders that month'))}
+    </div>
+    <div class="two">
+      <div style="display:grid;gap:10px"><h3>How long they have been waiting</h3>${rankList(a.aging.map(x=>({name:x.label,count:x.count,value:x.value})),x=>x.count,x=>fmtNum(x.count)+' · '+money(x.value))}</div>
+      <div style="display:grid;gap:10px"><h3>Most left in carts</h3>${rankList(a.topProducts,x=>x.qty,x=>fmtNum(x.qty)+' in '+x.carts+' carts')}</div>
+    </div>
+    ${a.oldest.length?`<div style="display:grid;gap:10px"><h3>Biggest carts to recover</h3><div class="tablewrap"><table style="min-width:560px"><thead><tr><th>Value</th><th>Waiting</th><th>Items</th><th></th></tr></thead><tbody>${a.oldest.map(x=>`<tr><td class="mono">${money(x.total)}</td><td>${ageText(x.ageHours)}</td><td style="max-width:320px;overflow-wrap:anywhere">${esc(x.items)}</td><td>${x.url?`<a class="btn sm" href="${esc(x.url)}" target="_blank" rel="noopener">Open cart link</a>`:''}</td></tr>`).join('')}</tbody></table></div></div>`:''}
+  </section>
+  <p class="muted" style="font-size:.8rem">Months follow ${esc(d.tz)} time. Revenue counts all non-cancelled orders; best-seller revenue is before discounts.</p>`;
 }
 
 /* ---------- downloads ---------- */
@@ -351,6 +448,9 @@ document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
   if(a==='go'){e.preventDefault();go(b.dataset.route,b.dataset.param)}
   else if(a==='logout')logout();
+  else if(a==='shop-sync')runSync();
+  else if(a==='shop-reload')loadShop();
+  else if(a==='shop-month')loadShop(b.dataset.m);
   else if(a==='sel-file'){b.checked?S.sel.add(b.dataset.url):S.sel.delete(b.dataset.url);syncChecks()}
   else if(a==='sel-sub'){const s=S.subs.find(x=>x.id===b.dataset.id);if(s){const urls=(s.files||[]).map(f=>f.url);const allOn=urls.every(u=>S.sel.has(u));urls.forEach(u=>allOn?S.sel.delete(u):S.sel.add(u));syncChecks()}}
   else if(a==='sel-page'){document.querySelectorAll('input[data-act="sel-file"]').forEach(c=>S.sel.add(c.dataset.url));syncChecks()}
@@ -368,6 +468,8 @@ document.addEventListener('click',async e=>{
 document.addEventListener('change',async e=>{
   const t=e.target;
   if(t.matches('input[type=file]')){addFiles(t.dataset.kind,[...t.files]);t.value=''}
+  else if(t.id==='shop-month'){loadShop(t.value)}
+  else if(t.id==='shop-metric'){S.shop.metric=t.value;renderShop()}
   else if(t.id==='f-role'){S.fRole=t.value;update()}
   else if(t.id==='f-user'){S.fUser=t.value;update()}
   else if(t.id==='f-kind'){S.fKind=t.value;update()}
@@ -418,5 +520,5 @@ document.addEventListener('submit',async e=>{
   else if(k==='up-free')submitUpload('free');
 });
 
-(function(){try{const h=location.hash.slice(1);if(h.startsWith('ins-')){S.route='ins';S.param=h.slice(4)}else if(['home','uploads','team','send','content','users'].includes(h))S.route=h}catch(e){}})();
+(function(){try{const h=location.hash.slice(1);if(h.startsWith('ins-')){S.route='ins';S.param=h.slice(4)}else if(['home','uploads','team','send','content','users','shop'].includes(h))S.route=h}catch(e){}})();
 boot();

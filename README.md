@@ -25,3 +25,16 @@ npm i -g vercel
 vercel link && vercel env pull .env.local
 vercel dev
 ```
+
+## Shopify dashboard (Super Admin only)
+A **Shopify** page shows monthly revenue, orders and units sold, best sellers, countries and cities, new vs returning customers, and carts left behind (how long, how much, which products). Data is copied from Shopify into your own database: once a day automatically (Vercel cron, 03:00 UTC) and whenever you press **Sync now**.
+
+### Connect your store
+1. Open the Shopify **Dev Dashboard** (dev.shopify.com/dashboard) with the account that owns the store and create an app.
+2. In the app's version settings, add these access scopes, then release the version: `read_orders`, `read_all_orders`, `read_products`, `read_customers`. (Without `read_all_orders` Shopify only returns the last 60 days.)
+3. Install the app on your store.
+4. Under the app's **Settings**, copy the **Client ID** and **Client secret**.
+5. In Vercel add: `SHOPIFY_STORE` (for example `my-shop.myshopify.com`), `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`, and `CRON_SECRET` (any long random string; it protects the daily job). Optional: `DASHBOARD_TZ` (default `Africa/Cairo`), `SHOPIFY_MONTHS` (how many months to import first, default 13).
+6. Redeploy, open the Shopify page and press **Sync now**. The first import can take several minutes; leave the page open.
+
+If Areas and Customers stay empty, request **protected customer data** access for the app in the Dev Dashboard (customer and address fields are protected by Shopify) and sync again. If you already have an older custom app with an Admin API token (`shpat_...`), set `SHOPIFY_ADMIN_TOKEN` instead of the client ID and secret.

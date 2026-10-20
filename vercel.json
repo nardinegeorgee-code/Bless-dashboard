@@ -1,5 +1,16 @@
 {
   "framework": "vite",
   "buildCommand": "vite build",
-  "outputDirectory": "dist"
+  "outputDirectory": "dist",
+  "functions": {
+    "api/shopify-sync.js": {
+      "maxDuration": 60
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/shopify-sync",
+      "schedule": "0 3 * * *"
+    }
+  ]
 }
