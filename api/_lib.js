@@ -204,7 +204,7 @@ const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;
 /** Emails one copy of an instruction to each recipient (each person only sees their own address).
  *  Never throws: the instruction is already saved, so a mail problem must not undo it. */
 export async function emailInstruction(recipients, { title, body, senderName, link }) {
-  const key = process.env.RESEND_API_KEY;
+  const key = (process.env.RESEND_API_KEY || '').trim();
   if (!recipients.length) return { status: 'none', sent: 0, failed: 0 };
   if (!key) return { status: 'not_configured', sent: 0, failed: recipients.length };
   const from = process.env.MAIL_FROM || 'Bless Team Hub <onboarding@resend.dev>';
