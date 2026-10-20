@@ -37,3 +37,9 @@ When the Super Admin sends an instruction, everyone it reaches who has an email 
 
 ### Free alternative: send through Gmail (no domain needed)
 Set `GMAIL_USER` (your Gmail address) and `GMAIL_APP_PASSWORD` (a 16-character Google app password, created at myaccount.google.com/apppasswords with 2-Step Verification on). When both are set, instructions are emailed through Gmail instead of Resend (about 500 emails a day).
+
+### Free alternative: Brevo (works with an Outlook address, no domain needed)
+1. Create a free account at brevo.com and verify your sender address under **Senders, Domains & Dedicated IPs → Senders**.
+2. Create an API key under **SMTP & API → API Keys**.
+3. In Vercel set `BREVO_API_KEY` (the key) and `BREVO_SENDER` (the verified sender address), then redeploy.
+Brevo takes priority over Gmail and Resend when its two variables are set.

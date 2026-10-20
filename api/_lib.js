@@ -208,8 +208,11 @@ export async function emailInstruction(recipients, { title, body, senderName, li
   const gmailUser = (process.env.GMAIL_USER || '').trim();
   const gmailPass = (process.env.GMAIL_APP_PASSWORD || '').replace(/\s+/g, '');
   const useGmail = !!(gmailUser && gmailPass);
+  const brevoKey = (process.env.BREVO_API_KEY || '').trim();
+  const brevoSender = (process.env.BREVO_SENDER || '').trim();
+  const useBrevo = !!(brevoKey && brevoSender);
   if (!recipients.length) return { status: 'none', sent: 0, failed: 0 };
-  if (!key && !useGmail) return { status: 'not_configured', sent: 0, failed: recipients.length };
+  if (!key && !useGmail && !useBrevo) return { status: 'not_configured', sent: 0, failed: recipients.length };
   const from = process.env.MAIL_FROM || 'Bless Team Hub <onboarding@resend.dev>';
   const subject = `New instruction: ${title}`;
   const text = `${title}\n\n${body}\n\nFrom ${senderName}\nOpen the hub to respond: ${link}`;
@@ -221,6 +224,34 @@ export async function emailInstruction(recipients, { title, body, senderName, li
     <p style="font-size:12px;color:#5A665F;margin:22px 0 0">Sign in with your username and password to send back your files.</p></div>`;
   let sent = 0, failed = 0, error = '';
   const failedUsers = [];
+
+  // Free option that needs no domain: Brevo, with one verified sender address (for example an Outlook address).
+  if (useBrevo) {
+    for (let i = 0; i < recipients.length; i += 5) {
+      const group = recipients.slice(i, i + 5);
+      const results = await Promise.allSettled(group.map(async (u) => {
+        const r = await fetch('https://api.brevo.com/v3/smtp/email', {
+          method: 'POST',
+          headers: { 'api-key': brevoKey, 'Content-Type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify({
+            sender: { name: 'Bless Team Hub', email: brevoSender },
+            to: [{ email: u.email }],
+            subject, htmlContent: html, textContent: text,
+          }),
+        });
+        if (!r.ok) {
+          let m = 'HTTP ' + r.status;
+          try { m = (await r.json()).message || m; } catch (e) {}
+          throw new Error(m);
+        }
+      }));
+      results.forEach((r, k) => {
+        if (r.status === 'fulfilled') sent++;
+        else { failed++; failedUsers.push(group[k].username); if (!error) error = String(r.reason?.message || r.reason).slice(0, 200); }
+      });
+    }
+    return { status: failed ? (sent ? 'partial' : 'failed') : 'sent', sent, failed, error, failedUsers };
+  }
 
   // Free option that needs no domain: send through a Gmail account using an app password.
   if (useGmail) {
