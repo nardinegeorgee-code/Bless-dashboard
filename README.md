@@ -31,10 +31,15 @@ A **Shopify** page shows monthly revenue, orders and units sold, best sellers, c
 
 ### Connect your store
 1. Open the Shopify **Dev Dashboard** (dev.shopify.com/dashboard) with the account that owns the store and create an app.
-2. In the app's version settings, add these access scopes, then release the version: `read_orders`, `read_all_orders`, `read_products`, `read_customers`. (Without `read_all_orders` Shopify only returns the last 60 days.)
+2. In the app's version settings, add these access scopes, then release the version: `read_orders`, `read_products`, `read_customers`, `read_reports`, `read_inventory` (the last two power the analysis tabs). `read_all_orders` is optional and needs a separate approval from Shopify; without it only the last 60 days of orders are returned. After adding scopes, release a new version and approve it on the store (Apps > your app > update).
 3. Install the app on your store.
 4. Under the app's **Settings**, copy the **Client ID** and **Client secret**.
 5. In Vercel add: `SHOPIFY_STORE` (for example `my-shop.myshopify.com`), `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`, and `CRON_SECRET` (any long random string; it protects the daily job). Optional: `DASHBOARD_TZ` (default `Africa/Cairo`), `SHOPIFY_MONTHS` (how many months to import first, default 13).
 6. Redeploy, open the Shopify page and press **Sync now**. The first import can take several minutes; leave the page open.
 
 If Areas and Customers stay empty, request **protected customer data** access for the app in the Dev Dashboard (customer and address fields are protected by Shopify) and sync again. If you already have an older custom app with an Admin API token (`shpat_...`), set `SHOPIFY_ADMIN_TOKEN` instead of the client ID and secret.
+
+
+## Analysis tabs (Super Admin only)
+
+Shopify > Sales, Funnel, Products, Customer experience, Retention. Each tab loads its own numbers from Shopify reports (cached 30 minutes; "Refresh numbers" re-fetches). Retention uses your synced orders, so press **Sync now** once after this update to re-import orders with product categories. Service scores (CSAT, NPS, response time and so on) are typed in under Customer experience and saved per month.

@@ -144,7 +144,7 @@ function mount(){
     <div class="row"><select class="select" id="f-role" style="width:auto" aria-label="Filter by role"><option value="">All roles</option>${ROLES.filter(r=>r.key!=='super_admin').map(r=>`<option value="${r.key}" ${S.fRole===r.key?'selected':''}>${r.label}</option>`).join('')}</select>
     <select class="select" id="f-user" style="width:auto" aria-label="Filter by person"></select>
     <select class="select" id="f-kind" style="width:auto" aria-label="Filter by type"><option value="">Responses and uploads</option><option value="resp" ${S.fKind==='resp'?'selected':''}>Responses to instructions</option><option value="free" ${S.fKind==='free'?'selected':''}>Uploads without instruction</option></select></div><div id="live"></div>`;
-  else if(S.route==='shop'){v.innerHTML=`<div class="head"><div><h1>Shopify</h1><p>Monthly sales, best sellers, areas, customers and carts left behind.</p></div></div><div id="live"></div>`;if(!S.shop.data&&!S.shop.loading)loadShop();}
+  else if(S.route==='shop'){v.innerHTML=`<div class="head"><div><h1>Shopify</h1><p>Sales, funnel, products, customer experience and retention, one tab each.</p></div></div><div id="live"></div>`;if(S.an.tab==='overview'){if(!S.shop.data&&!S.shop.loading)loadShop()}else loadAn();}
   else if(S.route==='users')v.innerHTML=`<div class="head"><div><h1>Users</h1><p>Add people, change their role, or set a new password.</p></div></div>
     <form class="panel" data-form="adduser"><h2>Add a user</h2><div class="grid2">
       <div class="field"><label for="nu-u">Username</label><input class="input" id="nu-u" autocomplete="off" required></div>
@@ -257,6 +257,7 @@ function fileHTML(f){
 
 /* ---------- Shopify dashboard ---------- */
 async function loadShop(month){
+  if(S.an.tab!=='overview'){if(month!==undefined)S.shop.month=month;return loadAn()}
   const sh=S.shop;sh.loading=true;sh.err='';if(month!==undefined)sh.month=month;renderShop();
   try{sh.data=await api('GET','/api/shopify'+(sh.month?'?month='+encodeURIComponent(sh.month):''));if(sh.data.month)sh.month=sh.data.month}
   catch(e){sh.err=e.message}
@@ -270,7 +271,7 @@ async function runSync(){
   }catch(e){sh.err=e.message;sh.syncing=false;renderShop()}
 }
 const fmtNum=n=>Math.round(n).toLocaleString();
-function money(n){const c=S.shop.data&&S.shop.data.currency;try{return new Intl.NumberFormat(undefined,c?{style:'currency',currency:c,maximumFractionDigits:0}:{maximumFractionDigits:0}).format(n)}catch(e){return fmtNum(n)}}
+function money(n){const c=(S.shop.data&&S.shop.data.currency)||(S.an&&S.an.data&&S.an.data.currency);try{return new Intl.NumberFormat(undefined,c?{style:'currency',currency:c,maximumFractionDigits:0}:{maximumFractionDigits:0}).format(n)}catch(e){return fmtNum(n)}}
 function shortNum(n){return n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e4?Math.round(n/1e3)+'k':n>=1e3?(n/1e3).toFixed(1)+'k':String(Math.round(n))}
 function delta(v){if(v===null||v===undefined)return '';const up=v>=0;return `<span class="delta ${up?'up':'down'}">${up?'▲':'▼'} ${Math.abs(v)}% vs last month</span>`}
 function ageText(h){return h<48?h+' h':Math.round(h/24)+' days'}
@@ -286,9 +287,10 @@ function monthChart(ms,metric,sel){
 function renderShop(){
   if(S.screen!=='app'||S.route!=='shop')return;const L=$('#live');if(!L)return;
   const sh=S.shop,d=sh.data;
-  if(!d){L.innerHTML=sh.err?`<div class="empty"><b>Could not load Shopify data</b><span>${esc(sh.err)}</span><button class="btn" data-act="shop-reload">Try again</button></div>`:empty('Loading…','Reading your Shopify numbers.');return}
+  if(S.an.tab!=='overview'){renderAnalytics(L);return}
+  if(!d){L.innerHTML=shopTabs()+(sh.err?`<div class="empty"><b>Could not load Shopify data</b><span>${esc(sh.err)}</span><button class="btn" data-act="shop-reload">Try again</button></div>`:empty('Loading…','Reading your Shopify numbers.'));return}
   if(d.configured===false){
-    L.innerHTML=`<div class="panel"><h2>Connect your Shopify store</h2><p class="muted">Add these in Vercel (Settings, Environment Variables), then redeploy:</p>
+    L.innerHTML=shopTabs()+`<div class="panel"><h2>Connect your Shopify store</h2><p class="muted">Add these in Vercel (Settings, Environment Variables), then redeploy:</p>
       <div class="list">${d.missing.map(m=>`<div class="item"><span class="mono">${esc(m)}</span></div>`).join('')}</div>
       <p class="muted">The README in the project lists the full steps, including the permissions the Shopify app needs.</p></div>`;return}
   const s=d.summary,a=d.abandoned,c=d.customers,sy=d.sync;
@@ -296,7 +298,7 @@ function renderShop(){
   const last=sy.lastSync?fmtDate(Date.parse(sy.lastSync)):'never';
   const stat=(l,v,x)=>`<div class="stat"><div class="eyebrow">${l}</div><div class="n">${v}</div>${x||''}</div>`;
   const small=t=>`<span class="muted mono" style="font-size:.75rem">${t}</span>`;
-  L.innerHTML=`
+  L.innerHTML=shopTabs()+`
   <div class="row" style="justify-content:space-between;gap:12px">
     <div class="row" style="gap:10px"><label class="muted" for="shop-month" style="font-weight:600">Month</label><select class="select" id="shop-month" style="width:auto">${monthOpts}</select>${sh.loading?'<span class="muted">Loading…</span>':''}</div>
     <div class="row" style="gap:10px"><span class="muted mono" style="font-size:.75rem">${sy.orders} orders stored · last sync ${esc(last)}</span><button class="btn primary" data-act="shop-sync" ${sh.syncing?'disabled':''}>${sh.syncing?'Syncing…':'Sync now'}</button></div>
@@ -441,6 +443,104 @@ async function submitUpload(kind){
   toast(kind==='resp'?'Response sent':'Uploaded');
 }
 
+/* ---------- Shopify analysis tabs ---------- */
+const AN_TABS=[['overview','Overview'],['sales','Sales'],['funnel','Funnel'],['products','Products'],['experience','Customer experience'],['retention','Retention']];
+S.an={tab:'overview',cache:{},loading:false,err:'',metric:{},saving:false};
+function shopTabs(){return `<div class="subtabs" role="tablist">${AN_TABS.map(([k,l])=>`<button role="tab" class="subtab${S.an.tab===k?' on':''}" aria-selected="${S.an.tab===k}" data-act="an-tab" data-tab="${k}">${l}</button>`).join('')}</div>`}
+async function loadAn(refresh){
+  const an=S.an,sh=S.shop,tab=an.tab;if(tab==='overview')return;
+  const key=tab+'|'+(sh.month||'');if(!refresh&&an.cache[key]){renderShop();return}
+  an.loading=true;an.err='';renderShop();
+  try{
+    const d=await api('GET','/api/analytics?tab='+tab+(sh.month?'&month='+encodeURIComponent(sh.month):'')+(refresh?'&refresh=1':''));
+    if(d.month)sh.month=d.month;an.cache[d.configured===false?key:tab+'|'+d.month]=d;an.cache[key]=d;
+  }catch(e){an.err=e.message}
+  an.loading=false;renderShop();
+}
+function fv(v,f){
+  if(v===null||v===undefined||(typeof v==='number'&&!isFinite(v)))return '–';
+  switch(f){
+    case 'money':return money(v);case 'int':return fmtNum(v);
+    case 'pct':return v.toFixed(1)+'%';case 'num1':return v.toFixed(1);case 'num2':return v.toFixed(2);
+    case 'ms':return v>=1000?(v/1000).toFixed(1)+' s':Math.round(v)+' ms';
+    case 'days':return v>=100?fmtNum(v):v.toFixed(v%1?1:0)+' d';
+    case 'hours':return v>=48?(v/24).toFixed(1)+' days':v.toFixed(1)+' h';
+    case 'growth':return `<span class="delta ${v>=0?'up':'down'}">${v>=0?'▲':'▼'} ${Math.abs(v)}%</span>`;
+    case 'link':return v&&v.href?`<a href="${esc(v.href)}" target="_blank" rel="noopener">${esc(v.text)}</a>`:esc(String(v||''));
+    default:return esc(String(v));
+  }
+}
+const noHtml=new Set(['growth','link']);
+const cellText=(v,f)=>noHtml.has(f)?fv(v,f):esc(fv(v,f)).replace(/&amp;/g,'&');
+function anKpi(sec){
+  return `<div class="stats">${sec.tiles.map(t=>{
+    let d='';
+    if(t.prev!==undefined){const g=t.prev?Math.round((t.value-t.prev)/t.prev*1000)/10:null;
+      if(g!==null){const good=t.goodDown?g<=0:g>=0;d=`<span class="delta ${good?'up':'down'}">${g>=0?'▲':'▼'} ${Math.abs(g)}% vs last month</span>`}}
+    return `<div class="stat"><div class="eyebrow">${esc(t.label)}</div><div class="n">${esc(fv(t.value,t.fmt))}</div>${d}${t.sub?`<div class="muted" style="font-size:.75rem;margin-top:2px">${esc(t.sub)}</div>`:''}</div>`}).join('')}</div>`;
+}
+function anFunnel(sec){
+  const top=Math.max(1,sec.steps[0].value);
+  const steps=`<div class="fun">${sec.steps.map((s,i)=>{const prev=i?sec.steps[i-1].value:null;
+    return `<div class="frow"><span class="fl">${esc(s.label)}</span><span class="fbar"><i style="width:${Math.max(1.5,s.value/top*100)}%"></i></span><span class="fv mono">${fmtNum(s.value)}</span><span class="fd mono">${prev?(prev?(100-s.value/prev*100).toFixed(0)+'% drop':''):''}</span></div>`}).join('')}</div>`;
+  return steps+anKpi({tiles:sec.tiles});
+}
+function anTrend(sec){
+  const id=sec.id+'|'+S.an.tab,m=S.an.metric[id]||sec.metrics[0].key,def=sec.metrics.find(x=>x.key===m)||sec.metrics[0];
+  const max=Math.max(1e-9,...sec.rows.map(r=>r.values[def.key]));
+  const sel=S.shop.month;
+  return `<div class="item-top" style="margin-bottom:6px"><span></span><select class="select" data-act="an-metric" data-id="${esc(id)}" style="width:auto" aria-label="Metric">${sec.metrics.map(x=>`<option value="${x.key}" ${x.key===def.key?'selected':''}>${esc(x.label)}</option>`).join('')}</select></div>
+  <div class="mchart">${sec.rows.map(r=>{const v=r.values[def.key];return `<button class="mcol${r.key===sel?' on':''}" data-act="shop-month" data-m="${r.key}" title="${esc(r.label)}: ${esc(fv(v,def.fmt))}"><span class="mval mono">${def.fmt==='pct'?v.toFixed(1)+'%':shortNum(v)}</span><span class="mbar"><i style="height:${Math.max(2,v/max*100)}%"></i></span><span class="mlab">${esc(r.label.slice(0,3)+" '"+r.label.slice(-2))}</span></button>`}).join('')}</div>`;
+}
+function rateClass(v,r){return !r?'':v<=r[0]?'good':v<=r[1]?'mid':'bad'}
+function anTable(sec){
+  if(!sec.rows.length)return `<p class="muted">${esc(sec.empty||'No data for this period.')}</p>`;
+  const cols=sec.columns;const maxes={};cols.forEach(c=>{if(c.bar)maxes[c.key]=Math.max(1e-9,...sec.rows.map(r=>Number(r[c.key])||0))});
+  return `<div class="tablewrap"><table class="dt"><thead><tr>${cols.map(c=>`<th class="${c.fmt==='str'||c.fmt==='link'?'':'num'}">${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${sec.rows.map(r=>`<tr>${cols.map(c=>{
+    const v=r[c.key],isText=c.fmt==='str'||c.fmt==='link';
+    const bar=c.bar&&typeof v==='number'?`<span class="cbar"><i style="width:${Math.max(2,(c.barReverse?(1-Math.min(1,v/maxes[c.key])):v/maxes[c.key])*100)}%"></i></span>`:'';
+    const cls=c.rate&&typeof v==='number'?' r-'+rateClass(v,c.rate):'';
+    return `<td class="${isText?'':'num mono'}${cls}" ${isText&&c.fmt==='str'?`title="${esc(String(v))}"`:''}>${bar}<span class="ct">${cellText(v,c.fmt)}</span></td>`}).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+function anCohort(sec){
+  if(!sec.rows.length)return `<p class="muted">${esc(sec.empty)}</p>`;
+  const heat=v=>v===null?'':`style="background:color-mix(in srgb,var(--accent) ${Math.round(Math.min(100,v)*0.85+4)}%,transparent);color:${v>45?'#fff':'inherit'}"`;
+  return `<div class="tablewrap"><table class="dt coh"><thead><tr><th>First purchase</th><th class="num">Customers</th>${Array.from({length:12},(_,i)=>`<th class="num">${i?'+'+i+' mo':'Month 0'}</th>`).join('')}</tr></thead><tbody>${sec.rows.map(r=>`<tr><td>${esc(r.label)}</td><td class="num mono">${fmtNum(r.size)}</td>${r.cells.map(c=>`<td class="num mono hc" ${heat(c)}>${c===null?'':Math.round(c)+'%'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+function anAudit(sec){
+  return `<div class="stats"><div class="stat"><div class="eyebrow">Active products</div><div class="n">${fmtNum(sec.total)}</div></div><div class="stat"><div class="eyebrow">Need attention</div><div class="n">${fmtNum(sec.withIssues)}</div><span class="muted mono" style="font-size:.75rem">${sec.total?Math.round(sec.withIssues/sec.total*100):0}% of products</span></div></div>
+  ${sec.tally.length?`<h3 class="sub">Most common gaps</h3>${rankList(sec.tally.map(([name,n])=>({name,n})),x=>x.n,x=>fmtNum(x.n)+' products')}`:''}
+  ${sec.worst.length?`<h3 class="sub">Products with the most gaps</h3><div class="tablewrap"><table class="dt"><tbody>${sec.worst.map(w=>`<tr><td title="${esc(w.name)}"><span class="ct">${esc(w.name)}</span></td><td>${w.issues.map(i=>`<span class="chip">${esc(i)}</span>`).join(' ')}</td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">Every active product passes the checklist.</p>'}`;
+}
+function anManual(sec){
+  const v=sec.values||{};
+  return `<form id="an-manual" class="manual">${sec.fields.map(f=>`<label class="mf"><span>${esc(f.label)}</span><input class="input" type="number" step="any" name="${f.key}" min="${f.min??0}" max="${f.max}" value="${v[f.key]??''}" inputmode="decimal"></label>`).join('')}
+  <div class="row" style="gap:10px;grid-column:1/-1"><button class="btn primary" type="submit" ${S.an.saving?'disabled':''}>${S.an.saving?'Saving…':'Save for '+esc(sec.history.length?S.an.data.monthLabel:'this month')}</button><span class="muted" style="font-size:.8rem">Leave a box empty if you do not track it.</span></div></form>
+  ${sec.history.length?`<h3 class="sub">Previous months</h3><div class="tablewrap"><table class="dt"><thead><tr><th>Month</th>${sec.fields.map(f=>`<th class="num">${esc(f.label.replace(/\s*\(.*\)/,''))}</th>`).join('')}</tr></thead><tbody>${sec.history.map(h=>`<tr><td>${esc(h.label)}</td>${sec.fields.map(f=>`<td class="num mono">${h.values[f.key]??'–'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:''}`;
+}
+function anSection(sec){
+  const head=`<div><h2>${esc(sec.title)}</h2>${sec.note?`<p class="muted" style="font-size:.85rem">${esc(sec.note)}</p>`:''}</div>`;
+  if(sec.error)return `<section class="panel" style="border-color:var(--warn)">${head}<p class="body-text"><b style="color:var(--warn)">This part could not be loaded.</b> ${esc(sec.error)}</p></section>`;
+  let body='';
+  try{
+    body=sec.kind==='kpi'?anKpi(sec):sec.kind==='funnel'?anFunnel(sec):sec.kind==='trend'?anTrend(sec):sec.kind==='table'?anTable(sec):sec.kind==='cohort'?anCohort(sec):sec.kind==='audit'?anAudit(sec):sec.kind==='manual'?anManual(sec):sec.kind==='text'?`<ul class="gaps">${sec.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>`:'';
+  }catch(e){body=`<p class="muted">Could not show this part (${esc(e.message)}).</p>`}
+  return `<section class="panel${sec.kind==='text'?' soft':''}">${head}${body}</section>`;
+}
+function renderAnalytics(L){
+  const an=S.an,sh=S.shop,d=an.cache[an.tab+'|'+(sh.month||'')]||an.cache[an.tab+'|'+(an.last||'')];
+  an.data=d;
+  const top=(months)=>`<div class="row" style="justify-content:space-between;gap:12px">
+    <div class="row" style="gap:10px"><label class="muted" for="shop-month" style="font-weight:600">Month</label><select class="select" id="shop-month" style="width:auto">${(months||[]).slice().reverse().map(m=>`<option value="${m.key}" ${m.key===sh.month?'selected':''}>${esc(m.label)}</option>`).join('')}</select>${an.loading?'<span class="muted">Loading…</span>':''}</div>
+    <button class="btn" data-act="an-refresh" ${an.loading?'disabled':''}>Refresh numbers</button></div>`;
+  if(!d){L.innerHTML=shopTabs()+(an.err?`<div class="empty"><b>Could not load this tab</b><span>${esc(an.err)}</span><button class="btn" data-act="an-refresh">Try again</button></div>`:empty('Loading…','Asking Shopify for the numbers. This can take a few seconds.'));return}
+  if(d.configured===false){L.innerHTML=shopTabs()+`<div class="panel"><h2>Connect your Shopify store first</h2><p class="muted">Missing: ${d.missing.map(esc).join(', ')}</p></div>`;return}
+  an.last=d.month;
+  const scrollY=window.scrollY;
+  L.innerHTML=shopTabs()+top(d.months)+(an.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(an.err)}</p></div>`:'')+d.sections.map(anSection).join('')+`<p class="muted" style="font-size:.78rem">Figures come straight from Shopify reports and are kept for 30 minutes. Press Refresh numbers to fetch them again. Times use ${esc(d.tz)}.</p>`;
+  window.scrollTo(0,scrollY);
+}
+
 /* ---------- events ---------- */
 function arm(btn){if(btn.dataset.armed)return true;btn.dataset.armed='1';btn.classList.add('armed');const t=btn.textContent;btn.textContent='Click again to confirm';setTimeout(()=>{if(btn.isConnected){delete btn.dataset.armed;btn.classList.remove('armed');btn.textContent=t}},4000);return false}
 
@@ -451,6 +551,8 @@ document.addEventListener('click',async e=>{
   else if(a==='shop-sync')runSync();
   else if(a==='shop-reload')loadShop();
   else if(a==='shop-month')loadShop(b.dataset.m);
+  else if(a==='an-tab'){S.an.tab=b.dataset.tab;S.an.err='';if(S.an.tab==='overview'){if(!S.shop.data)loadShop();else renderShop()}else loadAn()}
+  else if(a==='an-refresh')loadAn(true);
   else if(a==='sel-file'){b.checked?S.sel.add(b.dataset.url):S.sel.delete(b.dataset.url);syncChecks()}
   else if(a==='sel-sub'){const s=S.subs.find(x=>x.id===b.dataset.id);if(s){const urls=(s.files||[]).map(f=>f.url);const allOn=urls.every(u=>S.sel.has(u));urls.forEach(u=>allOn?S.sel.delete(u):S.sel.add(u));syncChecks()}}
   else if(a==='sel-page'){document.querySelectorAll('input[data-act="sel-file"]').forEach(c=>S.sel.add(c.dataset.url));syncChecks()}
@@ -465,11 +567,19 @@ document.addEventListener('click',async e=>{
   else if(a==='del-ins'){if(!arm(b))return;try{await api('DELETE','/api/instructions?id='+encodeURIComponent(b.dataset.id));await sync();toast('Instruction deleted');go('send')}catch(x){toast(x.message||'Could not delete')}}
   else if(a==='del-sub'){if(!arm(b))return;try{await api('DELETE','/api/submissions?id='+encodeURIComponent(b.dataset.id));await sync();toast('Deleted')}catch(x){toast(x.message||'Could not delete')}}
 });
+document.addEventListener('submit',async e=>{
+  if(e.target.id!=='an-manual')return;e.preventDefault();
+  const values={};new FormData(e.target).forEach((v,k)=>{values[k]=v});
+  S.an.saving=true;renderShop();
+  try{await api('POST','/api/analytics',{month:S.shop.month,values});delete S.an.cache['experience|'+S.shop.month];S.an.saving=false;toast('Saved');await loadAn(false)}
+  catch(x){S.an.saving=false;toast(x.message||'Could not save');renderShop()}
+});
 document.addEventListener('change',async e=>{
   const t=e.target;
   if(t.matches('input[type=file]')){addFiles(t.dataset.kind,[...t.files]);t.value=''}
   else if(t.id==='shop-month'){loadShop(t.value)}
   else if(t.id==='shop-metric'){S.shop.metric=t.value;renderShop()}
+  else if(t.dataset.act==='an-metric'){S.an.metric[t.dataset.id]=t.value;renderShop()}
   else if(t.id==='f-role'){S.fRole=t.value;update()}
   else if(t.id==='f-user'){S.fUser=t.value;update()}
   else if(t.id==='f-kind'){S.fKind=t.value;update()}

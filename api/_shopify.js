@@ -1,7 +1,7 @@
 import { db, HttpError } from './_lib.js';
 
 /* ---------- config ---------- */
-const API_VERSION = process.env.SHOPIFY_API_VERSION || '2026-04';
+const API_VERSION = process.env.SHOPIFY_API_VERSION || '2026-10';
 
 export function shopConfig() {
   let shop = (process.env.SHOPIFY_STORE || '').trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '').replace(/\.+$/, '').toLowerCase();
@@ -33,6 +33,9 @@ export function ensureShopSchema() {
         total NUMERIC NOT NULL DEFAULT 0, currency TEXT, url TEXT, completed BOOLEAN NOT NULL DEFAULT FALSE,
         items JSONB NOT NULL DEFAULT '[]'
       )`;
+      await q`ALTER TABLE shop_orders ADD COLUMN IF NOT EXISTS cats JSONB NOT NULL DEFAULT '[]'`;
+      await q`CREATE TABLE IF NOT EXISTS shop_cache (key TEXT PRIMARY KEY, fetched_at BIGINT NOT NULL, payload JSONB NOT NULL)`;
+      await q`CREATE TABLE IF NOT EXISTS shop_manual (month TEXT PRIMARY KEY, values JSONB NOT NULL DEFAULT '{}', updated_at BIGINT NOT NULL)`;
       await q`CREATE TABLE IF NOT EXISTS shop_state (key TEXT PRIMARY KEY, value JSONB NOT NULL)`;
     })();
     ready.catch(() => { ready = null; });
@@ -70,7 +73,7 @@ async function accessToken(cfg) {
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function gql(cfg, query, variables) {
+export async function gql(cfg, query, variables) {
   const token = await accessToken(cfg);
   for (let attempt = 0; attempt < 4; attempt++) {
     const r = await fetch(`https://${cfg.shop}/admin/api/${API_VERSION}/graphql.json`, {
@@ -93,27 +96,66 @@ const errText = (j) => (j.errors || []).map((e) => e.message).join('; ');
 const isAccessDenied = (j) => (j.errors || []).some((e) => e.extensions?.code === 'ACCESS_DENIED' || /access denied|not approved|protected customer data/i.test(e.message || ''));
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
 
+/* ---------- ShopifyQL (Shopify's own analytics) ---------- */
+const NUMERIC = /MONEY|INT|FLOAT|DURATION|NUMBER|PERCENT|DECIMAL|QUANTITY/i;
+export async function shopifyql(cfg, query) {
+  const j = await gql(cfg, `query($q:String!){shopifyqlQuery(query:$q){tableData{columns{name dataType displayName} rows} parseErrors parseWarnings}}`, { q: query });
+  if (j.errors) throw new Error(errText(j) || 'Shopify error');
+  const r = j.data && j.data.shopifyqlQuery;
+  if (!r) throw new Error('Shopify returned no data');
+  if (r.parseErrors && r.parseErrors.length) throw new Error(r.parseErrors.join('; '));
+  const cols = (r.tableData && r.tableData.columns) || [];
+  const raw = (r.tableData && r.tableData.rows) || [];
+  const rows = raw.map((row) => {
+    const o = {};
+    cols.forEach((c, i) => {
+      let v = Array.isArray(row) ? row[i] : row[c.name];
+      if (NUMERIC.test(c.dataType || '') && v !== null && v !== undefined && v !== '') { const n = parseFloat(v); if (Number.isFinite(n)) v = n; }
+      o[c.name] = v;
+    });
+    return o;
+  });
+  return { columns: cols, rows };
+}
+
+/* ---------- products (for the content audit) ---------- */
+export async function fetchProducts(cfg, max = 300) {
+  const out = [];
+  let cursor = null;
+  while (out.length < max) {
+    const j = await gql(cfg, `query($cursor:String){products(first:100,after:$cursor){pageInfo{hasNextPage endCursor} nodes{
+      id title status productType description totalInventory mediaCount{count}
+      media(first:10){nodes{mediaContentType}}}}}`, { cursor });
+    if (j.errors || !j.data) throw new Error(errText(j) || 'no data');
+    out.push(...j.data.products.nodes);
+    if (!j.data.products.pageInfo.hasNextPage) break;
+    cursor = j.data.products.pageInfo.endCursor;
+  }
+  return out;
+}
+
 /* ---------- orders ---------- */
 const ORDER_BASE = `id name createdAt updatedAt cancelledAt
   totalPriceSet{shopMoney{amount currencyCode}} totalRefundedSet{shopMoney{amount}}
-  lineItems(first:20){nodes{title quantity sku product{id} originalUnitPriceSet{shopMoney{amount}}}}`;
+  lineItems(first:20){nodes{title quantity sku product{id productType} originalUnitPriceSet{shopMoney{amount}}}}`;
 const ORDER_PII = ` shippingAddress{country province city} customer{id numberOfOrders}`;
 const ordersQuery = (pii) => `query($cursor:String,$q:String){orders(first:25,after:$cursor,query:$q,sortKey:UPDATED_AT){pageInfo{hasNextPage endCursor} nodes{${ORDER_BASE}${pii ? ORDER_PII : ''}}}}`;
 
 async function saveOrder(n) {
   const items = (n.lineItems?.nodes || []).map((l) => ({
-    t: l.title, q: l.quantity || 0, p: num(l.originalUnitPriceSet?.shopMoney?.amount), s: l.sku || '', k: l.product?.id || l.title,
+    t: l.title, q: l.quantity || 0, p: num(l.originalUnitPriceSet?.shopMoney?.amount), s: l.sku || '', k: l.product?.id || l.title, c: l.product?.productType || 'Uncategorised',
   }));
   const units = items.reduce((a, i) => a + i.q, 0);
-  await db()`INSERT INTO shop_orders (id, name, created_at, updated_at, total, refunded, currency, cancelled, country, province, city, customer_id, customer_orders, units, items)
+  const cats = [...new Set(items.map((i) => i.c))];
+  await db()`INSERT INTO shop_orders (id, name, created_at, updated_at, total, refunded, currency, cancelled, country, province, city, customer_id, customer_orders, units, items, cats)
     VALUES (${n.id}, ${n.name}, ${Date.parse(n.createdAt)}, ${Date.parse(n.updatedAt)}, ${num(n.totalPriceSet?.shopMoney?.amount)},
       ${num(n.totalRefundedSet?.shopMoney?.amount)}, ${n.totalPriceSet?.shopMoney?.currencyCode || null}, ${!!n.cancelledAt},
       ${n.shippingAddress?.country || null}, ${n.shippingAddress?.province || null}, ${n.shippingAddress?.city || null},
-      ${n.customer?.id || null}, ${n.customer?.numberOfOrders != null ? parseInt(n.customer.numberOfOrders, 10) || 0 : null}, ${units}, ${JSON.stringify(items)}::jsonb)
+      ${n.customer?.id || null}, ${n.customer?.numberOfOrders != null ? parseInt(n.customer.numberOfOrders, 10) || 0 : null}, ${units}, ${JSON.stringify(items)}::jsonb, ${JSON.stringify(cats)}::jsonb)
     ON CONFLICT (id) DO UPDATE SET updated_at = EXCLUDED.updated_at, total = EXCLUDED.total, refunded = EXCLUDED.refunded,
       currency = EXCLUDED.currency, cancelled = EXCLUDED.cancelled, country = EXCLUDED.country, province = EXCLUDED.province,
       city = EXCLUDED.city, customer_id = EXCLUDED.customer_id, customer_orders = EXCLUDED.customer_orders,
-      units = EXCLUDED.units, items = EXCLUDED.items`;
+      units = EXCLUDED.units, items = EXCLUDED.items, cats = EXCLUDED.cats`;
 }
 
 function backfillStart() {
@@ -125,6 +167,7 @@ function backfillStart() {
 
 async function syncOrders(cfg, deadline) {
   const st = await getState('orders');
+  if (st.v !== 2) { st.v = 2; st.lastSync = null; st.runSince = null; st.cursor = null; st.count = 0; }
   if (!st.runSince) {
     st.runStarted = new Date().toISOString();
     st.runSince = st.lastSync ? new Date(Date.parse(st.lastSync) - 10 * 60000).toISOString() : backfillStart();
