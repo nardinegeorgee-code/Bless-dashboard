@@ -67,13 +67,13 @@ async function accessToken(cfg) {
   if (!r.ok || !j.access_token) {
     throw new HttpError(502, 'Shopify refused the credentials (' + (j.error_description || j.error || 'HTTP ' + r.status) + '). Check the store name, client ID and secret, and that the app is installed on the store.');
   }
-  cached = { token: j.access_token, exp: Date.now() + (j.expires_in || 86399) * 1000 };
+  cached = { token: j.access_token, exp: Date.now() + Math.min((j.expires_in || 86399) * 1000, 3600000) };
   return cached.token;
 }
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export async function gql(cfg, query, variables) {
+export async function gql(cfg, query, variables, _fresh) {
   const token = await accessToken(cfg);
   for (let attempt = 0; attempt < 4; attempt++) {
     const r = await fetch(`https://${cfg.shop}/admin/api/${API_VERSION}/graphql.json`, {
@@ -87,6 +87,8 @@ export async function gql(cfg, query, variables) {
     let j = {};
     try { j = await r.json(); } catch (e) { throw new HttpError(502, 'Shopify returned an unreadable answer (HTTP ' + r.status + ').'); }
     if (j.errors && j.errors.some((e) => e.extensions?.code === 'THROTTLED' || /throttled/i.test(e.message || ''))) { await wait(1500 * (attempt + 1)); continue; }
+    // A token issued before new permissions were approved keeps the old scopes: fetch a fresh one once.
+    if (!_fresh && !cfg.token && j.errors && /access denied/i.test(errText(j))) { cached = { token: '', exp: 0 }; return gql(cfg, query, variables, true); }
     return j;
   }
   throw new HttpError(502, 'Shopify is rate limiting requests. Try again in a minute.');
