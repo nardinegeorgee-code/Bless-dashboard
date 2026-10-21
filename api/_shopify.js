@@ -4,7 +4,7 @@ import { db, HttpError } from './_lib.js';
 const API_VERSION = process.env.SHOPIFY_API_VERSION || '2026-04';
 
 export function shopConfig() {
-  let shop = (process.env.SHOPIFY_STORE || '').trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+  let shop = (process.env.SHOPIFY_STORE || '').trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '').replace(/\.+$/, '').toLowerCase();
   if (shop && !shop.includes('.')) shop += '.myshopify.com';
   const token = (process.env.SHOPIFY_ADMIN_TOKEN || '').trim();
   const id = (process.env.SHOPIFY_CLIENT_ID || '').trim();
