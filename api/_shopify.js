@@ -71,6 +71,8 @@ async function accessToken(cfg) {
   return cached.token;
 }
 
+export function resetToken() { cached = { token: '', exp: 0 }; }
+
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export async function gql(cfg, query, variables, _fresh) {

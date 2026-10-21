@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { route, allow, db, HttpError, requireAdmin } from './_lib.js';
-import { ensureShopSchema, shopConfig, shopifyql, fetchProducts, gql } from './_shopify.js';
+import { ensureShopSchema, shopConfig, shopifyql, fetchProducts, gql, resetToken } from './_shopify.js';
 
 const DAY = 86400000;
 const TABS = ['sales', 'funnel', 'products', 'experience', 'retention'];
@@ -495,9 +495,13 @@ export default route(async (req, res) => {
   const wrapped = tab === 'retention' ? tasks.map((fn, i) => async () => { try { return await fn(); } catch (err) { return { id: 'r' + i, title: 'Retention', kind: 'text', error: String(err.message || err).slice(0, 400) }; } }) : tasks;
   const sections = await pool(wrapped, 3);
 
+  let scopes = null;
+  if (sections.some((x) => x.error && /access denied/i.test(x.error))) {
+    try { resetToken(); const j = await gql(cfg, '{currentAppInstallation{accessScopes{handle}}}'); scopes = (j.data?.currentAppInstallation?.accessScopes || []).map((x) => x.handle); } catch (err) { scopes = ['(could not read: ' + String(err.message).slice(0, 120) + ')']; }
+  }
   let currency = '';
   try { const r = await db()`SELECT currency FROM shop_orders WHERE currency IS NOT NULL LIMIT 1`; currency = r[0]?.currency || ''; } catch (err) {}
   if (!currency) { try { const j = await gql(cfg, '{shop{currencyCode}}'); currency = j.data?.shop?.currencyCode || ''; } catch (err) {} }
 
-  res.json({ configured: true, tab, month, monthLabel: ctx.monthLabel, months: months.map((k) => ({ key: k, label: label(k) })), currency, tz: cfg.tz, sections });
+  res.json({ configured: true, tab, month, monthLabel: ctx.monthLabel, months: months.map((k) => ({ key: k, label: label(k) })), currency, tz: cfg.tz, scopes, sections });
 });
