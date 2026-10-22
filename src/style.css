@@ -288,3 +288,11 @@ h3.sub{font-size:.85rem;margin:16px 0 4px;color:var(--muted);text-transform:uppe
 .rulegrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:14px}.rulegrid label{display:grid;gap:4px;font-size:.85rem;font-weight:600}
 .rulenote{grid-column:1/-1;display:flex;gap:16px;justify-content:space-between;align-items:center;flex-wrap:wrap}.rulenote p{margin:0;max-width:70ch;font-size:.85rem}
 .rate{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.rate .input,.evt .ev-rate{width:74px;padding:6px 8px}
+.tasks{display:grid;gap:10px}
+.task{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:grid;gap:8px}
+.task-head{display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap;align-items:baseline;font-size:.82rem}
+.rline{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.rlab{width:92px;font-family:var(--f-mono);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.rline .input{width:84px;padding:6px 8px}
+.behcell{grid-template-columns:64px minmax(110px,1fr) auto}
+.behcell{min-width:0;grid-template-columns:56px minmax(80px,1fr) auto}.evt .fcell{min-width:96px}.evt td,.evt th{padding-inline:8px}
+.evt tr.detail>td .tasks{position:sticky;left:0;max-width:min(100%,860px)}
