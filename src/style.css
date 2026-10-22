@@ -328,3 +328,31 @@ h3.sub{font-size:.85rem;margin:16px 0 4px;color:var(--muted);text-transform:uppe
 .behrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.behrow .ev-beh{width:74px;padding:6px 8px}.behrow .ev-note{flex:1;min-width:120px;padding:6px 10px}
 .tasksbtn{justify-self:start}
 .mcard .tasks{margin-top:2px}
+
+/* ---------- Shopify tabs: matching the Overview look ---------- */
+.rkl{display:grid;gap:12px}
+.rkr{display:grid;grid-template-columns:26px minmax(0,1fr);gap:12px;align-items:start}
+.rkn{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--surface-2);font-size:.75rem;font-weight:700;color:var(--muted);margin-top:1px}
+.rkr:nth-child(1) .rkn{background:var(--accent);color:var(--accent-ink)}
+.rkr:nth-child(2) .rkn,.rkr:nth-child(3) .rkn{background:var(--accent-soft);color:#8A4308}
+.rkmain{display:grid;gap:6px;min-width:0}
+.rkt{display:flex;justify-content:space-between;gap:12px;align-items:baseline}
+.rkt b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.rkt b a{color:var(--accent-text)}
+.rkv{font-weight:700;white-space:nowrap}
+.rkbar{display:block;background:var(--surface-2);border-radius:999px;height:9px;overflow:hidden}
+.rkbar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#F6A25B,#F28D3A)}
+.rkchips{display:flex;gap:6px;flex-wrap:wrap}
+.rkc{display:inline-flex;gap:6px;align-items:baseline;background:var(--surface-2);border-radius:999px;padding:2px 10px;font-size:.74rem}
+.rkc em{font-style:normal;color:var(--muted)}
+.rkc.r-good{background:#CFE8D5;color:#1E6B3B}.rkc.r-mid{background:var(--accent-soft);color:#8A4308}.rkc.r-bad{background:#F4D2CE;color:#A11A12}
+.rkc.r-good em,.rkc.r-mid em,.rkc.r-bad em{color:inherit;opacity:.8}
+.mgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:10px}
+.mtile{background:var(--surface-2);border-radius:14px;padding:14px;display:grid;gap:10px}
+.mtile .rkc{background:var(--surface)}
+.funl{display:grid;gap:4px;justify-items:center;margin:6px 0 16px}
+.fstep{width:100%;display:grid;justify-items:center;gap:4px}
+.fbarc{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:12px 18px;border-radius:14px;min-width:220px;max-width:100%;transition:width .3s}
+.fbarc b{font-family:var(--f-display)}.fbarc small{opacity:.8;font-weight:400}
+.fdrop{font-family:var(--f-mono);font-size:.7rem;color:var(--danger);display:flex;align-items:center;gap:6px}
+.fdrop span{background:#F4D2CE;color:#A11A12;border-radius:999px;padding:1px 10px}

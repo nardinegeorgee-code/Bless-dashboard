@@ -607,17 +607,25 @@ function fv(v,f){
 }
 const noHtml=new Set(['growth','link']);
 const cellText=(v,f)=>noHtml.has(f)?fv(v,f):esc(fv(v,f)).replace(/&amp;/g,'&');
-function anKpi(sec){
-  return `<div class="stats">${sec.tiles.map(t=>{
-    let d='';
-    if(t.prev!==undefined){const g=t.prev?Math.round((t.value-t.prev)/t.prev*1000)/10:null;
-      if(g!==null){const good=t.goodDown?g<=0:g>=0;d=`<span class="delta ${good?'up':'down'}">${g>=0?'▲':'▼'} ${Math.abs(g)}% vs last month</span>`}}
-    return `<div class="stat"><div class="eyebrow">${esc(t.label)}</div><div class="n">${esc(fv(t.value,t.fmt))}</div>${d}${t.sub?`<div class="muted" style="font-size:.75rem;margin-top:2px">${esc(t.sub)}</div>`:''}</div>`}).join('')}</div>`;
+const KPAL=['#F28D3A','#7B4FA0','#0F766E','#C2410C','#1D4ED8','#A21CAF'];
+function iconFor(label){
+  const l=String(label).toLowerCase();
+  if(/return|refund/.test(l))return 'refund';if(/cancel/.test(l))return 'cancel';
+  if(/cart|checkout|abandon/.test(l))return 'cart';if(/customer|visitor|buyer|session/.test(l))return 'users';
+  if(/unit|item|stock|product|search|page view/.test(l))return 'box';if(/order|purchase|payment|deliver|fulfill|shipped/.test(l))return 'bag';
+  if(/day|hour|time|speed|response|between/.test(l))return 'clock';if(/rate|repeat|conversion|bounce/.test(l))return 'repeat';
+  return 'tag';
 }
+function tileCard(t,i){
+  const c=KPAL[i%KPAL.length];let d='';
+  if(t.prev!==undefined){const g=t.prev?Math.round((t.value-t.prev)/t.prev*1000)/10:null;if(g!==null)d=chip(g,t.goodDown)+'<span class="muted" style="font-size:.7rem"> vs last month</span>'}
+  return `<div class="kcard" style="--kc:${c}">${ico(iconFor(t.label),c)}<div style="min-width:0"><span class="eyebrow">${esc(t.label)}</span><div class="kn">${esc(fv(t.value,t.fmt))}</div>${d?`<div>${d}</div>`:''}${t.sub?`<small class="muted">${esc(t.sub)}</small>`:''}</div></div>`;
+}
+function anKpi(sec){return `<div class="kgrid">${sec.tiles.map(tileCard).join('')}</div>`}
 function anFunnel(sec){
-  const top=Math.max(1,sec.steps[0].value);
-  const steps=`<div class="fun">${sec.steps.map((s,i)=>{const prev=i?sec.steps[i-1].value:null;
-    return `<div class="frow"><span class="fl">${esc(s.label)}</span><span class="fbar"><i style="width:${Math.max(1.5,s.value/top*100)}%"></i></span><span class="fv mono">${fmtNum(s.value)}</span><span class="fd mono">${prev?(prev?(100-s.value/prev*100).toFixed(0)+'% drop':''):''}</span></div>`}).join('')}</div>`;
+  const top=Math.max(1,sec.steps[0].value),cols=['#F8C79A','#F6A25B','#F28D3A','#B4540F'];
+  const steps=`<div class="funl">${sec.steps.map((s,i)=>{const prev=i?sec.steps[i-1].value:null,w=Math.max(22,s.value/top*100);
+    return `<div class="fstep">${prev!==null?`<div class="fdrop"><span>▼ ${prev?(100-s.value/prev*100).toFixed(0):0}% left here</span></div>`:''}<div class="fbarc" style="width:${w}%;background:${cols[i%4]};color:${i>=2?'#fff':'#2B1D35'}"><b>${esc(s.label)}</b><span class="mono">${fmtNum(s.value)}<small> · ${(s.value/top*100).toFixed(s.value/top<0.1?1:0)}%</small></span></div></div>`}).join('')}</div>`;
   return steps+anKpi({tiles:sec.tiles});
 }
 function anTrend(sec){
@@ -628,14 +636,40 @@ function anTrend(sec){
   <div class="mchart">${sec.rows.map(r=>{const v=r.values[def.key];return `<button class="mcol${r.key===sel?' on':''}" data-act="shop-month" data-m="${r.key}" title="${esc(r.label)}: ${esc(fv(v,def.fmt))}"><span class="mval mono">${def.fmt==='pct'?v.toFixed(1)+'%':shortNum(v)}</span><span class="mbar"><i style="height:${Math.max(2,v/max*100)}%"></i></span><span class="mlab">${esc(r.label.slice(0,3)+" '"+r.label.slice(-2))}</span></button>`}).join('')}</div>`;
 }
 function rateClass(v,r){return !r?'':v<=r[0]?'good':v<=r[1]?'mid':'bad'}
+function rkChip(c,v){const cls=c.rate&&typeof v==='number'?' r-'+rateClass(v,c.rate):'';return `<span class="rkc${cls}"><em>${esc(c.label)}</em><b class="mono">${cellText(v,c.fmt)}</b></span>`}
 function anTable(sec){
   if(!sec.rows.length)return `<p class="muted">${esc(sec.empty||'No data for this period.')}</p>`;
-  const cols=sec.columns;const maxes={};cols.forEach(c=>{if(c.bar)maxes[c.key]=Math.max(1e-9,...sec.rows.map(r=>Number(r[c.key])||0))});
-  return `<div class="tablewrap"><table class="dt"><thead><tr>${cols.map(c=>`<th class="${c.fmt==='str'||c.fmt==='link'?'':'num'}">${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${sec.rows.map(r=>`<tr>${cols.map(c=>{
-    const v=r[c.key],isText=c.fmt==='str'||c.fmt==='link';
-    const bar=c.bar&&typeof v==='number'?`<span class="cbar"><i style="width:${Math.max(2,(c.barReverse?(1-Math.min(1,v/maxes[c.key])):v/maxes[c.key])*100)}%"></i></span>`:'';
-    const cls=c.rate&&typeof v==='number'?' r-'+rateClass(v,c.rate):'';
-    return `<td class="${isText?'':'num mono'}${cls}" ${isText&&c.fmt==='str'?`title="${esc(String(v))}"`:''}>${bar}<span class="ct">${cellText(v,c.fmt)}</span></td>`}).join('')}</tr>`).join('')}</tbody></table></div>`;
+  const cols=sec.columns,nameCol=cols[0],barCol=cols.find(c=>c.bar);
+  if(barCol){
+    const maxv=Math.max(1e-9,...sec.rows.map(r=>Number(r[barCol.key])||0));
+    const rest=cols.filter(c=>c!==nameCol&&c!==barCol&&!(nameCol.fmt==='str'&&cols[1]&&cols[1].fmt==='str'&&c===cols[1]&&false));
+    return `<div class="rkl">${sec.rows.map((r,i)=>{const v=Number(r[barCol.key])||0,w=barCol.barReverse?(1-Math.min(1,v/maxv)):v/maxv;
+      return `<div class="rkr"><span class="rkn">${i+1}</span><div class="rkmain"><div class="rkt"><b title="${esc(String(r[nameCol.key]&&r[nameCol.key].text||r[nameCol.key]||''))}">${cellText(r[nameCol.key],nameCol.fmt)}</b><span class="rkv mono">${cellText(r[barCol.key],barCol.fmt)}</span></div><span class="rkbar"><i style="width:${Math.max(2,w*100)}%"></i></span>${rest.length?`<div class="rkchips">${rest.map(c=>rkChip(c,r[c.key])).join('')}</div>`:''}</div></div>`}).join('')}</div>`;
+  }
+  if(cols.some(c=>c.rate)){
+    return `<div class="mgrid">${sec.rows.map(r=>`<div class="mtile"><div class="rkt"><b>${cellText(r[nameCol.key],nameCol.fmt)}</b></div><div class="rkchips">${cols.slice(1).map(c=>rkChip(c,r[c.key])).join('')}</div></div>`).join('')}</div>`;
+  }
+  return `<div class="tablewrap"><table class="dt"><thead><tr>${cols.map(c=>`<th class="${c.fmt==='str'||c.fmt==='link'?'':'num'}">${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${sec.rows.map(r=>`<tr>${cols.map(c=>{const v=r[c.key],isText=c.fmt==='str'||c.fmt==='link';return `<td class="${isText?'':'num mono'}">${cellText(v,c.fmt)}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+function heroSpec(tab,secs){
+  const by=id=>secs.find(s=>s.id===id&&!s.error);
+  const mini=(l,v)=>({l,v});
+  const gchip=t=>t&&t.prev!==undefined&&t.prev?chip(Math.round((t.value-t.prev)/t.prev*1000)/10,t.goodDown):'';
+  if(tab==='sales'){const k=by('kpi'),m=by('monthly');if(!k)return {};const T=k.tiles;return {label:'Net revenue',value:fv(T[0].value,'money'),chip:gchip(T[0]),minis:[mini('Orders',fv(T[4].value,'int')),mini('Units sold',fv(T[5].value,'int')),mini('Average order',fv(T[6].value,'money'))],spark:m?m.rows.map(r=>r.values.net_sales):null,sel:m?m.rows.findIndex(r=>r.key===S.shop.month):-1,foot:'12 months of net revenue'}}
+  if(tab==='funnel'){const f=by('funnel'),t=by('trend');if(!f)return {};const g=l=>f.tiles.find(x=>x.label===l);return {label:'Conversion rate',value:fv(g('Conversion rate').value,'pct'),minis:[mini('Sessions',fv(f.steps[0].value,'int')),mini('Cart abandonment',fv(g('Cart abandonment').value,'pct')),mini('Checkout abandonment',fv(g('Checkout abandonment').value,'pct'))],spark:t?t.rows.map(r=>r.values.conv):null,sel:t?t.rows.findIndex(r=>r.key===S.shop.month):-1,foot:'12 months of conversion rate'}}
+  if(tab==='products'){const b=by('best');if(!b||!b.rows.length)return {};const r=b.rows[0];return {label:'Best seller',value:esc(r.name),small:true,minis:[mini('Units sold',fv(r.units,'int')),mini('Net revenue',fv(r.revenue,'money'))]}}
+  if(tab==='experience'){const dl=by('delivery'),rk=by('returnsKpi');if(!dl)return {};const T=dl.tiles;return {label:'Order to delivered (median)',value:fv(T[4].value,'hours'),minis:[mini('Delivered',fv(T[1].value,'int')),...(rk?[mini('Return rate',fv(rk.tiles[1].value,'pct')),mini('Cancellation rate',fv(rk.tiles[4].value,'pct'))]:[])]}}
+  if(tab==='retention'){const k=by('kpi');if(!k)return {};const T=k.tiles;return {label:'Repeat purchase rate',value:fv(T[1].value,'pct'),minis:[mini('Customers',fv(T[0].value,'int')),mini('Orders each',fv(T[2].value,'num1')),mini('Average lifetime value',fv(T[4].value,'money'))]}}
+  return {};
+}
+const TAB_INFO={sales:['Sales','Revenue, orders, channels and profit'],funnel:['Website funnel','Where visitors drop off before buying'],products:['Products','What sells, what sits, and what needs work'],experience:['Customer experience','Delivery, returns and service'],retention:['Retention','Who comes back, and who to win back']};
+function analyticsHero(tab,d){
+  const sp=heroSpec(tab,d.sections),info=TAB_INFO[tab]||[tab,''];
+  const mo=(d.months||[]).slice().reverse().map(m=>`<option value="${m.key}" ${m.key===S.shop.month?'selected':''}>${esc(m.label)}</option>`).join('');
+  return `<section class="hero"><div class="hero-top"><div><span class="eyebrow">${esc(info[0])} · ${esc(d.monthLabel)}</span>${sp.value?`<div class="hero-n${sp.small?' sm':''}">${sp.value}</div><div><span class="hero-vs">${esc(sp.label)}</span> ${sp.chip||''}</div>`:`<div class="hero-n sm">${esc(info[1])}</div>`}</div>
+    <div style="display:grid;gap:10px;justify-items:end"><div class="hero-actions"><select class="select" id="shop-month" aria-label="Month" style="width:auto;background:rgba(255,255,255,.9);color:#2B1D35;font-weight:600">${mo}</select><button class="btn light" data-act="an-refresh" ${S.an.loading?'disabled':''}>${S.an.loading?'Loading…':'Refresh numbers'}</button></div>
+      ${sp.minis?`<div class="minis">${sp.minis.map(m=>`<div class="mini"><span class="eyebrow">${esc(m.l)}</span><b>${m.v}</b></div>`).join('')}</div>`:''}</div></div>
+    ${sp.spark&&sp.spark.length>1?areaSpark(sp.spark,sp.sel):''}${sp.foot?`<div class="hero-foot"><span>${esc(d.months[0].label)}</span><span>${esc(sp.foot)}</span><span>${esc(d.months[d.months.length-1].label)}</span></div>`:''}</section>`;
 }
 function anCohort(sec){
   if(!sec.rows.length)return `<p class="muted">${esc(sec.empty)}</p>`;
@@ -672,7 +706,7 @@ function renderAnalytics(L){
   if(d.configured===false){L.innerHTML=shopTabs()+`<div class="panel"><h2>Connect your Shopify store first</h2><p class="muted">Missing: ${d.missing.map(esc).join(', ')}</p></div>`;return}
   an.last=d.month;
   const scrollY=window.scrollY;
-  L.innerHTML=shopTabs()+top(d.months)+(an.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(an.err)}</p></div>`:'')+(d.scopes?`<div class="panel" style="border-color:var(--warn)"><b style="color:var(--warn)">Permissions this site currently has from Shopify</b><p class="body-text mono" style="font-size:.8rem">${d.scopes.length?d.scopes.map(esc).join(', '):'none returned'}</p><p class="muted" style="font-size:.8rem">Reports need read_reports in this list.</p></div>`:'')+d.sections.map(anSection).join('')+`<p class="muted" style="font-size:.78rem">Figures come straight from Shopify reports and are kept for 30 minutes. Press Refresh numbers to fetch them again. Times use ${esc(d.tz)}.</p>`;
+  L.innerHTML=shopTabs()+analyticsHero(an.tab,d)+(an.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(an.err)}</p></div>`:'')+(d.scopes?`<div class="panel" style="border-color:var(--warn)"><b style="color:var(--warn)">Permissions this site currently has from Shopify</b><p class="body-text mono" style="font-size:.8rem">${d.scopes.length?d.scopes.map(esc).join(', '):'none returned'}</p><p class="muted" style="font-size:.8rem">Reports need read_reports in this list.</p></div>`:'')+d.sections.map(anSection).join('')+`<p class="muted" style="font-size:.78rem">Figures come straight from Shopify reports and are kept for 30 minutes. Press Refresh numbers to fetch them again. Times use ${esc(d.tz)}.</p>`;
   window.scrollTo(0,scrollY);
 }
 
