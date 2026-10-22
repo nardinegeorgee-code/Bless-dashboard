@@ -1,26 +1,15 @@
 /* Layout: app shell — role-aware sidebar on the left, one working pane on the right; collapses to a top bar on phones */
 :root{
-  --bg:#F2F4F0; --surface:#FFFFFF; --surface-2:#E8ECE5; --ink:#18201C; --muted:#5A665F; --line:#D3D9D1;
-  --accent:#0E6A55; --accent-ink:#FFFFFF; --accent-soft:#DCEEE7;
+  --bg:#D9C9E2; --surface:#EDE4F2; --surface-2:#CBB7D8; --ink:#2B1D35; --muted:#5F4E6C; --line:#BBA4CA;
+  --accent:#F28D3A; --accent-ink:#2B1D35; --accent-soft:#F8D9BC; --accent-text:#A24E0C;
   --ok:#2C7A4B; --warn:#A8521A; --danger:#B3261E;
-  --role-sa:#0E6A55; --role-gd:#C2410C; --role-mb:#1D4ED8; --role-cc:#A21CAF; --role-mo:#4D7C0F; --role-pr:#B45309; --role-ec:#0F766E;
+  --role-sa:#F28D3A; --role-gd:#C2410C; --role-mb:#1D4ED8; --role-cc:#A21CAF; --role-mo:#4D7C0F; --role-pr:#B45309; --role-ec:#0F766E;
   --f-display:"Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
   --f-body:"Figtree", "Segoe UI", system-ui, -apple-system, sans-serif;
   --f-mono:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --r:10px;
+  color-scheme:light;
 }
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#111513; --surface:#191F1C; --surface-2:#222A26; --ink:#E6ECE8; --muted:#98A59E; --line:#2C3631;
-  --accent:#4CC4A0; --accent-ink:#08201A; --accent-soft:#183A30;
-  --ok:#6FCF97; --warn:#F0A46B; --danger:#F2867C;
-  --role-sa:#4CC4A0; --role-gd:#FB8B5A; --role-mb:#7AA2FF; --role-cc:#E07BEF; --role-mo:#A3D65C; --role-pr:#F5B651; --role-ec:#4FD1C5;
-  color-scheme:dark}}
-:root[data-theme="dark"]{
-  --bg:#111513; --surface:#191F1C; --surface-2:#222A26; --ink:#E6ECE8; --muted:#98A59E; --line:#2C3631;
-  --accent:#4CC4A0; --accent-ink:#08201A; --accent-soft:#183A30;
-  --ok:#6FCF97; --warn:#F0A46B; --danger:#F2867C;
-  --role-sa:#4CC4A0; --role-gd:#FB8B5A; --role-mb:#7AA2FF; --role-cc:#E07BEF; --role-mo:#A3D65C; --role-pr:#F5B651; --role-ec:#4FD1C5;
-  color-scheme:dark}
 
 *{box-sizing:border-box}
 html,body{min-height:100%}
@@ -169,7 +158,7 @@ td .select{width:auto;min-width:170px;padding:6px 9px}
 .fsel{position:absolute;top:6px;left:6px;display:grid;place-items:center;width:26px;height:26px;border-radius:7px;background:color-mix(in srgb,var(--surface) 88%,transparent);border:1px solid var(--line);cursor:pointer}
 .fsel input{margin:0;width:15px;height:15px;accent-color:var(--accent);cursor:pointer}
 .fdl{position:absolute;top:6px;right:6px;display:grid;place-items:center;width:26px;height:26px;border-radius:7px;background:color-mix(in srgb,var(--surface) 88%,transparent);border:1px solid var(--line);color:var(--ink);text-decoration:none}
-.fdl:hover,.fsel:hover{border-color:var(--accent);color:var(--accent)}
+.fdl:hover,.fsel:hover{border-color:var(--accent);color:var(--accent-text)}
 .selbar{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:40;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--accent);border-radius:12px;padding:10px 14px;box-shadow:0 8px 28px rgba(0,0,0,.28);width:min(560px,calc(100% - 32px))}
 .selbar[hidden]{display:none}
 
@@ -194,7 +183,7 @@ td .select{width:auto;min-width:170px;padding:6px 9px}
 .subtabs{display:flex;gap:4px;overflow-x:auto;border-bottom:1px solid var(--line);margin-bottom:16px;padding-bottom:0;-webkit-overflow-scrolling:touch}
 .subtab{border:0;background:transparent;color:var(--muted);padding:10px 14px;font-weight:600;font-size:.9rem;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-1px}
 .subtab:hover{color:var(--ink)}
-.subtab.on{color:var(--accent);border-bottom-color:var(--accent)}
+.subtab.on{color:var(--accent-text);border-bottom-color:var(--accent)}
 .tablewrap{overflow-x:auto;margin-top:8px}
 .dt{width:100%;border-collapse:collapse;font-size:.87rem}
 .dt th{font-family:var(--f-mono);font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:left;font-weight:600;padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
@@ -205,7 +194,7 @@ td .select{width:auto;min-width:170px;padding:6px 9px}
 .cbar{position:absolute;left:0;top:50%;height:60%;transform:translateY(-50%);background:var(--accent-soft);z-index:0;border-radius:0 4px 4px 0}
 .dt td .ct{z-index:1}
 .dt td.r-good{color:var(--ok);font-weight:700}.dt td.r-mid{color:var(--warn);font-weight:700}.dt td.r-bad{color:var(--danger);font-weight:700}
-.dt a{color:var(--accent);font-weight:600}
+.dt a{color:var(--accent-text);font-weight:600}
 .coh td.hc{min-width:54px;font-size:.78rem}
 .fun{display:grid;gap:8px;margin:10px 0 16px}
 .frow{display:grid;grid-template-columns:130px 1fr 80px 80px;gap:10px;align-items:center}
