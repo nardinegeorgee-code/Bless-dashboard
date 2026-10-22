@@ -61,6 +61,10 @@ export function ensureSchema() {
         month TEXT NOT NULL, user_id TEXT NOT NULL, score INTEGER, note TEXT NOT NULL DEFAULT '', updated_at BIGINT NOT NULL,
         PRIMARY KEY (month, user_id)
       )`;
+      await q`CREATE TABLE IF NOT EXISTS eval_speed (
+        instruction_id TEXT NOT NULL, user_id TEXT NOT NULL, score INTEGER, updated_at BIGINT NOT NULL,
+        PRIMARY KEY (instruction_id, user_id)
+      )`;
       await q`CREATE TABLE IF NOT EXISTS eval_settings (key TEXT PRIMARY KEY, value JSONB NOT NULL)`;
     })();
     ready.catch(() => { ready = null; });

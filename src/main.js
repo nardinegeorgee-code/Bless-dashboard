@@ -144,7 +144,7 @@ function mount(){
     <div class="row"><select class="select" id="f-role" style="width:auto" aria-label="Filter by role"><option value="">All roles</option>${ROLES.filter(r=>r.key!=='super_admin').map(r=>`<option value="${r.key}" ${S.fRole===r.key?'selected':''}>${r.label}</option>`).join('')}</select>
     <select class="select" id="f-user" style="width:auto" aria-label="Filter by person"></select>
     <select class="select" id="f-kind" style="width:auto" aria-label="Filter by type"><option value="">Responses and uploads</option><option value="resp" ${S.fKind==='resp'?'selected':''}>Responses to instructions</option><option value="free" ${S.fKind==='free'?'selected':''}>Uploads without instruction</option></select></div><div id="live"></div>`;
-  else if(S.route==='eval'){v.innerHTML=`<div class="head"><div><h1>Team evaluation</h1><p>Monthly KPIs: speed of response, accuracy of each task and behaviour, with a ranking.</p></div></div><div id="live"></div>`;if(!S.ev.data&&!S.ev.loading)loadEval();else renderEval(true)}
+  else if(S.route==='eval'){v.innerHTML=`<div class="head"><div><h1>Team evaluation</h1><p>Monthly KPIs and ranking. You enter the speed and accuracy percentages; HR gives behaviour once a month.</p></div></div><div id="live"></div>`;if(!S.ev.data&&!S.ev.loading)loadEval();else renderEval(true)}
   else if(S.route==='shop'){v.innerHTML=`<div class="head"><div><h1>Shopify</h1><p>Sales, funnel, products, customer experience and retention, one tab each.</p></div></div><div id="live"></div>`;if(S.an.tab==='overview'){if(!S.shop.data&&!S.shop.loading)loadShop()}else loadAn();}
   else if(S.route==='users')v.innerHTML=`<div class="head"><div><h1>Users</h1><p>Add people, change their role, or set a new password.</p></div></div>
     <form class="panel" data-form="adduser"><h2>Add a user</h2><div class="grid2">
@@ -334,26 +334,25 @@ function renderEval(force){
   const wsum=w.speed+w.accuracy+w.behaviour;
   const rules=`<details class="panel rules"><summary><b>Scoring rules</b> <span class="muted">Speed ${w.speed}% · Accuracy ${w.accuracy}% · Behaviour ${w.behaviour}%</span></summary>
     <form id="ev-settings" class="rulegrid"><label>Speed weight (%)<input class="input" type="number" min="0" max="100" name="speed" value="${w.speed}"></label><label>Accuracy weight (%)<input class="input" type="number" min="0" max="100" name="accuracy" value="${w.accuracy}"></label><label>Behaviour weight (%)<input class="input" type="number" min="0" max="100" name="behaviour" value="${w.behaviour}"></label>
-      <label>Full marks if answered within (hours)<input class="input" type="number" min="0" name="goodHours" value="${st.goodHours}"></label><label>Zero marks after (hours)<input class="input" type="number" min="1" name="zeroHours" value="${st.zeroHours}"></label>
-      <div class="rulenote"><p class="muted">Speed is scored for every instruction: ${st.goodHours} h or faster is 100%, falling in a straight line to 0% at ${st.zeroHours} h, and 0% if there is still no response by then. Accuracy is the average of the percentages you give to each response. Behaviour is the monthly percentage from HR. The final score is the weighted average of whichever parts exist. Weights total ${wsum}%.</p><button class="btn primary" type="submit">Save rules</button></div></form></details>`;
+      <div class="rulenote"><p class="muted">You enter every percentage yourself. Speed: a percentage for each instruction, using the time taken shown beside it as a guide. Accuracy: a percentage for each response. Behaviour: one percentage per person per month, from HR. A person's speed and accuracy are the averages of what you entered, and the final score is the weighted average of the parts that exist. The weights above total ${wsum}%.</p><button class="btn primary" type="submit">Save weights</button></div></form></details>`;
   const head=`<th>#</th><th>Team member</th><th class="num">Tasks</th><th class="num">Speed</th><th class="num">Accuracy</th><th>Behaviour (HR)</th><th>Final</th><th class="num">vs last month</th><th></th>`;
   const body=rows.map(r=>{
     const open=ev.open.has(r.userId);
     const main=`<tr class="${open?'open':''}"><td class="mono"><b>${r.rank===null?'–':r.rank}</b></td><td><b>${esc(r.username)}</b> ${roleChip(r.role)}${r.complete?'':' <span class="pill new" title="Some parts are not scored yet">Partial</span>'}</td>
-      <td class="num mono">${r.answered}/${r.tasks}</td><td class="num">${scPill(r.speed)}</td><td class="num">${scPill(r.accuracy)}${r.unrated?`<div class="muted" style="font-size:.68rem">${r.unrated} unrated</div>`:''}</td>
+      <td class="num mono">${r.answered}/${r.tasks}</td><td class="num">${scPill(r.speed)}${r.unspeed?`<div class="muted" style="font-size:.68rem">${r.unspeed} unrated</div>`:''}</td><td class="num">${scPill(r.accuracy)}${r.unrated?`<div class="muted" style="font-size:.68rem">${r.unrated} unrated</div>`:''}</td>
       <td><div class="behcell"><input class="input ev-beh" type="number" min="0" max="100" placeholder="–" data-user="${r.userId}" value="${r.behaviour===null?'':r.behaviour}" aria-label="Behaviour score for ${esc(r.username)}"><input class="input ev-note" type="text" maxlength="500" placeholder="HR note" data-user="${r.userId}" value="${esc(r.behaviourNote||'')}" aria-label="HR note for ${esc(r.username)}"></div></td>
       <td><div class="fcell">${r.final===null?'<span class="muted">–</span>':`<b class="mono">${Math.round(r.final)}%</b><span class="fbar"><i class="${scCls(r.final)}" style="width:${r.final}%"></i></span>`}</div></td><td class="num">${moveChip(r)}</td>
       <td><button class="btn sm" data-act="ev-open" data-id="${r.userId}" aria-expanded="${open}">${open?'Hide':'Tasks'}</button></td></tr>`;
     if(!open)return main;
-    const det=r.items.length?`<table class="dt"><thead><tr><th>Task</th><th>Sent</th><th>Responded</th><th class="num">Time taken</th><th class="num">Speed</th><th>Accuracy (give a %)</th></tr></thead><tbody>${r.items.map(x=>`<tr><td><button class="btn ghost sm" style="padding:0" data-act="go" data-route="ins" data-param="${x.id}">${esc(x.title)}</button></td><td class="mono muted">${fmtDate(x.createdAt)}</td><td class="mono">${x.respondedAt?fmtDate(x.respondedAt):(x.pending?'<span class="muted">still open</span>':'<span class="sc lo">none</span>')}</td><td class="num mono">${dur(x.hours)}</td><td class="num">${scPill(x.speed)}</td>
+    const det=r.items.length?`<table class="dt"><thead><tr><th>Task</th><th>Sent</th><th>Responded</th><th class="num">Time taken</th><th>Speed (give a %)</th><th>Accuracy (give a %)</th></tr></thead><tbody>${r.items.map(x=>`<tr><td><button class="btn ghost sm" style="padding:0" data-act="go" data-route="ins" data-param="${x.id}">${esc(x.title)}</button></td><td class="mono muted">${fmtDate(x.createdAt)}</td><td class="mono">${x.respondedAt?fmtDate(x.respondedAt):'<span class="muted">no response yet</span>'}</td><td class="num mono">${dur(x.hours)}</td><td><input class="input ev-speed" type="number" min="0" max="100" placeholder="–" data-ins="${x.id}" data-user="${r.userId}" value="${x.speed===null?'':x.speed}" aria-label="Speed percentage"></td>
       <td>${x.responses.length?x.responses.map(s=>`<input class="input ev-rate" type="number" min="0" max="100" placeholder="–" data-id="${s.id}" value="${s.rating===null?'':s.rating}" aria-label="Accuracy percentage">`).join(' '):'<span class="muted">no response</span>'}</td></tr>`).join('')}</tbody></table>`:'<p class="muted">No instructions were sent to this person this month.</p>';
     return main+`<tr class="detail"><td></td><td colspan="8">${det}</td></tr>`;
   }).join('');
   L.innerHTML=`<div class="row" style="justify-content:space-between;gap:12px"><div class="row" style="gap:10px"><label class="muted" for="ev-month" style="font-weight:600">Month</label><select class="select" id="ev-month" style="width:auto">${monthOpts}</select>${ev.loading?'<span class="muted">Loading…</span>':''}</div>
     <button class="btn" data-act="ev-csv">Download CSV</button></div>
-    ${d.unrated?`<div class="panel" style="border-color:var(--warn);padding:12px 16px"><b style="color:var(--warn)">${d.unrated} response${d.unrated===1?'':'s'} not rated yet.</b> <span class="muted">Open a person's Tasks below, or any instruction's responses, and give each a percentage.</span></div>`:''}
+    ${d.unrated||d.unspeed?`<div class="panel" style="border-color:var(--warn);padding:12px 16px"><b style="color:var(--warn)">Still to enter: ${d.unspeed} speed and ${d.unrated} accuracy percentage${d.unspeed+d.unrated===1?'':'s'}.</b> <span class="muted">Open a person's Tasks below and fill them in.</span></div>`:''}
     ${podium}${rules}
-    <section class="panel"><div><h2>Ranking · ${esc(d.monthLabel)}</h2><p class="muted">Ranked by final score. Type behaviour percentages straight into the table; they save when you leave the box.</p></div>
+    <section class="panel"><div><h2>Ranking · ${esc(d.monthLabel)}</h2><p class="muted">Ranked by final score. Behaviour is entered once per month, right in this table; it saves when you leave the box.</p></div>
       ${rows.length?`<div class="tablewrap"><table class="dt evt"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`:'<p class="muted">Add team members on the Users page to start evaluating.</p>'}</section>`;
 }
 function evCsv(){
@@ -691,7 +690,7 @@ document.addEventListener('click',async e=>{
   else if(a==='del-sub'){if(!arm(b))return;try{await api('DELETE','/api/submissions?id='+encodeURIComponent(b.dataset.id));await sync();toast('Deleted')}catch(x){toast(x.message||'Could not delete')}}
 });
 document.addEventListener('submit',async e=>{
-  if(e.target.id==='ev-settings'){e.preventDefault();const f=new FormData(e.target);evPost({action:'settings',weights:{speed:f.get('speed'),accuracy:f.get('accuracy'),behaviour:f.get('behaviour')},goodHours:f.get('goodHours'),zeroHours:f.get('zeroHours')},'Rules saved');return}
+  if(e.target.id==='ev-settings'){e.preventDefault();const f=new FormData(e.target);evPost({action:'settings',weights:{speed:f.get('speed'),accuracy:f.get('accuracy'),behaviour:f.get('behaviour')}},'Weights saved');return}
   if(e.target.id!=='an-manual')return;e.preventDefault();
   const values={};new FormData(e.target).forEach((v,k)=>{values[k]=v});
   S.an.saving=true;renderShop();
@@ -703,6 +702,7 @@ document.addEventListener('change',async e=>{
   if(t.matches('input[type=file]')){addFiles(t.dataset.kind,[...t.files]);t.value=''}
   else if(t.id==='shop-month'){loadShop(t.value)}
   else if(t.id==='ev-month'){loadEval(t.value)}
+  else if(t.classList.contains('ev-speed')){evPost({action:'speed',instructionId:t.dataset.ins,userId:t.dataset.user,score:t.value===''?null:t.value},'Saved')}
   else if(t.classList.contains('ev-rate')){evPost({action:'rate',submissionId:t.dataset.id,rating:t.value===''?null:t.value},'Saved')}
   else if(t.classList.contains('ev-beh')||t.classList.contains('ev-note')){const tr=t.closest('tr'),sc=tr.querySelector('.ev-beh'),nt=tr.querySelector('.ev-note');evPost({action:'behaviour',month:S.ev.month,userId:t.dataset.user,score:sc.value===''?null:sc.value,note:nt.value},'Saved')}
   else if(t.id==='shop-metric'){S.shop.metric=t.value;renderShop()}

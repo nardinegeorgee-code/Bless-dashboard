@@ -1,7 +1,7 @@
 import { route, allow, db, HttpError, requireAdmin, mapInstruction } from './_lib.js';
 
 const HOUR = 3600000;
-export const DEFAULTS = { weights: { speed: 40, accuracy: 40, behaviour: 20 }, goodHours: 24, zeroHours: 72 };
+export const DEFAULTS = { weights: { speed: 40, accuracy: 40, behaviour: 20 } };
 const TZ = () => process.env.DASHBOARD_TZ || 'Africa/Cairo';
 
 function monthKeyer(tz) {
@@ -13,15 +13,9 @@ const prevKey = (key) => { const [y, m] = key.split('-').map(Number); const d = 
 const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 const r1 = (v) => (v === null ? null : Math.round(v * 10) / 10);
 
-export function speedScore(hours, good, zero) {
-  if (hours <= good) return 100;
-  if (hours >= zero) return 0;
-  return (100 * (zero - hours)) / (zero - good);
-}
-
 /** Pure scoring for one month. users = team members (not Super Admin); instructions/subs use API row shapes. */
-export function computeMonth({ month, users, instructions, subs, behaviour, settings, keyOf, now }) {
-  const { weights, goodHours, zeroHours } = settings;
+export function computeMonth({ month, users, instructions, subs, behaviour, speeds, settings, keyOf }) {
+  const { weights } = settings;
   const monthIns = instructions.filter((i) => keyOf(i.createdAt) === month);
   const rows = users.map((u) => {
     const items = [];
@@ -30,14 +24,13 @@ export function computeMonth({ month, users, instructions, subs, behaviour, sett
       const mine = subs.filter((s) => s.instructionId === i.id && s.userId === u.id).sort((a, b) => a.createdAt - b.createdAt);
       const first = mine[0];
       const hours = first ? Math.max(0, (first.createdAt - i.createdAt) / HOUR) : null;
-      const waited = (now - i.createdAt) / HOUR;
-      const speed = first ? speedScore(hours, goodHours, zeroHours) : waited >= zeroHours ? 0 : null;
+      const sp = speeds.find((x) => x.instructionId === i.id && x.userId === u.id);
+      const speed = sp && sp.score !== null ? sp.score : null;
       const rated = mine.filter((s) => s.rating !== null && s.rating !== undefined);
       items.push({
         id: i.id, title: i.title, createdAt: i.createdAt, respondedAt: first ? first.createdAt : null,
         hours: r1(hours), speed: r1(speed), accuracy: r1(avg(rated.map((s) => s.rating))),
         responses: mine.map((s) => ({ id: s.id, rating: s.rating ?? null, createdAt: s.createdAt })),
-        pending: !first && speed === null,
       });
     }
     const b = behaviour.find((x) => x.userId === u.id) || null;
@@ -53,6 +46,7 @@ export function computeMonth({ month, users, instructions, subs, behaviour, sett
       final: r1(final), complete: parts.length === 3,
       tasks: items.length, answered: items.filter((x) => x.respondedAt).length,
       unrated: items.reduce((a, x) => a + x.responses.filter((s) => s.rating === null).length, 0),
+      unspeed: items.filter((x) => x.speed === null).length,
       items: items.sort((a, b2) => b2.createdAt - a.createdAt),
     };
   });
@@ -64,7 +58,7 @@ export function computeMonth({ month, users, instructions, subs, behaviour, sett
 async function loadSettings(q) {
   const r = await q`SELECT value FROM eval_settings WHERE key = 'main'`;
   const v = r[0]?.value || {};
-  return { weights: { ...DEFAULTS.weights, ...(v.weights || {}) }, goodHours: v.goodHours ?? DEFAULTS.goodHours, zeroHours: v.zeroHours ?? DEFAULTS.zeroHours };
+  return { weights: { ...DEFAULTS.weights, ...(v.weights || {}) } };
 }
 const num = (v, lo, hi, what) => { const n = Number(v); if (!Number.isFinite(n) || n < lo || n > hi) throw new HttpError(400, `${what}: enter a number from ${lo} to ${hi}.`); return n; };
 
@@ -83,6 +77,16 @@ export default route(async (req, res) => {
       if (!r.length) throw new HttpError(404, 'That response no longer exists.');
       return res.json({ ok: true });
     }
+    if (b.action === 'speed') {
+      const ins = await q`SELECT id FROM instructions WHERE id = ${String(b.instructionId || '')}`;
+      const u = await q`SELECT id, role FROM users WHERE id = ${String(b.userId || '')}`;
+      if (!ins.length || !u.length || u[0].role === 'super_admin') throw new HttpError(404, 'That instruction or team member was not found.');
+      const score = b.score === null || b.score === '' || b.score === undefined ? null : Math.round(num(b.score, 0, 100, 'Speed'));
+      if (score === null) await q`DELETE FROM eval_speed WHERE instruction_id = ${ins[0].id} AND user_id = ${u[0].id}`;
+      else await q`INSERT INTO eval_speed (instruction_id, user_id, score, updated_at) VALUES (${ins[0].id}, ${u[0].id}, ${score}, ${Date.now()})
+        ON CONFLICT (instruction_id, user_id) DO UPDATE SET score = EXCLUDED.score, updated_at = EXCLUDED.updated_at`;
+      return res.json({ ok: true });
+    }
     if (b.action === 'behaviour') {
       const month = String(b.month || '');
       if (!/^\d{4}-\d{2}$/.test(month)) throw new HttpError(400, 'Choose a month.');
@@ -99,10 +103,7 @@ export default route(async (req, res) => {
       const w = b.weights || {};
       const weights = { speed: num(w.speed, 0, 100, 'Speed weight'), accuracy: num(w.accuracy, 0, 100, 'Accuracy weight'), behaviour: num(w.behaviour, 0, 100, 'Behaviour weight') };
       if (weights.speed + weights.accuracy + weights.behaviour <= 0) throw new HttpError(400, 'At least one weight must be above zero.');
-      const goodHours = num(b.goodHours, 0, 24 * 30, 'Full-marks time');
-      const zeroHours = num(b.zeroHours, 1, 24 * 60, 'Zero-marks time');
-      if (zeroHours <= goodHours) throw new HttpError(400, 'The zero-marks time must be longer than the full-marks time.');
-      await q`INSERT INTO eval_settings (key, value) VALUES ('main', ${JSON.stringify({ weights, goodHours, zeroHours })}::jsonb)
+      await q`INSERT INTO eval_settings (key, value) VALUES ('main', ${JSON.stringify({ weights })}::jsonb)
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`;
       return res.json({ ok: true });
     }
@@ -118,12 +119,13 @@ export default route(async (req, res) => {
   const instructions = (await q`SELECT * FROM instructions`).map(mapInstruction);
   const subs = (await q`SELECT id, user_id, instruction_id, created_at, rating FROM submissions WHERE instruction_id <> ''`)
     .map((s) => ({ id: s.id, userId: s.user_id, instructionId: s.instruction_id, createdAt: Number(s.created_at), rating: s.rating === null ? null : Number(s.rating) }));
+  const speeds = (await q`SELECT instruction_id, user_id, score FROM eval_speed`).map((r) => ({ instructionId: r.instruction_id, userId: r.user_id, score: r.score === null ? null : Number(r.score) }));
   const beh = (m) => q`SELECT user_id, score, note FROM eval_behaviour WHERE month = ${m}`;
   const toB = (rows) => rows.map((r) => ({ userId: r.user_id, score: r.score === null ? null : Number(r.score), note: r.note }));
-  const rows = computeMonth({ month, users, instructions, subs, behaviour: toB(await beh(month)), settings, keyOf, now });
+  const rows = computeMonth({ month, users, instructions, subs, behaviour: toB(await beh(month)), speeds, settings, keyOf });
   const pk = prevKey(month);
-  const prev = computeMonth({ month: pk, users, instructions, subs, behaviour: toB(await beh(pk)), settings, keyOf, now });
+  const prev = computeMonth({ month: pk, users, instructions, subs, behaviour: toB(await beh(pk)), speeds, settings, keyOf });
   const pm = new Map(prev.map((r) => [r.userId, r]));
   rows.forEach((r) => { const p = pm.get(r.userId); r.prevFinal = p ? p.final : null; r.prevRank = p ? p.rank : null; });
-  res.json({ month, monthLabel: label(month), months: months.map((k) => ({ key: k, label: label(k) })), settings, rows, unrated: rows.reduce((a, r) => a + r.unrated, 0) });
+  res.json({ month, monthLabel: label(month), months: months.map((k) => ({ key: k, label: label(k) })), settings, rows, unrated: rows.reduce((a, r) => a + r.unrated, 0), unspeed: rows.reduce((a, r) => a + r.unspeed, 0) });
 });
