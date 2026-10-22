@@ -96,7 +96,7 @@ const validName=u=>u.length>=2&&u.length<=40;
 
 /* ---------- app shell ---------- */
 function navItems(){
-  if(isAdmin())return [['home','Overview'],['send','Send instruction'],['content','All content'],['shop','Shopify'],['team','Team by role'],['users','Users']];
+  if(isAdmin())return [['home','Overview'],['send','Send instruction'],['content','All content'],['eval','Evaluation'],['shop','Shopify'],['team','Team by role'],['users','Users']];
   const pending=myInstructions().filter(i=>!responded(i.id)).length;
   return [['home','Instructions',pending],['uploads','My uploads'],['team','Team by role']];
 }
@@ -125,7 +125,7 @@ function targetChips(ins){
 /* ---------- views: mount builds static parts (forms), update fills live parts ---------- */
 function mount(){
   const v=$('#view');const r=S.route;
-  if(!isAdmin()&&['send','content','users','shop'].includes(r)){S.route='home'}
+  if(!isAdmin()&&['send','content','users','shop','eval'].includes(r)){S.route='home'}
   if(S.route==='home')v.innerHTML=isAdmin()?`<div id="live"></div>`
     :`<div class="head"><div><h1>Instructions</h1><p>Briefs from your Super Admin. Open one to send back your files.</p></div><button class="btn" data-act="go" data-route="uploads">Upload without an instruction</button></div><div id="live"></div>`;
   else if(S.route==='ins')v.innerHTML=`<button class="btn ghost back" data-act="go" data-route="${isAdmin()?'send':'home'}">← Back</button><div id="live"></div>${isAdmin()?'':`<div class="panel"><div><h2>Respond</h2><p class="muted">Attach your files and add a note if needed.</p></div>${uploadForm('resp')}</div>`}<div id="live2"></div>`;
@@ -144,6 +144,7 @@ function mount(){
     <div class="row"><select class="select" id="f-role" style="width:auto" aria-label="Filter by role"><option value="">All roles</option>${ROLES.filter(r=>r.key!=='super_admin').map(r=>`<option value="${r.key}" ${S.fRole===r.key?'selected':''}>${r.label}</option>`).join('')}</select>
     <select class="select" id="f-user" style="width:auto" aria-label="Filter by person"></select>
     <select class="select" id="f-kind" style="width:auto" aria-label="Filter by type"><option value="">Responses and uploads</option><option value="resp" ${S.fKind==='resp'?'selected':''}>Responses to instructions</option><option value="free" ${S.fKind==='free'?'selected':''}>Uploads without instruction</option></select></div><div id="live"></div>`;
+  else if(S.route==='eval'){v.innerHTML=`<div class="head"><div><h1>Team evaluation</h1><p>Monthly KPIs: speed of response, accuracy of each task and behaviour, with a ranking.</p></div></div><div id="live"></div>`;if(!S.ev.data&&!S.ev.loading)loadEval();else renderEval(true)}
   else if(S.route==='shop'){v.innerHTML=`<div class="head"><div><h1>Shopify</h1><p>Sales, funnel, products, customer experience and retention, one tab each.</p></div></div><div id="live"></div>`;if(S.an.tab==='overview'){if(!S.shop.data&&!S.shop.loading)loadShop()}else loadAn();}
   else if(S.route==='users')v.innerHTML=`<div class="head"><div><h1>Users</h1><p>Add people, change their role, or set a new password.</p></div></div>
     <form class="panel" data-form="adduser"><h2>Add a user</h2><div class="grid2">
@@ -166,6 +167,7 @@ function update(){
   else if(r==='content')updateContent();
   else if(r==='users')L.innerHTML=usersHTML();
   else if(r==='shop')renderShop();
+  else if(r==='eval')renderEval();
   syncUploadAvail();renderSelBar();
 }
 
@@ -257,6 +259,7 @@ function subHTML(s,hideIns){
   const ctx=hideIns?'':s.instructionId?`<button class="btn sm ghost" style="padding:0;justify-content:flex-start" data-act="go" data-route="ins" data-param="${s.instructionId}">Re: ${esc(ins?ins.title:'deleted instruction')}</button>`:'<span class="muted" style="font-size:.85rem">Upload without instruction</span>';
   return `<article class="item"><div class="item-top"><div class="row" style="gap:8px"><span class="mono">${esc(s.username)}</span>${roleChip(s.role)}</div><div class="row" style="gap:8px"><span class="mono muted">${fmtDate(s.createdAt)}</span>${(s.files||[]).length>1?`<button class="btn sm" data-act="sel-sub" data-id="${s.id}">Select all files</button>`:''}${canDel?`<button class="btn sm danger" data-act="del-sub" data-id="${s.id}">Delete</button>`:''}</div></div>
     ${ctx}${s.note?`<p class="body-text">${esc(s.note)}</p>`:''}
+    ${isAdmin()&&s.instructionId?`<div class="rate"><span class="eyebrow">Accuracy</span><input class="input ev-rate" type="number" min="0" max="100" placeholder="–" data-id="${s.id}" value="${s.rating===null||s.rating===undefined?'':s.rating}" aria-label="Accuracy percentage"><span class="muted">%</span>${[100,75,50,0].map(v=>`<button type="button" class="btn sm" data-act="ev-quick" data-id="${s.id}" data-v="${v}">${v}</button>`).join('')}</div>`:''}
     ${(s.files||[]).length?`<div class="files">${s.files.map(fileHTML).join('')}</div>`:''}</article>`;
 }
 function fileHTML(f){
@@ -297,6 +300,70 @@ function monthChart(ms,metric,sel){
   const f=metric==='revenue'?money:fmtNum;const max=Math.max(1,...ms.map(m=>m[metric]));
   return `<div class="mchart">${ms.map(m=>`<button class="mcol${m.key===sel?' on':''}${m.fromReports?' rep':''}" data-act="shop-month" data-m="${m.key}" title="${esc(m.label)}: ${esc(f(m[metric]))}"><span class="mval mono">${shortNum(m[metric])}</span><span class="mbar"><i style="height:${Math.max(2,m[metric]/max*100)}%"></i></span><span class="mlab">${esc(m.label.slice(0,3)+" '"+m.label.slice(-2))}</span></button>`).join('')}</div>`;
 }
+/* ---------- Team evaluation (monthly KPIs and ranking) ---------- */
+S.ev={month:'',data:null,loading:false,err:'',open:new Set()};
+async function loadEval(month,quiet){
+  const ev=S.ev;if(month!==undefined)ev.month=month;if(!quiet){ev.loading=true;ev.err='';renderEval(true)}
+  try{ev.data=await api('GET','/api/evaluation'+(ev.month?'?month='+encodeURIComponent(ev.month):''));ev.month=ev.data.month}
+  catch(e){ev.err=e.message}
+  ev.loading=false;renderEval(true);
+}
+async function evPost(body,msg){
+  try{await api('POST','/api/evaluation',body);if(msg)toast(msg);await Promise.all([sync(),S.route==='eval'?loadEval(undefined,true):null])}
+  catch(e){toast(e.message||'Could not save');if(S.route==='eval')renderEval(true)}
+}
+const scCls=v=>v===null||v===undefined?'':v>=85?'hi':v>=60?'mid':'lo';
+const scPill=v=>v===null||v===undefined?'<span class="muted">–</span>':`<span class="sc ${scCls(v)}">${Math.round(v)}%</span>`;
+function dur(h){if(h===null||h===undefined)return '–';if(h<1)return Math.max(1,Math.round(h*60))+' min';if(h<48)return (Math.round(h*10)/10)+' h';return (Math.round(h/24*10)/10)+' days'}
+function moveChip(r){
+  if(r.rank===null)return '';
+  if(r.prevRank===null||r.prevRank===undefined)return '<span class="mv new">new</span>';
+  const d=r.prevRank-r.rank;return d>0?`<span class="mv up">▲ ${d}</span>`:d<0?`<span class="mv down">▼ ${-d}</span>`:'<span class="mv same">–</span>';
+}
+function renderEval(force){
+  if(S.screen!=='app'||S.route!=='eval')return;const L=$('#live');if(!L)return;
+  const ae=document.activeElement;if(!force&&ae&&L.contains(ae)&&/INPUT|TEXTAREA|SELECT/.test(ae.tagName))return;
+  const ev=S.ev,d=ev.data;
+  if(!d){L.innerHTML=ev.err?`<div class="empty"><b>Could not load the evaluation</b><span>${esc(ev.err)}</span><button class="btn" data-act="ev-reload">Try again</button></div>`:empty('Loading…','Calculating this month.');return}
+  const st=d.settings,w=st.weights,rows=d.rows;
+  const monthOpts=d.months.slice().reverse().map(m=>`<option value="${m.key}" ${m.key===d.month?'selected':''}>${esc(m.label)}</option>`).join('');
+  const medals=['#E0A526','#9AA3AD','#B9723A'];
+  const top=rows.filter(r=>r.rank!==null&&r.rank<=3);
+  const order=top.length>=3?[top[1],top[0],top[2]]:top;
+  const podium=top.length?`<div class="podium">${order.map(r=>`<div class="pcard p${r.rank}"><span class="medal" style="background:${medals[r.rank-1]}">${r.rank}</span><b class="pn">${esc(r.username)}</b>${roleChip(r.role)}<div class="pf">${Math.round(r.final)}<small>%</small></div>${r.complete?'':'<span class="muted" style="font-size:.72rem">partial score</span>'}</div>`).join('')}</div>`:'';
+  const wsum=w.speed+w.accuracy+w.behaviour;
+  const rules=`<details class="panel rules"><summary><b>Scoring rules</b> <span class="muted">Speed ${w.speed}% · Accuracy ${w.accuracy}% · Behaviour ${w.behaviour}%</span></summary>
+    <form id="ev-settings" class="rulegrid"><label>Speed weight (%)<input class="input" type="number" min="0" max="100" name="speed" value="${w.speed}"></label><label>Accuracy weight (%)<input class="input" type="number" min="0" max="100" name="accuracy" value="${w.accuracy}"></label><label>Behaviour weight (%)<input class="input" type="number" min="0" max="100" name="behaviour" value="${w.behaviour}"></label>
+      <label>Full marks if answered within (hours)<input class="input" type="number" min="0" name="goodHours" value="${st.goodHours}"></label><label>Zero marks after (hours)<input class="input" type="number" min="1" name="zeroHours" value="${st.zeroHours}"></label>
+      <div class="rulenote"><p class="muted">Speed is scored for every instruction: ${st.goodHours} h or faster is 100%, falling in a straight line to 0% at ${st.zeroHours} h, and 0% if there is still no response by then. Accuracy is the average of the percentages you give to each response. Behaviour is the monthly percentage from HR. The final score is the weighted average of whichever parts exist. Weights total ${wsum}%.</p><button class="btn primary" type="submit">Save rules</button></div></form></details>`;
+  const head=`<th>#</th><th>Team member</th><th class="num">Tasks</th><th class="num">Speed</th><th class="num">Accuracy</th><th>Behaviour (HR)</th><th>Final</th><th class="num">vs last month</th><th></th>`;
+  const body=rows.map(r=>{
+    const open=ev.open.has(r.userId);
+    const main=`<tr class="${open?'open':''}"><td class="mono"><b>${r.rank===null?'–':r.rank}</b></td><td><b>${esc(r.username)}</b> ${roleChip(r.role)}${r.complete?'':' <span class="pill new" title="Some parts are not scored yet">Partial</span>'}</td>
+      <td class="num mono">${r.answered}/${r.tasks}</td><td class="num">${scPill(r.speed)}</td><td class="num">${scPill(r.accuracy)}${r.unrated?`<div class="muted" style="font-size:.68rem">${r.unrated} unrated</div>`:''}</td>
+      <td><div class="behcell"><input class="input ev-beh" type="number" min="0" max="100" placeholder="–" data-user="${r.userId}" value="${r.behaviour===null?'':r.behaviour}" aria-label="Behaviour score for ${esc(r.username)}"><input class="input ev-note" type="text" maxlength="500" placeholder="HR note" data-user="${r.userId}" value="${esc(r.behaviourNote||'')}" aria-label="HR note for ${esc(r.username)}"></div></td>
+      <td><div class="fcell">${r.final===null?'<span class="muted">–</span>':`<b class="mono">${Math.round(r.final)}%</b><span class="fbar"><i class="${scCls(r.final)}" style="width:${r.final}%"></i></span>`}</div></td><td class="num">${moveChip(r)}</td>
+      <td><button class="btn sm" data-act="ev-open" data-id="${r.userId}" aria-expanded="${open}">${open?'Hide':'Tasks'}</button></td></tr>`;
+    if(!open)return main;
+    const det=r.items.length?`<table class="dt"><thead><tr><th>Task</th><th>Sent</th><th>Responded</th><th class="num">Time taken</th><th class="num">Speed</th><th>Accuracy (give a %)</th></tr></thead><tbody>${r.items.map(x=>`<tr><td><button class="btn ghost sm" style="padding:0" data-act="go" data-route="ins" data-param="${x.id}">${esc(x.title)}</button></td><td class="mono muted">${fmtDate(x.createdAt)}</td><td class="mono">${x.respondedAt?fmtDate(x.respondedAt):(x.pending?'<span class="muted">still open</span>':'<span class="sc lo">none</span>')}</td><td class="num mono">${dur(x.hours)}</td><td class="num">${scPill(x.speed)}</td>
+      <td>${x.responses.length?x.responses.map(s=>`<input class="input ev-rate" type="number" min="0" max="100" placeholder="–" data-id="${s.id}" value="${s.rating===null?'':s.rating}" aria-label="Accuracy percentage">`).join(' '):'<span class="muted">no response</span>'}</td></tr>`).join('')}</tbody></table>`:'<p class="muted">No instructions were sent to this person this month.</p>';
+    return main+`<tr class="detail"><td></td><td colspan="8">${det}</td></tr>`;
+  }).join('');
+  L.innerHTML=`<div class="row" style="justify-content:space-between;gap:12px"><div class="row" style="gap:10px"><label class="muted" for="ev-month" style="font-weight:600">Month</label><select class="select" id="ev-month" style="width:auto">${monthOpts}</select>${ev.loading?'<span class="muted">Loading…</span>':''}</div>
+    <button class="btn" data-act="ev-csv">Download CSV</button></div>
+    ${d.unrated?`<div class="panel" style="border-color:var(--warn);padding:12px 16px"><b style="color:var(--warn)">${d.unrated} response${d.unrated===1?'':'s'} not rated yet.</b> <span class="muted">Open a person's Tasks below, or any instruction's responses, and give each a percentage.</span></div>`:''}
+    ${podium}${rules}
+    <section class="panel"><div><h2>Ranking · ${esc(d.monthLabel)}</h2><p class="muted">Ranked by final score. Type behaviour percentages straight into the table; they save when you leave the box.</p></div>
+      ${rows.length?`<div class="tablewrap"><table class="dt evt"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`:'<p class="muted">Add team members on the Users page to start evaluating.</p>'}</section>`;
+}
+function evCsv(){
+  const d=S.ev.data;if(!d)return;
+  const q=v=>'"'+String(v===null||v===undefined?'':v).replace(/"/g,'""')+'"';
+  const lines=[['Rank','Member','Role','Tasks','Answered','Speed %','Accuracy %','Behaviour %','Final %','HR note'].map(q).join(',')];
+  d.rows.forEach(r=>lines.push([r.rank,r.username,(ROLE[r.role]||{label:r.role}).label,r.tasks,r.answered,r.speed,r.accuracy,r.behaviour,r.final,r.behaviourNote].map(q).join(',')));
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿'+lines.join('\n')],{type:'text/csv'}));a.download='team-evaluation-'+d.month+'.csv';document.body.appendChild(a);a.click();a.remove();
+}
+
 /* ---------- Shopify overview (rich layout) ---------- */
 const ICON={
   refund:'<path d="M4 8h9a4 4 0 0 1 0 8H8M4 8l3-3M4 8l3 3"/>',
@@ -600,6 +667,10 @@ document.addEventListener('click',async e=>{
   if(a==='go'){e.preventDefault();go(b.dataset.route,b.dataset.param)}
   else if(a==='logout')logout();
   else if(a==='shop-sync')runSync();
+  else if(a==='ev-reload')loadEval();
+  else if(a==='ev-csv')evCsv();
+  else if(a==='ev-open'){const id=b.dataset.id;S.ev.open.has(id)?S.ev.open.delete(id):S.ev.open.add(id);renderEval(true)}
+  else if(a==='ev-quick'){evPost({action:'rate',submissionId:b.dataset.id,rating:Number(b.dataset.v)},'Rated '+b.dataset.v+'%')}
   else if(a==='shop-reload')loadShop();
   else if(a==='shop-month')loadShop(b.dataset.m);
   else if(a==='ov-seg'){S.shop[b.dataset.k]=b.dataset.v;const y=window.scrollY;renderShop();window.scrollTo(0,y)}
@@ -620,6 +691,7 @@ document.addEventListener('click',async e=>{
   else if(a==='del-sub'){if(!arm(b))return;try{await api('DELETE','/api/submissions?id='+encodeURIComponent(b.dataset.id));await sync();toast('Deleted')}catch(x){toast(x.message||'Could not delete')}}
 });
 document.addEventListener('submit',async e=>{
+  if(e.target.id==='ev-settings'){e.preventDefault();const f=new FormData(e.target);evPost({action:'settings',weights:{speed:f.get('speed'),accuracy:f.get('accuracy'),behaviour:f.get('behaviour')},goodHours:f.get('goodHours'),zeroHours:f.get('zeroHours')},'Rules saved');return}
   if(e.target.id!=='an-manual')return;e.preventDefault();
   const values={};new FormData(e.target).forEach((v,k)=>{values[k]=v});
   S.an.saving=true;renderShop();
@@ -630,6 +702,9 @@ document.addEventListener('change',async e=>{
   const t=e.target;
   if(t.matches('input[type=file]')){addFiles(t.dataset.kind,[...t.files]);t.value=''}
   else if(t.id==='shop-month'){loadShop(t.value)}
+  else if(t.id==='ev-month'){loadEval(t.value)}
+  else if(t.classList.contains('ev-rate')){evPost({action:'rate',submissionId:t.dataset.id,rating:t.value===''?null:t.value},'Saved')}
+  else if(t.classList.contains('ev-beh')||t.classList.contains('ev-note')){const tr=t.closest('tr'),sc=tr.querySelector('.ev-beh'),nt=tr.querySelector('.ev-note');evPost({action:'behaviour',month:S.ev.month,userId:t.dataset.user,score:sc.value===''?null:sc.value,note:nt.value},'Saved')}
   else if(t.id==='shop-metric'){S.shop.metric=t.value;renderShop()}
   else if(t.dataset.act==='an-metric'){S.an.metric[t.dataset.id]=t.value;renderShop()}
   else if(t.id==='f-role'){S.fRole=t.value;update()}
@@ -682,5 +757,5 @@ document.addEventListener('submit',async e=>{
   else if(k==='up-free')submitUpload('free');
 });
 
-(function(){try{const h=location.hash.slice(1);if(h.startsWith('ins-')){S.route='ins';S.param=h.slice(4)}else if(['home','uploads','team','send','content','users','shop'].includes(h))S.route=h}catch(e){}})();
+(function(){try{const h=location.hash.slice(1);if(h.startsWith('ins-')){S.route='ins';S.param=h.slice(4)}else if(['home','uploads','team','send','content','users','shop','eval'].includes(h))S.route=h}catch(e){}})();
 boot();

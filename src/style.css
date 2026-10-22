@@ -268,3 +268,23 @@ h3.sub{font-size:.85rem;margin:16px 0 4px;color:var(--muted);text-transform:uppe
 .arow:hover{border-color:var(--accent)}
 .arow b,.arow span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 @media(max-width:560px){.arow{grid-template-columns:1fr auto}.arow>span.muted{display:none}}
+
+/* ---------- Team evaluation ---------- */
+.podium{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;align-items:end}
+.pcard{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px;display:grid;gap:6px;justify-items:center;text-align:center}
+.pcard.p1{background:linear-gradient(160deg,#F6A25B,#F28D3A);border-color:transparent;padding-block:24px;box-shadow:0 10px 26px rgba(242,141,58,.3)}
+.pcard .pn{font-family:var(--f-display);font-size:1.15rem;overflow-wrap:anywhere}
+.pcard .pf{font-family:var(--f-display);font-weight:800;font-size:2.4rem;line-height:1}.pcard .pf small{font-size:1rem}
+.medal{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;color:#2B1D35;font-weight:800}
+.sc{display:inline-block;font-family:var(--f-mono);font-size:.78rem;font-weight:700;padding:2px 9px;border-radius:999px;background:var(--surface-2)}
+.sc.hi{background:#CFE8D5;color:#1E6B3B}.sc.mid{background:var(--accent-soft);color:#8A4308}.sc.lo{background:#F4D2CE;color:#A11A12}
+.evt td{vertical-align:middle}.evt tr.open>td{background:color-mix(in srgb,var(--accent-soft) 45%,transparent)}
+.evt tr.detail>td{background:var(--surface-2);padding:12px}
+.behcell{display:grid;grid-template-columns:64px minmax(110px,1fr);gap:6px;min-width:190px}.behcell .input{padding:6px 8px}
+.fcell{display:flex;align-items:center;gap:8px;min-width:120px}.fbar{flex:1;height:8px;background:var(--surface-2);border-radius:999px;overflow:hidden}.fbar i{display:block;height:100%;border-radius:999px;background:var(--accent)}
+.fbar i.hi{background:#3E9B5E}.fbar i.lo{background:#C9453B}
+.mv{font-family:var(--f-mono);font-size:.75rem;font-weight:700}.mv.up{color:var(--ok)}.mv.down{color:var(--danger)}.mv.new{color:var(--accent-text)}.mv.same{color:var(--muted)}
+.rules summary{cursor:pointer;display:flex;gap:12px;flex-wrap:wrap;align-items:baseline}
+.rulegrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:14px}.rulegrid label{display:grid;gap:4px;font-size:.85rem;font-weight:600}
+.rulenote{grid-column:1/-1;display:flex;gap:16px;justify-content:space-between;align-items:center;flex-wrap:wrap}.rulenote p{margin:0;max-width:70ch;font-size:.85rem}
+.rate{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.rate .input,.evt .ev-rate{width:74px;padding:6px 8px}

@@ -55,6 +55,13 @@ export function ensureSchema() {
         files JSONB NOT NULL DEFAULT '[]',
         created_at BIGINT NOT NULL
       )`;
+      await q`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS rating INTEGER`;
+      await q`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS rated_at BIGINT`;
+      await q`CREATE TABLE IF NOT EXISTS eval_behaviour (
+        month TEXT NOT NULL, user_id TEXT NOT NULL, score INTEGER, note TEXT NOT NULL DEFAULT '', updated_at BIGINT NOT NULL,
+        PRIMARY KEY (month, user_id)
+      )`;
+      await q`CREATE TABLE IF NOT EXISTS eval_settings (key TEXT PRIMARY KEY, value JSONB NOT NULL)`;
     })();
     ready.catch(() => { ready = null; });
   }
@@ -89,6 +96,7 @@ export const mapSubmission = (r) => ({
   note: r.note,
   files: r.files || [],
   createdAt: Number(r.created_at),
+  rating: r.rating === null || r.rating === undefined ? null : Number(r.rating),
 });
 
 /* ---------- auth ---------- */

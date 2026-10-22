@@ -25,5 +25,7 @@ export default route(async (req, res) => {
     submissions = (await q`SELECT * FROM submissions WHERE user_id = ${me.id} ORDER BY created_at DESC`).map(mapSubmission);
   }
 
+  // Ratings are an internal evaluation: only the Super Admin sees them.
+  if (me.role !== 'super_admin') submissions = submissions.map((x) => ({ ...x, rating: null }));
   res.json({ me: mapUser(me), users, instructions, submissions });
 });
