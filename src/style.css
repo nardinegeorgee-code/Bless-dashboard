@@ -253,3 +253,18 @@ h3.sub{font-size:.85rem;margin:16px 0 4px;color:var(--muted);text-transform:uppe
 .stack{display:flex;height:16px;border-radius:999px;overflow:hidden;background:var(--surface-2);gap:2px}.stack i{display:block;min-width:4px}
 .callout{background:var(--surface-2);border-radius:12px;padding:14px 16px;align-self:start}.callout p{margin:6px 0 0;color:var(--muted);font-size:.88rem}
 .cart-side>div{display:flex;gap:8px;align-items:baseline;justify-content:flex-end;flex-wrap:wrap}
+
+/* ---------- Hub overview ---------- */
+.hero-sub{margin:6px 0 0;font-size:1rem;color:rgba(43,29,53,.85)}
+.hero-actions{display:flex;gap:8px;flex-wrap:wrap}
+.btn.dark{background:#2B1D35;border-color:#2B1D35;color:#fff}
+.btn.light{background:rgba(255,255,255,.55);border-color:rgba(255,255,255,.7);color:#2B1D35}
+.rolebars{display:grid;gap:10px}
+.rolebar{display:grid;grid-template-columns:12px minmax(90px,1.1fr) minmax(40px,2fr) 24px;gap:10px;align-items:center;font-size:.88rem}
+.rdot{width:10px;height:10px;border-radius:50%}
+.rolebar .rbar{background:var(--surface-2);border-radius:999px;height:8px;overflow:hidden}.rolebar .rbar i{display:block;height:100%;border-radius:999px}
+.attn{display:grid;gap:8px}
+.arow{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1.6fr) auto;gap:12px;align-items:center;text-align:left;background:var(--surface-2);border:1px solid transparent;border-radius:12px;padding:12px 14px;cursor:pointer;color:var(--ink);font:inherit}
+.arow:hover{border-color:var(--accent)}
+.arow b,.arow span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+@media(max-width:560px){.arow{grid-template-columns:1fr auto}.arow>span.muted{display:none}}

@@ -126,7 +126,7 @@ function targetChips(ins){
 function mount(){
   const v=$('#view');const r=S.route;
   if(!isAdmin()&&['send','content','users','shop'].includes(r)){S.route='home'}
-  if(S.route==='home')v.innerHTML=isAdmin()?`<div class="head"><div><h1>Overview</h1><p>What the team has received from you and what they have sent back.</p></div><button class="btn primary" data-act="go" data-route="send">New instruction</button></div><div id="live"></div>`
+  if(S.route==='home')v.innerHTML=isAdmin()?`<div id="live"></div>`
     :`<div class="head"><div><h1>Instructions</h1><p>Briefs from your Super Admin. Open one to send back your files.</p></div><button class="btn" data-act="go" data-route="uploads">Upload without an instruction</button></div><div id="live"></div>`;
   else if(S.route==='ins')v.innerHTML=`<button class="btn ghost back" data-act="go" data-route="${isAdmin()?'send':'home'}">← Back</button><div id="live"></div>${isAdmin()?'':`<div class="panel"><div><h2>Respond</h2><p class="muted">Attach your files and add a note if needed.</p></div>${uploadForm('resp')}</div>`}<div id="live2"></div>`;
   else if(S.route==='uploads')v.innerHTML=`<div class="head"><div><h1>My uploads</h1><p>Everything you have sent. Add files here even when there is no instruction.</p></div></div><div class="panel"><h2>Upload files</h2>${uploadForm('free')}</div><div id="live"></div>`;
@@ -169,17 +169,30 @@ function update(){
   syncUploadAvail();renderSelBar();
 }
 
+function greeting(){const h=new Date().getHours();return h<12?'Good morning':h<18?'Good afternoon':'Good evening'}
 function overviewHTML(){
   const team=S.users.filter(u=>u.role!=='super_admin');
-  let open=0;S.instructions.forEach(i=>recipients(i).forEach(u=>{if(!responded(i.id,u.id))open++}));
+  let open=0,total=0;S.instructions.forEach(i=>recipients(i).forEach(u=>{total++;if(!responded(i.id,u.id))open++}));
+  const answered=total-open,rate=total?Math.round(answered/total*100):0;
   const files=S.subs.reduce((n,s)=>n+(s.files||[]).length,0);
-  return `<div style="display:grid;gap:24px"><div class="stats">
-    <div class="stat"><div class="eyebrow">Team members</div><div class="n">${team.length}</div></div>
-    <div class="stat"><div class="eyebrow">Instructions sent</div><div class="n">${S.instructions.length}</div></div>
-    <div class="stat"><div class="eyebrow">Awaiting response</div><div class="n" style="color:${open?'var(--warn)':'inherit'}">${open}</div></div>
-    <div class="stat"><div class="eyebrow">Files received</div><div class="n">${files}</div></div></div>
-    <section style="display:grid;gap:12px"><h2>Latest instructions</h2>${S.instructions.length?`<div class="list">${S.instructions.slice(0,5).map(insRowAdmin).join('')}</div>`:empty('No instructions yet','Send your first brief from Send instruction.')}</section>
-    <section style="display:grid;gap:12px"><h2>Latest from the team</h2>${listOrEmpty(S.subs.slice(0,6),'Nothing received yet','Responses and uploads from your team land here.')}</section></div>`;
+  const today=new Date().toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'});
+  const hero=`<section class="hero"><div class="hero-top"><div><span class="eyebrow">${esc(today)}</span><div class="hero-n sm">${greeting()}, ${esc(S.me.username)}</div>
+    <p class="hero-sub">${open?`<b>${open}</b> response${open===1?'':'s'} still waiting from your team.`:(S.instructions.length?'Everyone has responded. Nothing is waiting on you.':'Send your first instruction to get the team moving.')}</p></div>
+    <div class="hero-actions"><button class="btn dark" data-act="go" data-route="send">New instruction</button><button class="btn light" data-act="go" data-route="content">All content</button><button class="btn light" data-act="go" data-route="shop">Shopify</button></div></div></section>`;
+  const kpi=(k,c,l,v,sub)=>`<div class="kcard" style="--kc:${c}">${ico(k,c)}<div><span class="eyebrow">${l}</span><div class="kn">${v}</div><small class="muted">${sub}</small></div></div>`;
+  const kpis=`<div class="kgrid">${kpi('users','#7B4FA0','Team members',team.length,ROLES.filter(r=>r.key!=='super_admin'&&S.users.some(u=>u.role===r.key)).length+' roles in use')}
+    ${kpi('send','#F28D3A','Instructions sent',S.instructions.length,'briefs to the team')}
+    ${kpi('clock',open?'#C2410C':'#2C7A4B','Awaiting response',open,open?'across '+S.instructions.filter(i=>recipients(i).some(u=>!responded(i.id,u.id))).length+' instructions':'all caught up')}
+    ${kpi('file','#0F766E','Files received',files,S.subs.length+' submissions')}</div>`;
+  const maxR=Math.max(1,...ROLES.map(r=>S.users.filter(u=>u.role===r.key&&u.role!=='super_admin').length));
+  const roles=ROLES.filter(r=>r.key!=='super_admin').map(r=>{const n=S.users.filter(u=>u.role===r.key).length;return `<div class="rolebar"><span class="rdot" style="background:var(${r.tok})"></span><span class="rl">${r.label}</span><span class="rbar"><i style="width:${Math.max(n?6:0,n/maxR*100)}%;background:var(${r.tok})"></i></span><b class="mono">${n}</b></div>`}).join('');
+  const side=`<div class="two"><section class="panel"><h2>Team response rate</h2>${total?`<div class="cust">${donut([{v:answered,c:'#F28D3A'},{v:open,c:'#CBB7D8'}],rate+'%','responded')}<div class="legend"><div><i style="background:#F28D3A"></i><b>${answered}</b> responses received</div><div><i style="background:#CBB7D8"></i><b>${open}</b> still waiting</div><p class="muted" style="font-size:.82rem;margin:6px 0 0">Counted across every person each instruction was sent to.</p></div></div>`:'<p class="muted">Send an instruction to start tracking responses.</p>'}</section>
+    <section class="panel"><div class="item-top"><h2>Your team</h2><button class="btn sm" data-act="go" data-route="team">View all</button></div>${team.length?`<div class="rolebars">${roles}</div>`:'<p class="muted">Add team members on the Users page.</p>'}</section></div>`;
+  const waiting=S.instructions.map(i=>({i,w:recipients(i).filter(u=>!responded(i.id,u.id))})).filter(x=>x.w.length).sort((x,y)=>y.w.length-x.w.length).slice(0,4);
+  const attn=waiting.length?`<section class="panel"><div><h2>Needs a nudge</h2><p class="muted">Instructions with the most people still to respond.</p></div><div class="attn">${waiting.map(({i,w})=>`<button class="arow" data-act="go" data-route="ins" data-param="${i.id}"><b>${esc(i.title)}</b><span class="muted">${w.slice(0,4).map(u=>esc(u.username)).join(', ')}${w.length>4?' +'+(w.length-4)+' more':''}</span><span class="pill new">${w.length} waiting</span></button>`).join('')}</div></section>`:'';
+  return `<div style="display:grid;gap:18px">${hero}${kpis}${side}${attn}
+    <section style="display:grid;gap:12px"><div class="item-top"><h2>Latest instructions</h2><button class="btn sm" data-act="go" data-route="send">See all</button></div>${S.instructions.length?`<div class="list">${S.instructions.slice(0,5).map(insRowAdmin).join('')}</div>`:empty('No instructions yet','Send your first brief from Send instruction.')}</section>
+    <section style="display:grid;gap:12px"><div class="item-top"><h2>Latest from the team</h2><button class="btn sm" data-act="go" data-route="content">See all</button></div>${listOrEmpty(S.subs.slice(0,6),'Nothing received yet','Responses and uploads from your team land here.')}</section></div>`;
 }
 function insRowAdmin(i){
   const rec=recipients(i);const done=rec.filter(u=>responded(i.id,u.id)).length;const pct=rec.length?Math.round(done/rec.length*100):0;
@@ -292,6 +305,10 @@ const ICON={
   cart:'<path d="M3 4h2l2.4 10.2a1 1 0 0 0 1 .8h8.2a1 1 0 0 0 1-.8L19 8H6"/><circle cx="9" cy="19" r="1.4"/><circle cx="17" cy="19" r="1.4"/>',
   bag:'<path d="M5 8h14l-1 12H6L5 8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
   box:'<path d="M4 8l8-4 8 4v8l-8 4-8-4V8Z"/><path d="M4 8l8 4 8-4M12 12v8"/>',
+  users:'<circle cx="9" cy="8" r="3"/><path d="M3 19c0-3 3-5 6-5s6 2 6 5"/><path d="M16 5a3 3 0 0 1 0 6M18 14c2 .6 3 2.2 3 5"/>',
+  send:'<path d="M21 3 3 10l7 3 3 7 8-17Z"/>',
+  clock:'<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
+  file:'<path d="M7 3h7l5 5v13H7V3Z"/><path d="M14 3v5h5"/>',
   tag:'<path d="M3 12V4h8l10 10-8 8L3 12Z"/><circle cx="7.5" cy="8.5" r="1.3"/>',
 };
 const ico=(k,c)=>`<span class="kico" style="--kc:${c||'var(--accent)'}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg></span>`;
