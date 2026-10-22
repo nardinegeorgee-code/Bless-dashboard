@@ -14,7 +14,7 @@ const ROLES=[
 const ROLE=Object.fromEntries(ROLES.map(r=>[r.key,r]));
 const TYPES={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml',mp4:'video/mp4',webm:'video/webm',pdf:'application/pdf',txt:'text/plain',csv:'text/csv',md:'text/markdown',json:'application/json'};
 
-const S={shop:{month:'',metric:'revenue',data:null,loading:false,err:'',syncing:false,syncMsg:''},sel:new Set(),assets:true,lastJson:'',users:[],instructions:[],subs:[],usersReady:false,screen:null,me:null,route:'home',param:null,
+const S={shop:{month:'',metric:'revenue',best:'units',geo:'countries',data:null,loading:false,err:'',syncing:false,syncMsg:''},sel:new Set(),assets:true,lastJson:'',users:[],instructions:[],subs:[],usersReady:false,screen:null,me:null,route:'home',param:null,
   sendRoles:new Set(),sendUsers:new Set(),fRole:'',fUser:'',fKind:'',pwOpen:null,picked:{}};
 
 /* ---------- helpers ---------- */
@@ -282,7 +282,78 @@ function rankList(list,valFn,sub){
 }
 function monthChart(ms,metric,sel){
   const f=metric==='revenue'?money:fmtNum;const max=Math.max(1,...ms.map(m=>m[metric]));
-  return `<div class="mchart">${ms.map(m=>`<button class="mcol${m.key===sel?' on':''}" data-act="shop-month" data-m="${m.key}" title="${esc(m.label)}: ${esc(f(m[metric]))}"><span class="mval mono">${shortNum(m[metric])}</span><span class="mbar"><i style="height:${Math.max(2,m[metric]/max*100)}%"></i></span><span class="mlab">${esc(m.label.slice(0,3)+" '"+m.label.slice(-2))}</span></button>`).join('')}</div>`;
+  return `<div class="mchart">${ms.map(m=>`<button class="mcol${m.key===sel?' on':''}${m.fromReports?' rep':''}" data-act="shop-month" data-m="${m.key}" title="${esc(m.label)}: ${esc(f(m[metric]))}"><span class="mval mono">${shortNum(m[metric])}</span><span class="mbar"><i style="height:${Math.max(2,m[metric]/max*100)}%"></i></span><span class="mlab">${esc(m.label.slice(0,3)+" '"+m.label.slice(-2))}</span></button>`).join('')}</div>`;
+}
+/* ---------- Shopify overview (rich layout) ---------- */
+const ICON={
+  refund:'<path d="M4 8h9a4 4 0 0 1 0 8H8M4 8l3-3M4 8l3 3"/>',
+  cancel:'<circle cx="12" cy="12" r="8"/><path d="m9 9 6 6M15 9l-6 6"/>',
+  repeat:'<path d="M17 4l3 3-3 3M20 7H8a4 4 0 0 0-4 4M7 20l-3-3 3-3M4 17h12a4 4 0 0 0 4-4"/>',
+  cart:'<path d="M3 4h2l2.4 10.2a1 1 0 0 0 1 .8h8.2a1 1 0 0 0 1-.8L19 8H6"/><circle cx="9" cy="19" r="1.4"/><circle cx="17" cy="19" r="1.4"/>',
+  bag:'<path d="M5 8h14l-1 12H6L5 8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
+  box:'<path d="M4 8l8-4 8 4v8l-8 4-8-4V8Z"/><path d="M4 8l8 4 8-4M12 12v8"/>',
+  tag:'<path d="M3 12V4h8l10 10-8 8L3 12Z"/><circle cx="7.5" cy="8.5" r="1.3"/>',
+};
+const ico=(k,c)=>`<span class="kico" style="--kc:${c||'var(--accent)'}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg></span>`;
+function seg(key,cur,opts){return `<div class="seg" role="group">${opts.map(([v,l])=>`<button type="button" class="${cur===v?'on':''}" data-act="ov-seg" data-k="${key}" data-v="${v}">${l}</button>`).join('')}</div>`}
+function chip(v,goodDown){if(v===null||v===undefined)return '';const good=goodDown?v<=0:v>=0;return `<span class="dchip ${good?'up':'down'}">${v>=0?'▲':'▼'} ${Math.abs(v)}%</span>`}
+function areaSpark(vals,selIdx){
+  const W=640,H=140,P=6,max=Math.max(1e-9,...vals),n=vals.length;
+  const x=i=>P+(W-2*P)*(n>1?i/(n-1):0.5),y=v=>H-P-(H-2*P-10)*(v/max);
+  const pts=vals.map((v,i)=>[x(i),y(v)]);
+  let d='M'+pts[0][0]+','+pts[0][1];
+  for(let i=1;i<pts.length;i++){const[x0,y0]=pts[i-1],[x1,y1]=pts[i],cx=(x0+x1)/2;d+=` C${cx},${y0} ${cx},${y1} ${x1},${y1}`}
+  const sel=pts[selIdx];
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="sg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="currentColor" stop-opacity=".35"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs>
+  <path d="${d} L${pts[n-1][0]},${H} L${pts[0][0]},${H} Z" fill="url(#sg)"/><path d="${d}" fill="none" stroke="currentColor" stroke-width="2.5" vector-effect="non-scaling-stroke" stroke-linecap="round"/>
+  ${sel?`<line x1="${sel[0]}" x2="${sel[0]}" y1="${sel[1]}" y2="${H}" stroke="currentColor" stroke-opacity=".5" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>`:''}</svg>`;
+}
+function donut(parts,centerTop,centerSub){
+  const total=parts.reduce((a,p)=>a+p.v,0)||1,R=52,C=2*Math.PI*R;let off=0;
+  const arcs=parts.map(p=>{const len=p.v/total*C,s=`<circle cx="70" cy="70" r="${R}" fill="none" stroke="${p.c}" stroke-width="16" stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-off}" transform="rotate(-90 70 70)"/>`;off+=len;return s}).join('');
+  return `<svg class="donut" viewBox="0 0 140 140" role="img" aria-label="${esc(centerTop+' '+centerSub)}"><circle cx="70" cy="70" r="${R}" fill="none" stroke="var(--surface-2)" stroke-width="16"/>${arcs}<text x="70" y="68" text-anchor="middle" class="dn">${esc(centerTop)}</text><text x="70" y="86" text-anchor="middle" class="ds">${esc(centerSub)}</text></svg>`;
+}
+function ovBody(d){
+  const s=d.summary,a=d.abandoned,c=d.customers,sh=S.shop;
+  const idx=d.months.findIndex(m=>m.key===d.month);
+  const revs=d.months.map(m=>m.revenue);
+  const mini=(l,v,ch,sub)=>`<div class="mini"><span class="eyebrow">${l}</span><b>${v}</b>${ch||''}${sub?`<small>${sub}</small>`:''}</div>`;
+  const hero=`<section class="hero">
+    <div class="hero-top"><div><span class="eyebrow">Revenue · ${esc(d.monthLabel)}</span><div class="hero-n">${money(s.revenue)}</div>${chip(s.change.revenue)}<span class="hero-vs"> vs last month</span></div>
+      <div class="minis">${mini('Orders',fmtNum(s.orders),chip(s.change.orders))}${mini('Units sold',fmtNum(s.units),chip(s.change.units))}${mini('Average order',money(s.aov))}</div></div>
+    ${areaSpark(revs,idx)}
+    <div class="hero-foot"><span>${esc(d.months[0].label)}</span><span>12 months of revenue</span><span>${esc(d.months[d.months.length-1].label)}</span></div></section>`;
+  const kpi=(k,color,l,v,sub)=>`<div class="kcard" style="--kc:${color}">${ico(k,color)}<div><span class="eyebrow">${l}</span><div class="kn">${v}</div><small class="muted">${sub}</small></div></div>`;
+  const kpis=`<div class="kgrid">
+    ${kpi('refund','#C2410C','Refunded',money(s.refunds),s.refundRate.toFixed(1)+'% of revenue')}
+    ${kpi('cancel','#B3261E','Cancelled orders',fmtNum(s.cancelled),s.cancelRate.toFixed(1)+'% of orders')}
+    ${kpi('repeat','#7B4FA0','Repeat customers',c.repeatRate.toFixed(0)+'%',fmtNum(c.repeat)+' of '+fmtNum(c.distinct)+' customers')}
+    ${kpi('cart','#F28D3A','Left in carts',money(a.openValue),fmtNum(a.openCount)+' open carts')}</div>`;
+  const metricName={revenue:'Revenue',orders:'Orders',units:'Units sold'}[sh.metric]||'Revenue';
+  const chart=`<section class="panel"><div class="item-top"><div><h2>Last 12 months</h2><p class="muted">${metricName} by month. Click a month to open it.${d.months.some(m=>m.fromReports)?' Lighter bars come from Shopify reports.':''}</p></div>${seg('metric',sh.metric,[['revenue','Revenue'],['orders','Orders'],['units','Units']])}</div>
+    ${monthChart(d.months,sh.metric,d.month)}</section>`;
+  const best=sh.best==='revenue'?d.bestByRevenue:d.bestByUnits;
+  const geo=sh.geo==='cities'?d.cities:d.countries;
+  const geoTot=geo.reduce((x,y)=>x+y.revenue,0)||1;
+  const lists=`<div class="two">
+    <section class="panel"><div class="item-top"><h2>Best sellers</h2>${seg('best',sh.best||'units',[['units','By units'],['revenue','By revenue']])}</div>${rankList(best,x=>sh.best==='revenue'?x.revenue:x.units,x=>sh.best==='revenue'?money(x.revenue):fmtNum(x.units)+' units')}</section>
+    <section class="panel"><div class="item-top"><h2>Where orders go</h2>${seg('geo',sh.geo||'countries',[['countries','Countries'],['cities','Cities']])}</div>${rankList(geo,x=>x.revenue,x=>Math.round(x.revenue/geoTot*100)+'% · '+fmtNum(x.orders)+' orders')}</section></div>`;
+  const cust=`<section class="panel"><h2>Customers</h2>${c.distinct||c.guest?`<div class="cust">${donut([{v:c.fresh,c:'#F28D3A'},{v:c.repeat,c:'#7B4FA0'}],c.repeatRate.toFixed(0)+'%','returning')}
+    <div class="legend"><div><i style="background:#F28D3A"></i><b>${fmtNum(c.fresh)}</b> first-time customers</div><div><i style="background:#7B4FA0"></i><b>${fmtNum(c.repeat)}</b> returning customers</div>${c.guest?`<div class="muted"><i style="background:var(--line)"></i>${fmtNum(c.guest)} orders without a customer record</div>`:''}
+    <p class="muted" style="font-size:.82rem;margin:6px 0 0">Returning means the customer has more than one order with you in total.</p></div></div>`:'<p class="muted">No customer data for this month.</p>'}</section>`;
+  const cols=['#F8D9BC','#F4B982','#F28D3A','#B4540F'];
+  const totC=a.aging.reduce((x,y)=>x+y.count,0)||1;
+  const stack=`<div class="stack" role="img" aria-label="Carts by waiting time">${a.aging.map((x,i)=>x.count?`<i style="flex:${x.count};background:${cols[i]}" title="${esc(x.label)}: ${x.count}"></i>`:'').join('')}</div>
+    <div class="legend row-legend">${a.aging.map((x,i)=>`<div><i style="background:${cols[i]}"></i>${esc(x.label)} <b>${fmtNum(x.count)}</b> <span class="muted mono">${money(x.value)}</span></div>`).join('')}</div>`;
+  const rows=a.oldest.map(x=>{const ph=(x.phone||'').replace(/[^\d]/g,'');return `<tr><td class="mono"><b>${money(x.total)}</b></td><td>${ageText(x.ageHours)}</td><td style="max-width:300px;overflow-wrap:anywhere">${esc(x.items)}</td><td style="overflow-wrap:anywhere">${x.name||x.email||x.phone?`${x.name?`<b>${esc(x.name)}</b><br>`:''}${x.email?`<span class="muted">${esc(x.email)}</span><br>`:''}${x.phone?`<span class="muted mono">${esc(x.phone)}</span>`:''}`:'<span class="muted">No contact saved</span>'}</td><td style="white-space:nowrap">${x.url&&x.linkFresh?`<a class="btn sm" href="${esc(x.url)}" target="_blank" rel="noopener">Open cart</a>`:'<span class="muted" style="font-size:.75rem">Cart link expired</span>'}${ph?` <a class="btn sm" href="https://wa.me/${ph}" target="_blank" rel="noopener">WhatsApp</a>`:''}</td></tr>`}).join('');
+  const carts=`<section class="panel carts"><div class="item-top"><div><h2>Carts left behind</h2><p class="muted">Customers who added items and never checked out (last 90 days).</p></div></div>
+    <div class="cart-hero"><div><span class="eyebrow">Money sitting in carts</span><div class="hero-n sm">${money(a.openValue)}</div><span class="muted">${fmtNum(a.openCount)} carts waiting</span></div>
+      <div class="cart-side"><div><span class="eyebrow">Abandoned in ${esc(d.monthLabel)}</span><b>${fmtNum(a.monthCount)}</b> <span class="muted mono">${money(a.monthValue)}</span></div><div><span class="eyebrow">Abandonment rate</span><b>${a.monthRate.toFixed(0)}%</b> <span class="muted">carts vs orders</span></div></div></div>
+    <div style="display:grid;gap:8px"><h3>How long they have been waiting</h3>${stack}</div>
+    <div class="two"><div style="display:grid;gap:10px"><h3>Most left in carts</h3>${rankList(a.topProducts,x=>x.qty,x=>fmtNum(x.qty)+' in '+x.carts+' carts')}</div>
+    <div class="callout"><b>Recovery tip</b><p>Carts under 10 days old still have a working link. For older ones, message the customer on WhatsApp or email and send the product directly.</p></div></div>
+    ${a.oldest.length?`<div style="display:grid;gap:10px"><h3>Biggest carts to recover</h3><div class="tablewrap"><table style="min-width:640px"><thead><tr><th>Value</th><th>Waiting</th><th>Items</th><th>Customer</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`:''}</section>`;
+  return hero+kpis+chart+lists+cust+carts;
 }
 function renderShop(){
   if(S.screen!=='app'||S.route!=='shop')return;const L=$('#live');if(!L)return;
@@ -311,46 +382,7 @@ function renderShop(){
 
   ${d.fromReports?`<div class="panel" style="border-color:var(--warn)"><b style="color:var(--warn)">Older month</b><p class="body-text">Shopify only lets this site download the last 60 days of orders, so this month's totals come from Shopify's sales reports. Best sellers, areas, customers and carts are not available for it. Open the Sales tab for the full report.</p></div>`:''}
   ${d.reportsError?`<div class="panel" style="border-color:var(--warn)"><b style="color:var(--warn)">Older months could not be filled in</b><p class="body-text">${esc(d.reportsError)}</p></div>`:''}
-  <div class="stats">
-    ${stat('Revenue',money(s.revenue),delta(s.change.revenue))}
-    ${stat('Orders',fmtNum(s.orders),delta(s.change.orders))}
-    ${stat('Units sold',fmtNum(s.units),delta(s.change.units))}
-    ${stat('Average order',money(s.aov))}
-    ${stat('Refunded',money(s.refunds),small(s.refundRate.toFixed(1)+'% of revenue'))}
-    ${stat('Cancelled orders',fmtNum(s.cancelled),small(s.cancelRate.toFixed(1)+'% of orders'))}
-  </div>
-
-  <section class="panel"><div class="item-top"><div><h2>Last 12 months</h2><p class="muted">Click a month to open it.</p></div>
-    <select class="select" id="shop-metric" style="width:auto" aria-label="Chart metric"><option value="revenue" ${sh.metric==='revenue'?'selected':''}>Revenue</option><option value="orders" ${sh.metric==='orders'?'selected':''}>Orders</option><option value="units" ${sh.metric==='units'?'selected':''}>Units sold</option></select></div>
-    ${monthChart(d.months,sh.metric,d.month)}</section>
-
-  <div class="two">
-    <section class="panel"><h2>Best sellers by units</h2>${rankList(d.bestByUnits,x=>x.units,x=>fmtNum(x.units)+' units')}</section>
-    <section class="panel"><h2>Best sellers by revenue</h2>${rankList(d.bestByRevenue,x=>x.revenue,x=>money(x.revenue))}</section>
-  </div>
-
-  <div class="two">
-    <section class="panel"><h2>Countries</h2>${rankList(d.countries,x=>x.revenue,x=>fmtNum(x.orders)+' orders · '+money(x.revenue))}</section>
-    <section class="panel"><h2>Cities</h2>${rankList(d.cities,x=>x.revenue,x=>fmtNum(x.orders)+' orders · '+money(x.revenue))}</section>
-  </div>
-
-  <section class="panel"><h2>Customers</h2>
-    ${c.distinct||c.guest?`<div class="stats">${stat('Customers who ordered',fmtNum(c.distinct))}${stat('First-time',fmtNum(c.fresh))}${stat('Returning',fmtNum(c.repeat))}${stat('Repeat rate',c.repeatRate.toFixed(0)+'%')}</div>
-      <p class="muted" style="font-size:.85rem">Returning means the customer has more than one order with you in total.${c.guest?` ${fmtNum(c.guest)} order(s) had no customer record.`:''}</p>`:'<p class="muted">No customer data for this month.</p>'}</section>
-
-  <section class="panel"><div><h2>Carts left behind</h2><p class="muted">Customers who added items and never checked out (last 90 days).</p></div>
-    <div class="stats">
-      ${stat('Open carts',fmtNum(a.openCount))}
-      ${stat('Value sitting in carts',money(a.openValue))}
-      ${stat('Abandoned in '+esc(d.monthLabel),fmtNum(a.monthCount),small(money(a.monthValue)))}
-      ${stat('Abandonment rate',a.monthRate.toFixed(0)+'%',small('carts vs orders that month'))}
-    </div>
-    <div class="two">
-      <div style="display:grid;gap:10px"><h3>How long they have been waiting</h3>${rankList(a.aging.map(x=>({name:x.label,count:x.count,value:x.value})),x=>x.count,x=>fmtNum(x.count)+' · '+money(x.value))}</div>
-      <div style="display:grid;gap:10px"><h3>Most left in carts</h3>${rankList(a.topProducts,x=>x.qty,x=>fmtNum(x.qty)+' in '+x.carts+' carts')}</div>
-    </div>
-    ${a.oldest.length?`<div style="display:grid;gap:10px"><h3>Biggest carts to recover</h3><div class="tablewrap"><table style="min-width:640px"><thead><tr><th>Value</th><th>Waiting</th><th>Items</th><th>Customer</th><th></th></tr></thead><tbody>${a.oldest.map(x=>{const ph=(x.phone||'').replace(/[^\d]/g,'');return `<tr><td class="mono">${money(x.total)}</td><td>${ageText(x.ageHours)}</td><td style="max-width:300px;overflow-wrap:anywhere">${esc(x.items)}</td><td style="overflow-wrap:anywhere">${x.name||x.email||x.phone?`${x.name?`<b>${esc(x.name)}</b><br>`:''}${x.email?`<span class="muted">${esc(x.email)}</span><br>`:''}${x.phone?`<span class="muted mono">${esc(x.phone)}</span>`:''}`:'<span class="muted">No contact saved</span>'}</td><td style="white-space:nowrap">${x.url&&x.linkFresh?`<a class="btn sm" href="${esc(x.url)}" target="_blank" rel="noopener">Open cart</a>`:`<span class="muted" style="font-size:.75rem">Cart link expired</span>`}${ph?` <a class="btn sm" href="https://wa.me/${ph}" target="_blank" rel="noopener">WhatsApp</a>`:''}</td></tr>`}).join('')}</tbody></table></div><p class="muted" style="font-size:.8rem">Shopify cart links stop working after about 10 days, or once the customer buys. For older carts, contact the customer and send them the products directly.</p></div>`:''}
-  </section>
+  ${ovBody(d)}
   <p class="muted" style="font-size:.8rem">Months follow ${esc(d.tz)} time. Revenue counts all non-cancelled orders; best-seller revenue is before discounts.</p>`;
 }
 
@@ -553,6 +585,7 @@ document.addEventListener('click',async e=>{
   else if(a==='shop-sync')runSync();
   else if(a==='shop-reload')loadShop();
   else if(a==='shop-month')loadShop(b.dataset.m);
+  else if(a==='ov-seg'){S.shop[b.dataset.k]=b.dataset.v;const y=window.scrollY;renderShop();window.scrollTo(0,y)}
   else if(a==='an-tab'){S.an.tab=b.dataset.tab;S.an.err='';if(S.an.tab==='overview'){if(!S.shop.data)loadShop();else renderShop()}else loadAn()}
   else if(a==='an-refresh')loadAn(true);
   else if(a==='sel-file'){b.checked?S.sel.add(b.dataset.url):S.sel.delete(b.dataset.url);syncChecks()}
