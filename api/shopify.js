@@ -1,5 +1,5 @@
 import { route, allow, db, requireAdmin } from './_lib.js';
-import { ensureShopSchema, shopConfig, getState } from './_shopify.js';
+import { ensureShopSchema, shopConfig, getState, shopifyql } from './_shopify.js';
 
 const DAY = 86400000;
 
@@ -51,6 +51,26 @@ export default route(async (req, res) => {
     m.orders++; m.revenue += Number(o.total); m.units += o.units; m.refunds += Number(o.refunded);
   }
 
+  // Shopify only returns 60 days of orders without read_all_orders, so older months come from Shopify's own reports.
+  const gap = new Set();
+  let reportsError = '';
+  if (orders.length) {
+    const minTs = Math.min(...orders.map((o) => Number(o.created_at)));
+    const firstKey = keyOf(minTs), firstDay = Number(new Intl.DateTimeFormat('en-CA', { timeZone: cfg.tz, day: '2-digit' }).format(new Date(minTs)));
+    months.forEach((k) => { if (k < firstKey || (k === firstKey && firstDay > 3)) gap.add(k); });
+  }
+  if (gap.size) {
+    try {
+      const r = await shopifyql(cfg, `FROM sales SHOW total_sales, orders, net_items_sold, sales_reversals TIMESERIES month SINCE ${months[0]}-01 UNTIL ${new Date().toISOString().slice(0, 10)}`);
+      for (const row of r.rows) {
+        const k = String(row.month).slice(0, 7);
+        const m = series.get(k);
+        if (!m || !gap.has(k)) continue;
+        m.orders = Number(row.orders) || 0; m.revenue = Number(row.total_sales) || 0; m.units = Number(row.net_items_sold) || 0; m.refunds = Math.abs(Number(row.sales_reversals) || 0); m.fromReports = true;
+      }
+    } catch (e) { reportsError = String(e.message || e).slice(0, 300); }
+  }
+
   // Selected month
   const inMonth = orders.filter((o) => keyOf(Number(o.created_at)) === sel);
   const sales = inMonth.filter((o) => !o.cancelled);
@@ -59,6 +79,10 @@ export default route(async (req, res) => {
   const units = sales.reduce((a, o) => a + o.units, 0);
   const cancelled = inMonth.length - sales.length;
   const prev = series.get(prevKey) || { orders: 0, revenue: 0, units: 0 };
+  const rep = gap.has(sel) && series.get(sel).fromReports ? series.get(sel) : null;
+  const S = rep
+    ? { orders: rep.orders, revenue: rep.revenue, refunds: rep.refunds, units: rep.units, cancelled: 0, cancelRate: 0 }
+    : { orders: sales.length, revenue, refunds, units, cancelled, cancelRate: inMonth.length ? (cancelled / inMonth.length) * 100 : 0 };
 
   const products = new Map(), countries = new Map(), cities = new Map();
   const custIds = new Set(), repeatIds = new Set();
@@ -112,12 +136,14 @@ export default route(async (req, res) => {
     months: [...series.values()],
     month: sel,
     monthLabel: label(sel),
+    fromReports: !!rep,
+    reportsError,
     summary: {
-      orders: sales.length, revenue, refunds, net: revenue - refunds, units,
-      aov: sales.length ? revenue / sales.length : 0,
-      refundRate: revenue ? (refunds / revenue) * 100 : 0,
-      cancelled, cancelRate: inMonth.length ? (cancelled / inMonth.length) * 100 : 0,
-      change: { orders: pct(sales.length, prev.orders), revenue: pct(revenue, prev.revenue), units: pct(units, prev.units) },
+      orders: S.orders, revenue: S.revenue, refunds: S.refunds, net: S.revenue - S.refunds, units: S.units,
+      aov: S.orders ? S.revenue / S.orders : 0,
+      refundRate: S.revenue ? (S.refunds / S.revenue) * 100 : 0,
+      cancelled: S.cancelled, cancelRate: S.cancelRate,
+      change: { orders: pct(S.orders, prev.orders), revenue: pct(S.revenue, prev.revenue), units: pct(S.units, prev.units) },
     },
     bestByUnits: top(products, 10, 'units'),
     bestByRevenue: top(products, 10, 'revenue'),
