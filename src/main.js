@@ -71,7 +71,7 @@ function onData(){
 async function logout(msg){try{await api('POST','/api/auth?action=logout')}catch(e){}S.lastJson='';S.me=null;S.shop.data=null;S.sel.clear();renderSelBar();S.mode='login';showLogin();if(msg)toast(msg)}
 
 /* ---------- auth screens ---------- */
-const brandHTML=`<div class="brand"><div class="mark">B</div><div><b>Bless Team Hub</b><small>Briefs, files and roles in one place</small></div></div>`;
+const brandHTML=`<div class="brand"><img class="logo" src="/bless-logo.png" alt="Bless" width="116" height="44"><small>Team Hub</small></div>`;
 function showSetup(){
   S.screen='setup';
   $('#app').innerHTML=`<div class="auth"><form class="auth-card" data-form="setup">${brandHTML}
