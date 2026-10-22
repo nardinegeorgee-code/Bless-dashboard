@@ -163,6 +163,7 @@ export default route(async (req, res) => {
       topProducts: top(leftIn, 8, 'qty'),
       oldest: open.sort((a, b) => Number(b.total) - Number(a.total)).slice(0, 10).map((c) => ({
         id: c.id, createdAt: Number(c.created_at), total: Number(c.total), url: c.url,
+        name: c.name || '', email: c.email || '', phone: c.phone || '', linkFresh: now - Number(c.updated_at) < 10 * DAY,
         items: (c.items || []).map((i) => `${i.q}× ${i.t}`).join(', '), ageHours: Math.round((now - Number(c.created_at)) / 3600000),
       })),
     },

@@ -33,6 +33,9 @@ export function ensureShopSchema() {
         total NUMERIC NOT NULL DEFAULT 0, currency TEXT, url TEXT, completed BOOLEAN NOT NULL DEFAULT FALSE,
         items JSONB NOT NULL DEFAULT '[]'
       )`;
+      await q`ALTER TABLE shop_checkouts ADD COLUMN IF NOT EXISTS name TEXT`;
+      await q`ALTER TABLE shop_checkouts ADD COLUMN IF NOT EXISTS email TEXT`;
+      await q`ALTER TABLE shop_checkouts ADD COLUMN IF NOT EXISTS phone TEXT`;
       await q`ALTER TABLE shop_orders ADD COLUMN IF NOT EXISTS cats JSONB NOT NULL DEFAULT '[]'`;
       await q`CREATE TABLE IF NOT EXISTS shop_cache (key TEXT PRIMARY KEY, fetched_at BIGINT NOT NULL, payload JSONB NOT NULL)`;
       await q`CREATE TABLE IF NOT EXISTS shop_manual (month TEXT PRIMARY KEY, values JSONB NOT NULL DEFAULT '{}', updated_at BIGINT NOT NULL)`;
@@ -203,26 +206,32 @@ async function syncOrders(cfg, deadline) {
 }
 
 /* ---------- abandoned checkouts ---------- */
-const CHECKOUT_QUERY = `query($cursor:String,$q:String){abandonedCheckouts(first:50,after:$cursor,query:$q,sortKey:CREATED_AT,reverse:true){pageInfo{hasNextPage endCursor} nodes{
+const checkoutQuery = (contact) => `query($cursor:String,$q:String){abandonedCheckouts(first:50,after:$cursor,query:$q,sortKey:CREATED_AT,reverse:true){pageInfo{hasNextPage endCursor} nodes{
   id createdAt updatedAt completedAt abandonedCheckoutUrl totalPriceSet{shopMoney{amount currencyCode}}
+  ${contact ? 'customer{displayName defaultEmailAddress{emailAddress} defaultPhoneNumber{phoneNumber}} shippingAddress{name phone}' : ''}
   lineItems(first:10){nodes{title quantity}}}}}`;
 
 async function syncCheckouts(cfg, deadline) {
   const st = await getState('checkouts');
   const since = new Date(Date.now() - 120 * 86400000).toISOString();
-  let cursor = null, count = 0;
+  let cursor = null, count = 0, withContact = true;
   try {
     for (let page = 0; page < 20; page++) {
-      const j = await gql(cfg, CHECKOUT_QUERY, { cursor, q: `created_at:>='${since}'` });
+      let j = await gql(cfg, checkoutQuery(withContact), { cursor, q: `created_at:>='${since}'` });
+      if ((j.errors || !j.data) && withContact) { withContact = false; j = await gql(cfg, checkoutQuery(false), { cursor, q: `created_at:>='${since}'` }); }
       if (j.errors || !j.data) throw new Error(errText(j) || 'no data');
       const c = j.data.abandonedCheckouts;
       await Promise.all(c.nodes.map((n) => {
         const items = (n.lineItems?.nodes || []).map((l) => ({ t: l.title, q: l.quantity || 0 }));
-        return db()`INSERT INTO shop_checkouts (id, created_at, updated_at, total, currency, url, completed, items)
+        const name = n.customer?.displayName || n.shippingAddress?.name || null;
+        const email = n.customer?.defaultEmailAddress?.emailAddress || null;
+        const phone = n.customer?.defaultPhoneNumber?.phoneNumber || n.shippingAddress?.phone || null;
+        return db()`INSERT INTO shop_checkouts (id, created_at, updated_at, total, currency, url, completed, items, name, email, phone)
           VALUES (${n.id}, ${Date.parse(n.createdAt)}, ${Date.parse(n.updatedAt)}, ${num(n.totalPriceSet?.shopMoney?.amount)},
-            ${n.totalPriceSet?.shopMoney?.currencyCode || null}, ${n.abandonedCheckoutUrl || null}, ${!!n.completedAt}, ${JSON.stringify(items)}::jsonb)
+            ${n.totalPriceSet?.shopMoney?.currencyCode || null}, ${n.abandonedCheckoutUrl || null}, ${!!n.completedAt}, ${JSON.stringify(items)}::jsonb, ${name}, ${email}, ${phone})
           ON CONFLICT (id) DO UPDATE SET updated_at = EXCLUDED.updated_at, total = EXCLUDED.total, url = EXCLUDED.url,
-            completed = EXCLUDED.completed, items = EXCLUDED.items`;
+            completed = EXCLUDED.completed, items = EXCLUDED.items, name = COALESCE(EXCLUDED.name, shop_checkouts.name),
+            email = COALESCE(EXCLUDED.email, shop_checkouts.email), phone = COALESCE(EXCLUDED.phone, shop_checkouts.phone)`;
       }));
       count += c.nodes.length;
       if (!c.pageInfo.hasNextPage || Date.now() > deadline) break;
