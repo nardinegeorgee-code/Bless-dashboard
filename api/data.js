@@ -27,5 +27,9 @@ export default route(async (req, res) => {
 
   // Ratings are an internal evaluation: only the Super Admin sees them.
   if (me.role !== 'super_admin') submissions = submissions.map((x) => ({ ...x, rating: null }));
-  res.json({ me: mapUser(me), users, instructions, submissions });
+  let speeds = [];
+  if (me.role === 'super_admin') {
+    speeds = (await q`SELECT instruction_id, user_id, score FROM eval_speed`).map((r) => ({ instructionId: r.instruction_id, userId: r.user_id, score: r.score === null ? null : Number(r.score) }));
+  }
+  res.json({ me: mapUser(me), users, instructions, submissions, speeds });
 });

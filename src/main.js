@@ -45,7 +45,7 @@ async function refresh(){
   if(j.setup){S.users=[];S.me=null;S.instructions=[];S.subs=[];S.usersReady=true;S.mode='setup';return onData()}
   if(!j.me){S.me=null;S.users=[];S.mode='login';S.usersReady=true;return onData()}
   S.mode='app';
-  S.users=j.users;S.instructions=j.instructions;S.subs=j.submissions;S.usersReady=true;
+  S.users=j.users;S.instructions=j.instructions;S.subs=j.submissions;S.speeds=j.speeds||[];S.usersReady=true;
   const roleChanged=!S.me||S.me.role!==j.me.role||S.me.id!==j.me.id;
   const wasNull=!S.me;S.me=j.me;
   if(wasNull||roleChanged){if(roleChanged&&!wasNull){S.route='home';S.param=null}showApp()}
@@ -68,7 +68,7 @@ function onData(){
     return;
   }
 }
-async function logout(msg){try{await api('POST','/api/auth?action=logout')}catch(e){}S.lastJson='';S.me=null;S.shop.data=null;S.sel.clear();renderSelBar();S.mode='login';showLogin();if(msg)toast(msg)}
+async function logout(msg){try{await api('POST','/api/auth?action=logout')}catch(e){}S.lastJson='';S.me=null;S.shop.data=null;S.speeds=[];S.sel.clear();renderSelBar();S.mode='login';showLogin();if(msg)toast(msg)}
 
 /* ---------- auth screens ---------- */
 const brandHTML=`<div class="brand"><img class="logo" src="/bless-logo.png" alt="Bless" width="116" height="44"><small>Team Hub</small></div>`;
@@ -259,6 +259,7 @@ function subHTML(s,hideIns){
   const ctx=hideIns?'':s.instructionId?`<button class="btn sm ghost" style="padding:0;justify-content:flex-start" data-act="go" data-route="ins" data-param="${s.instructionId}">Re: ${esc(ins?ins.title:'deleted instruction')}</button>`:'<span class="muted" style="font-size:.85rem">Upload without instruction</span>';
   return `<article class="item"><div class="item-top"><div class="row" style="gap:8px"><span class="mono">${esc(s.username)}</span>${roleChip(s.role)}</div><div class="row" style="gap:8px"><span class="mono muted">${fmtDate(s.createdAt)}</span>${(s.files||[]).length>1?`<button class="btn sm" data-act="sel-sub" data-id="${s.id}">Select all files</button>`:''}${canDel?`<button class="btn sm danger" data-act="del-sub" data-id="${s.id}">Delete</button>`:''}</div></div>
     ${ctx}${s.note?`<p class="body-text">${esc(s.note)}</p>`:''}
+    ${isAdmin()&&s.instructionId?`<div class="rate"><span class="eyebrow">Speed</span><input class="input ev-speed" type="number" min="0" max="100" placeholder="–" data-ins="${s.instructionId}" data-user="${s.userId}" value="${(()=>{const x=(S.speeds||[]).find(z=>z.instructionId===s.instructionId&&z.userId===s.userId);return x&&x.score!==null?x.score:''})()}" aria-label="Speed percentage"><span class="muted">%</span><button class="btn sm primary" data-act="ev-save-speed">Save</button></div>`:''}
     ${isAdmin()&&s.instructionId?`<div class="rate"><span class="eyebrow">Accuracy</span><input class="input ev-rate" type="number" min="0" max="100" placeholder="–" data-id="${s.id}" value="${s.rating===null||s.rating===undefined?'':s.rating}" aria-label="Accuracy percentage"><span class="muted">%</span>${[100,75,50,0].map(v=>`<button type="button" class="btn sm" data-act="ev-quick" data-v="${v}">${v}</button>`).join('')}<button class="btn sm primary" data-act="ev-save-rate">Save</button></div>`:''}
     ${(s.files||[]).length?`<div class="files">${s.files.map(fileHTML).join('')}</div>`:''}</article>`;
 }
@@ -673,7 +674,7 @@ document.addEventListener('click',async e=>{
   else if(a==='ev-csv')evCsv();
   else if(a==='ev-open'){const id=b.dataset.id;S.ev.open.has(id)?S.ev.open.delete(id):S.ev.open.add(id);renderEval(true)}
   else if(a==='ev-quick'){const i=b.closest('.rate').querySelector('.ev-rate');i.value=b.dataset.v;i.focus()}
-  else if(a==='ev-save-speed'){const i=b.closest('.rline').querySelector('.ev-speed');evPost({action:'speed',instructionId:i.dataset.ins,userId:i.dataset.user,score:i.value===''?null:i.value},'Speed saved')}
+  else if(a==='ev-save-speed'){const i=b.parentElement.querySelector('.ev-speed');evPost({action:'speed',instructionId:i.dataset.ins,userId:i.dataset.user,score:i.value===''?null:i.value},'Speed saved')}
   else if(a==='ev-save-rate'){const i=b.parentElement.querySelector('.ev-rate');evPost({action:'rate',submissionId:i.dataset.id,rating:i.value===''?null:i.value},'Accuracy saved')}
   else if(a==='ev-save-beh'){const tr=b.closest('tr'),sc=tr.querySelector('.ev-beh'),nt=tr.querySelector('.ev-note');evPost({action:'behaviour',month:S.ev.month,userId:sc.dataset.user,score:sc.value===''?null:sc.value,note:nt.value},'Behaviour saved')}
   else if(a==='shop-reload')loadShop();
