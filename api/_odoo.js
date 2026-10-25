@@ -42,7 +42,16 @@ let session = { sig: '', uid: 0 };
 async function userId(cfg) {
   const sig = [cfg.url, cfg.db, cfg.login, cfg.key].join('|');
   if (session.sig === sig && session.uid) return session.uid;
-  const uid = await rpc(cfg, 'common', 'authenticate', [cfg.db, cfg.login, cfg.key, {}]);
+  let uid;
+  try { uid = await rpc(cfg, 'common', 'authenticate', [cfg.db, cfg.login, cfg.key, {}]); }
+  catch (e) {
+    if (/does not exist/i.test(e.message)) {
+      let names = [];
+      try { names = await rpc(cfg, 'db', 'list', []); } catch (x) { /* listing is switched off on many servers */ }
+      throw new HttpError(502, `There is no Odoo database called "${cfg.db}". ` + (names.length ? 'The databases on this server are: ' + names.join(', ') + '. Put the right one in ODOO_DB.' : 'This server hides its database list. In Odoo, open Settings, then Activate the developer mode, and the database name shows in the About box; or ask whoever installed Odoo.'));
+    }
+    throw e;
+  }
   if (!uid) throw new HttpError(502, 'Odoo refused the login. Check ODOO_DB, ODOO_LOGIN and that ODOO_API_KEY is an API key created by that user.');
   session = { sig, uid };
   return uid;
