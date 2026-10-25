@@ -43,3 +43,15 @@ If Areas and Customers stay empty, request **protected customer data** access fo
 ## Analysis tabs (Super Admin only)
 
 Shopify > Sales, Funnel, Products, Customer experience, Retention. Each tab loads its own numbers from Shopify reports (cached 30 minutes; "Refresh numbers" re-fetches). Retention uses your synced orders, so press **Sync now** once after this update to re-import orders with product categories. Service scores (CSAT, NPS, response time and so on) are typed in under Customer experience and saved per month.
+
+## Odoo (read-only)
+
+Admin-only **Odoo** page with Inventory, Sales & invoices, Accounting and Employees tabs, read live through Odoo's JSON-RPC.
+Set these in Vercel, then redeploy:
+
+- `ODOO_URL` e.g. `https://yourcompany.odoo.com`
+- `ODOO_DB` database name (on Odoo Online usually the subdomain)
+- `ODOO_LOGIN` email of the Odoo user to read as (use a user with read-only rights)
+- `ODOO_API_KEY` made in Odoo: avatar, My Profile, Account Security, New API Key
+
+Apps that are not installed in Odoo show a message in that card instead of breaking the page.
