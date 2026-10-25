@@ -1,11 +1,21 @@
 import { HttpError } from './_lib.js';
 
 /** Odoo connection settings come from Vercel environment variables, never from the code. */
+// If the web address was typed in the database box, use its first part (blees.odoo.com -> blees).
+function dbName(v, url) {
+  if (!v) return v;
+  if (/^https?:\/\//i.test(v) || v.includes('/') || /\.odoo\.com$/i.test(v)) {
+    const host = v.replace(/^https?:\/\//i, '').split('/')[0];
+    return /\.odoo\.com$/i.test(host) ? host.split('.')[0] : host;
+  }
+  return v;
+}
+
 export function odooConfig() {
   const clean = (v) => String(v || '').trim();
   let url = clean(process.env.ODOO_URL).replace(/\/+$/, '').replace(/\/(odoo|web)(\/.*)?$/, '');
   if (url && !/^https?:\/\//i.test(url)) url = 'https://' + url;
-  const cfg = { url, db: clean(process.env.ODOO_DB), login: clean(process.env.ODOO_LOGIN), key: clean(process.env.ODOO_API_KEY) };
+  const cfg = { url, db: dbName(clean(process.env.ODOO_DB), url), login: clean(process.env.ODOO_LOGIN), key: clean(process.env.ODOO_API_KEY) };
   cfg.missing = [['ODOO_URL', cfg.url], ['ODOO_DB', cfg.db], ['ODOO_LOGIN', cfg.login], ['ODOO_API_KEY', cfg.key]].filter(([, v]) => !v).map(([k]) => k);
   return cfg;
 }
