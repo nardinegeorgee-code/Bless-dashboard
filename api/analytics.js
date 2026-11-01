@@ -32,6 +32,12 @@ const quarterLabel = (iso) => { const d = new Date(String(iso).slice(0, 10) + 'T
 /* ---------- small helpers ---------- */
 const n0 = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const pct = (a, b) => (b ? (a / b) * 100 : 0);
+/* Products sold as variants (colours, sizes) that must be listed one by one instead of as a single product. */
+const SPLIT = /pillow|bonnet|scrunch/i;
+const variantName = (title, variant) => { const t = title || 'Unknown'; const v = String(variant || '').trim(); return v && !/^default title$/i.test(v) ? `${t} – ${v}` : t; };
+const salesName = (x) => (SPLIT.test(x.product_title || '') ? variantName(x.product_title, x.product_variant_title) : x.product_title || 'Unknown');
+/** Adds up rows that ended up with the same display name (the products that are not split). */
+const foldBy = (rows, nameOf, keys) => { const m = new Map(); for (const x of rows) { const n = nameOf(x); const t = m.get(n) || { _n: n }; for (const k of keys) t[k] = (t[k] || 0) + n0(x[k]); m.set(n, t); } return [...m.values()]; };
 const growth = (cur, prev) => (prev ? Math.round(((cur - prev) / prev) * 1000) / 10 : null);
 const median = (arr) => { if (!arr.length) return 0; const a = [...arr].sort((x, y) => x - y); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
 const sumBy = (rows, k) => rows.reduce((a, r) => a + n0(r[k]), 0);
@@ -136,7 +142,10 @@ function buildShopifyTabs(tab, ctx, run) {
     }),
 
     section('products', `Revenue and profit by product (${monthLabel})`, 'table', async () => {
-      const [r, before] = await Promise.all([run(`FROM sales SHOW net_sales, net_items_sold, gross_profit GROUP BY product_title ${per} ORDER BY net_sales DESC LIMIT 15`), earlier('product_title', 'Unknown')]);
+      const K = ['net_sales', 'net_items_sold', 'gross_profit'];
+      const [r0, b0] = await Promise.all([run(`FROM sales SHOW net_sales, net_items_sold, gross_profit GROUP BY product_title, product_variant_title ${per} ORDER BY net_sales DESC LIMIT 250`), run(`FROM sales SHOW net_sales GROUP BY product_title, product_variant_title SINCE ${ps} UNTIL ${pe} ORDER BY net_sales DESC LIMIT 250`).catch(() => ({ rows: [] }))]);
+      const before = new Map(foldBy(b0.rows, salesName, ['net_sales']).map((x) => [x._n, x.net_sales]));
+      const r = { rows: foldBy(r0.rows, salesName, K).sort((a, b) => b.net_sales - a.net_sales).slice(0, 15).map((x) => ({ ...x, product_title: x._n })) };
       return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'net_sales', label: 'Net revenue', fmt: 'money', bar: true }, { key: 'change', label: `vs ${vs}`, fmt: 'growth' }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'gross_profit', label: 'Profit', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' }],
         rows: r.rows.map((x) => ({ name: x.product_title || 'Unknown', net_sales: n0(x.net_sales), change: change(before, x.product_title || 'Unknown', n0(x.net_sales)), units: n0(x.net_items_sold), gross_profit: n0(x.gross_profit), margin: margin(x) })) };
     }),
@@ -212,7 +221,8 @@ function buildShopifyTabs(tab, ctx, run) {
 
   if (tab === 'products') return [
     section('best', `Best sellers (${monthLabel})`, 'table', async () => {
-      const r = await run(`FROM sales SHOW net_items_sold, net_sales GROUP BY product_title ${per} ORDER BY net_items_sold DESC LIMIT 15`);
+      const r0 = await run(`FROM sales SHOW net_items_sold, net_sales GROUP BY product_title, product_variant_title ${per} ORDER BY net_items_sold DESC LIMIT 250`);
+      const r = { rows: foldBy(r0.rows, salesName, ['net_items_sold', 'net_sales']).sort((a, b) => b.net_items_sold - a.net_items_sold).slice(0, 15).map((x) => ({ ...x, product_title: x._n })) };
       return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'units', label: 'Units', fmt: 'int', bar: true }, { key: 'revenue', label: 'Net revenue', fmt: 'money' }], rows: r.rows.map((x) => ({ name: x.product_title || 'Unknown', units: n0(x.net_items_sold), revenue: n0(x.net_sales) })) };
     }),
     section('category', `Category performance (${monthLabel})`, 'table', async () => {
@@ -220,22 +230,22 @@ function buildShopifyTabs(tab, ctx, run) {
       return { columns: [{ key: 'name', label: 'Category', fmt: 'str' }, { key: 'revenue', label: 'Net revenue', fmt: 'money', bar: true }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'orders', label: 'Orders', fmt: 'int' }], rows: r.rows.map((x) => ({ name: x.product_type || 'No category', revenue: n0(x.net_sales), units: n0(x.net_items_sold), orders: n0(x.orders) })) };
     }),
     section('sku', `Top SKUs (${monthLabel})`, 'table', async () => {
-      const r = await run(`FROM sales SHOW net_items_sold, net_sales GROUP BY product_variant_sku, product_title ${per} ORDER BY net_items_sold DESC LIMIT 20`);
-      return { columns: [{ key: 'sku', label: 'SKU', fmt: 'str' }, { key: 'name', label: 'Product', fmt: 'str' }, { key: 'units', label: 'Units', fmt: 'int', bar: true }, { key: 'revenue', label: 'Net revenue', fmt: 'money' }], rows: r.rows.map((x) => ({ sku: x.product_variant_sku || 'No SKU', name: x.product_title || '', units: n0(x.net_items_sold), revenue: n0(x.net_sales) })) };
+      const r = await run(`FROM sales SHOW net_items_sold, net_sales GROUP BY product_variant_sku, product_title, product_variant_title ${per} ORDER BY net_items_sold DESC LIMIT 20`);
+      return { columns: [{ key: 'sku', label: 'SKU', fmt: 'str' }, { key: 'name', label: 'Product', fmt: 'str' }, { key: 'units', label: 'Units', fmt: 'int', bar: true }, { key: 'revenue', label: 'Net revenue', fmt: 'money' }], rows: r.rows.map((x) => ({ sku: x.product_variant_sku || 'No SKU', name: variantName(x.product_title, x.product_variant_title), units: n0(x.net_items_sold), revenue: n0(x.net_sales) })) };
     }),
     section('slow', `Slow movers: in stock but barely selling (${monthLabel})`, 'table', async () => {
-      const r = await run(`FROM inventory SHOW inventory_units_sold, ending_inventory_units, days_of_inventory_remaining, ending_inventory_retail_value GROUP BY product_title ${per} ORDER BY inventory_units_sold ASC LIMIT 250`);
-      const rows = r.rows.filter((x) => n0(x.ending_inventory_units) > 0).slice(0, 15).map((x) => ({ name: x.product_title || 'Unknown', sold: n0(x.inventory_units_sold), stock: n0(x.ending_inventory_units), days: x.days_of_inventory_remaining === null ? null : n0(x.days_of_inventory_remaining), value: n0(x.ending_inventory_retail_value) }));
+      const r = await run(`FROM inventory SHOW inventory_units_sold, ending_inventory_units, days_of_inventory_remaining, ending_inventory_retail_value GROUP BY product_title, product_variant_title ${per} ORDER BY inventory_units_sold ASC LIMIT 250`);
+      const rows = r.rows.filter((x) => n0(x.ending_inventory_units) > 0).slice(0, 15).map((x) => ({ name: variantName(x.product_title, x.product_variant_title), sold: n0(x.inventory_units_sold), stock: n0(x.ending_inventory_units), days: x.days_of_inventory_remaining === null ? null : n0(x.days_of_inventory_remaining), value: n0(x.ending_inventory_retail_value) }));
       return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'sold', label: 'Sold', fmt: 'int' }, { key: 'stock', label: 'In stock', fmt: 'int', bar: true }, { key: 'days', label: 'Days of stock', fmt: 'days' }, { key: 'value', label: 'Stock value (retail)', fmt: 'money' }], rows, empty: 'No slow movers found.' };
     }),
     section('stockout', `Stockouts and estimated lost sales (${monthLabel})`, 'table', async () => {
-      const r = await run(`FROM inventory SHOW days_out_of_stock, days_in_stock, inventory_units_sold, ending_inventory_units GROUP BY product_title ${per} ORDER BY days_out_of_stock DESC LIMIT 40`);
-      const rows = r.rows.filter((x) => n0(x.days_out_of_stock) > 0).slice(0, 15).map((x) => ({ name: x.product_title || 'Unknown', out: n0(x.days_out_of_stock), sold: n0(x.inventory_units_sold), lost: n0(x.days_in_stock) > 0 ? Math.round((n0(x.inventory_units_sold) / n0(x.days_in_stock)) * n0(x.days_out_of_stock)) : null }));
+      const r = await run(`FROM inventory SHOW days_out_of_stock, days_in_stock, inventory_units_sold, ending_inventory_units GROUP BY product_title, product_variant_title ${per} ORDER BY days_out_of_stock DESC LIMIT 40`);
+      const rows = r.rows.filter((x) => n0(x.days_out_of_stock) > 0).slice(0, 15).map((x) => ({ name: variantName(x.product_title, x.product_variant_title), out: n0(x.days_out_of_stock), sold: n0(x.inventory_units_sold), lost: n0(x.days_in_stock) > 0 ? Math.round((n0(x.inventory_units_sold) / n0(x.days_in_stock)) * n0(x.days_out_of_stock)) : null }));
       return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'out', label: 'Days out of stock', fmt: 'days', bar: true }, { key: 'sold', label: 'Units sold', fmt: 'int' }, { key: 'lost', label: 'Estimated units lost', fmt: 'int' }], rows, empty: 'No stockouts in this period.' };
     }, 'Estimate = average units sold per in-stock day multiplied by days out of stock.'),
     section('low', 'Running out soon', 'table', async () => {
-      const r = await run(`FROM inventory SHOW days_of_inventory_remaining, ending_inventory_units, inventory_units_sold_per_day GROUP BY product_title ${per} ORDER BY days_of_inventory_remaining ASC LIMIT 250`);
-      const rows = r.rows.filter((x) => n0(x.ending_inventory_units) > 0 && x.days_of_inventory_remaining !== null && n0(x.inventory_units_sold_per_day) > 0).slice(0, 15).map((x) => ({ name: x.product_title || 'Unknown', days: n0(x.days_of_inventory_remaining), stock: n0(x.ending_inventory_units), perDay: n0(x.inventory_units_sold_per_day) }));
+      const r = await run(`FROM inventory SHOW days_of_inventory_remaining, ending_inventory_units, inventory_units_sold_per_day GROUP BY product_title, product_variant_title ${per} ORDER BY days_of_inventory_remaining ASC LIMIT 250`);
+      const rows = r.rows.filter((x) => n0(x.ending_inventory_units) > 0 && x.days_of_inventory_remaining !== null && n0(x.inventory_units_sold_per_day) > 0).slice(0, 15).map((x) => ({ name: variantName(x.product_title, x.product_variant_title), days: n0(x.days_of_inventory_remaining), stock: n0(x.ending_inventory_units), perDay: n0(x.inventory_units_sold_per_day) }));
       return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'days', label: 'Days of stock left', fmt: 'days', bar: true, barReverse: true }, { key: 'stock', label: 'In stock', fmt: 'int' }, { key: 'perDay', label: 'Sold per day', fmt: 'num1' }], rows, empty: 'Nothing is close to running out.' };
     }),
     section('bundles', 'Bought together (last 12 months)', 'table', async () => {
