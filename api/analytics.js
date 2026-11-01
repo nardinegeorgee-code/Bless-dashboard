@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { route, allow, db, HttpError, requireAdmin } from './_lib.js';
-import { ensureShopSchema, shopConfig, shopifyql, fetchProducts, gql, resetToken } from './_shopify.js';
+import { ensureShopSchema, shopConfig, shopifyql, fetchProducts, fetchProductImages, gql, resetToken } from './_shopify.js';
 import { parsePeriod, monthPeriod, dayList } from './_period.js';
 
 const DAY = 86400000;
@@ -74,8 +74,18 @@ async function pool(tasks, size = 4) {
 }
 
 /** A section never throws: a failed query becomes an error card so the rest of the tab still loads. */
+/* Tables whose first column is a product (or a product variant) get a picture from Shopify. */
+const PICTURE_TABLES = new Set(['products', 'best', 'sku', 'slow', 'stockout', 'low']);
+let pictureLoader = null;
 const section = (id, title, kind, fn, note) => async () => {
-  try { return { id, title, kind, note, ...(await fn()) }; }
+  try {
+    const r = await fn();
+    if (PICTURE_TABLES.has(id) && r && Array.isArray(r.rows) && pictureLoader) {
+      const pics = await pictureLoader();
+      for (const row of r.rows) { const u = pics[String(row.name || '').trim().toLowerCase()]; if (u) row.img = u; }
+    }
+    return { id, title, kind, note, ...r };
+  }
   catch (e) { return { id, title, kind, note, error: String(e.message || e).slice(0, 400) }; }
 };
 
@@ -499,6 +509,7 @@ export default route(async (req, res) => {
   if (cfg.missing.length) return res.json({ configured: false, missing: cfg.missing });
   await ensureShopSchema();
   shopConfigCache = cfg;
+  { let memo; pictureLoader = () => (memo ||= fetchProductImages(cfg)); }
   const keyOf = monthKeyer(cfg.tz);
   const months = monthsBack(keyOf, 12);
 

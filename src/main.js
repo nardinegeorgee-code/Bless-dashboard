@@ -743,13 +743,16 @@ function tileDetail(t){
   return `<div class="dl"><span>${esc(per)}</span><b class="mono">${esc(fv(t.value,t.fmt))}</b></div>${t.prev!==undefined?diffLine(cmp?'Compared with '+cmp:'Before',t.value,t.prev,t.fmt):'<p class="muted dn">No earlier figure is available for this one.</p>'}${t.sub?`<p class="muted dn">${esc(t.sub)}</p>`:''}${t.daily&&t.daily.cur&&t.daily.cur.length>1?dailyChart(t.daily,t.fmt):''}`;
 }
 function rowDetail(sec,r,i,barCol,total){
-  const cols=sec.columns,name=cols[0];let h=`<div class="dl"><span>Rank</span><b class="mono">#${i+1} of ${sec.rows.length}</b></div>`;
+  const cols=sec.columns,name=cols[0];let h=(r.img?`<a class="pbig" href="${esc(r.img)}" target="_blank" rel="noopener"><img src="${esc(picUrl(r.img,640))}" srcset="${esc(picUrl(r.img,640))} 1x, ${esc(picUrl(r.img,1280))} 2x" alt="${esc(String(r.name||''))}" loading="lazy" referrerpolicy="no-referrer"></a>`:'')+`<div class="dl"><span>Rank</span><b class="mono">#${i+1} of ${sec.rows.length}</b></div>`;
   for(const c of cols.slice(1)){const v=r[c.key];if(v===null||v===undefined||v==='')continue;h+=`<div class="dl"><span>${esc(c.label)}</span><b class="mono">${cellText(v,c.fmt)}</b></div>`}
   if(barCol&&total>0){const v=Number(r[barCol.key])||0;h+=`<div class="dl"><span>Share of the ${sec.rows.length} listed</span><b class="mono">${(v/total*100).toFixed(1)}%</b></div>`}
   const gc=cols.find(c=>c.fmt==='growth'),g=gc&&r[gc.key];
   if(barCol&&typeof g==='number'&&g>-100){const v=Number(r[barCol.key])||0,prev=v/(1+g/100);h+=diffLine('Was '+(curData()&&curData().compareText?'in '+curData().compareText:'before'),v,prev,barCol.fmt)}
   return h;
 }
+/* Shopify serves the same picture at any width; ask for 2x and 3x so it stays sharp on high-density screens. */
+function picUrl(u,w){return u+(u.includes('?')?'&':'?')+'width='+w}
+function pic(r,size){if(!r.img)return '';return `<img class="pimg" src="${esc(picUrl(r.img,size*2))}" srcset="${esc(picUrl(r.img,size*2))} 1x, ${esc(picUrl(r.img,size*3))} 1.5x, ${esc(picUrl(r.img,size*4))} 2x" width="${size}" height="${size}" alt="${esc(String(r.name||''))}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.removeAttribute('srcset');this.removeAttribute('src');this.classList.add('ph')">`}
 function anTable(sec){
   if(!sec.rows.length)return `<p class="muted">${esc(sec.empty||'No data for this period.')}</p>`;
   const cols=sec.columns,nameCol=cols[0],barCol=cols.find(c=>c.bar);
@@ -757,13 +760,14 @@ function anTable(sec){
     const maxv=Math.max(1e-9,...sec.rows.map(r=>Number(r[barCol.key])||0));
     const rest=cols.filter(c=>c!==nameCol&&c!==barCol&&!(nameCol.fmt==='str'&&cols[1]&&cols[1].fmt==='str'&&c===cols[1]&&false));
     const total=sec.rows.reduce((a,r)=>a+(Number(r[barCol.key])||0),0);
+    const anyPic=sec.rows.some(r=>r.img);
     return `<div class="rkl">${sec.rows.map((r,i)=>{const v=Number(r[barCol.key])||0,w=barCol.barReverse?(1-Math.min(1,v/maxv)):v/maxv;
-      return `<div class="rkr" data-detail tabindex="0" role="button" aria-expanded="false"><span class="rkn">${i+1}</span><div class="rkmain"><div class="rkt"><b title="${esc(String(r[nameCol.key]&&r[nameCol.key].text||r[nameCol.key]||''))}">${cellText(r[nameCol.key],nameCol.fmt)}</b><span class="rkv mono">${cellText(r[barCol.key],barCol.fmt)}</span></div><span class="rkbar"><i style="width:${Math.max(2,w*100)}%"></i></span>${rest.length?`<div class="rkchips">${rest.map(c=>rkChip(c,r[c.key])).join('')}</div>`:''}<div class="rkdetail">${rowDetail(sec,r,i,barCol,total)}</div></div></div>`}).join('')}</div>`;
+      return `<div class="rkr${anyPic?' hp':''}" data-detail tabindex="0" role="button" aria-expanded="false"><span class="rkn">${i+1}</span>${anyPic?(r.img?pic(r,52):'<span class="pimg ph" aria-hidden="true"></span>'):''}<div class="rkmain"><div class="rkt"><b title="${esc(String(r[nameCol.key]&&r[nameCol.key].text||r[nameCol.key]||''))}">${cellText(r[nameCol.key],nameCol.fmt)}</b><span class="rkv mono">${cellText(r[barCol.key],barCol.fmt)}</span></div><span class="rkbar"><i style="width:${Math.max(2,w*100)}%"></i></span>${rest.length?`<div class="rkchips">${rest.map(c=>rkChip(c,r[c.key])).join('')}</div>`:''}<div class="rkdetail">${rowDetail(sec,r,i,barCol,total)}</div></div></div>`}).join('')}</div>`;
   }
   if(cols.some(c=>c.rate)){
     return `<div class="mgrid">${sec.rows.map(r=>`<div class="mtile"><div class="rkt"><b>${cellText(r[nameCol.key],nameCol.fmt)}</b></div><div class="rkchips">${cols.slice(1).map(c=>rkChip(c,r[c.key])).join('')}</div></div>`).join('')}</div>`;
   }
-  return `<div class="tablewrap"><table class="dt"><thead><tr>${cols.map(c=>`<th class="${c.fmt==='str'||c.fmt==='link'?'':'num'}">${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${sec.rows.map((r,i)=>`<tr data-detail tabindex="0">${cols.map(c=>{const v=r[c.key],isText=c.fmt==='str'||c.fmt==='link';return `<td class="${isText?'':'num mono'}">${cellText(v,c.fmt)}</td>`}).join('')}</tr><tr class="drow"><td colspan="${cols.length}"><div class="rkdetail">${rowDetail(sec,r,i,null,0)}</div></td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="tablewrap"><table class="dt"><thead><tr>${cols.map(c=>`<th class="${c.fmt==='str'||c.fmt==='link'?'':'num'}">${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${sec.rows.map((r,i)=>`<tr data-detail tabindex="0">${cols.map(c=>{const v=r[c.key],isText=c.fmt==='str'||c.fmt==='link';return `<td class="${isText?'':'num mono'}">${c===cols[0]&&r.img?`<span class="pcell">${pic(r,40)}<span>${cellText(v,c.fmt)}</span></span>`:cellText(v,c.fmt)}</td>`}).join('')}</tr><tr class="drow"><td colspan="${cols.length}"><div class="rkdetail">${rowDetail(sec,r,i,null,0)}</div></td></tr>`).join('')}</tbody></table></div>`;
 }
 function heroSpec(tab,secs){
   const by=id=>secs.find(s=>s.id===id&&!s.error);

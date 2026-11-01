@@ -141,6 +141,34 @@ export async function fetchProducts(cfg, max = 300) {
   return out;
 }
 
+/**
+ * Pictures for the product tables: product name (and "name – variant") to a full-size image address, taken from Shopify.
+ * Keys are lower case. Variants without their own picture use the product picture. Returns {} when Shopify does not answer.
+ */
+export async function fetchProductImages(cfg, max = 500) {
+  const out = {};
+  const key = (t, v) => (String(t || '').trim() + (v ? ' – ' + String(v).trim() : '')).toLowerCase();
+  try {
+    let cursor = null, n = 0;
+    while (n < max) {
+      const j = await gql(cfg, `query($cursor:String){products(first:40,after:$cursor){pageInfo{hasNextPage endCursor} nodes{title featuredMedia{preview{image{url}}} variants(first:12){nodes{title image{url}}}}}}`, { cursor });
+      if (j.errors || !j.data) throw new Error(errText(j) || 'no data');
+      for (const p of j.data.products.nodes) {
+        const main = p.featuredMedia?.preview?.image?.url || '';
+        if (main) out[key(p.title)] = main;
+        for (const v of p.variants?.nodes || []) {
+          const img = v.image?.url || main;
+          if (img && v.title && !/^default title$/i.test(v.title)) out[key(p.title, v.title)] = img;
+        }
+      }
+      n += j.data.products.nodes.length;
+      if (!j.data.products.pageInfo.hasNextPage) break;
+      cursor = j.data.products.pageInfo.endCursor;
+    }
+  } catch (e) { /* pictures are a nice extra; the tables still work without them */ }
+  return out;
+}
+
 /* ---------- orders ---------- */
 const ORDER_BASE = `id name createdAt updatedAt cancelledAt
   totalPriceSet{shopMoney{amount currencyCode}} totalRefundedSet{shopMoney{amount}}
