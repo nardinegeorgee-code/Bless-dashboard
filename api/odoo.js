@@ -147,7 +147,7 @@ function build(tab, cfg, ctx) {
         ['orders', async (start) => (await sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(start)]], ['date_order', 'amount_total'], { app: 'Sales', limit: 20000 })).map((r) => ({ ...r, _d: r.date_order })), 'amount_total'],
         ['invoiced', async (start) => (await invoices(['out_invoice', 'out_refund'], [['invoice_date', '>=', start]])).map((r) => ({ ...r, _d: r.invoice_date })), amt],
       ]);
-      return { ...t, metrics: [{ key: 'orders', label: 'Order value', fmt: 'money' }, { key: 'invoiced', label: 'Invoiced', fmt: 'money' }] };
+      return { ...t, metrics: [{ key: 'orders', label: 'Order value', fmt: 'money' }, { key: 'invoiced', label: 'Invoiced', fmt: 'money' }], monthBars: { keys: ['orders', 'invoiced'], base: 'orders' } };
     }),
     section('customers', `Top customers (${ctx.monthLabel})`, 'table', async () => {
       const list = await sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(s)], ['date_order', '<=', dtEnd(e)]], ['partner_id', 'amount_total'], { app: 'Sales', limit: 20000 });
@@ -191,7 +191,7 @@ function build(tab, cfg, ctx) {
         ['out', async (start) => (await invoices(['in_invoice', 'in_refund'], [['invoice_date', '>=', start]])).map((r) => ({ ...r, _d: r.invoice_date })), amt],
       ]);
       t.rows.forEach((r) => { r.values.net = r.values.in - r.values.out; });
-      return { ...t, metrics: [{ key: 'in', label: 'Invoiced to customers', fmt: 'money' }, { key: 'out', label: 'Bills from suppliers', fmt: 'money' }, { key: 'net', label: 'Difference', fmt: 'money' }] };
+      return { ...t, metrics: [{ key: 'in', label: 'Invoiced to customers', fmt: 'money' }, { key: 'out', label: 'Bills from suppliers', fmt: 'money' }, { key: 'net', label: 'Difference', fmt: 'money' }], monthBars: { keys: ['in', 'out', 'net'], base: 'in' } };
     }),
     section('aging', 'Who owes you, by how late', 'table', async () => {
       const open = await invoices(['out_invoice'], [['payment_state', 'in', ['not_paid', 'partial']]]);

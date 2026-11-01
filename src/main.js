@@ -770,25 +770,37 @@ function waterfall(b){
     out+=`<rect x="${(cx-bw/2).toFixed(1)}" y="${y1.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(2,y2-y1).toFixed(1)}" rx="3" fill="${tot?'var(--accent)':'var(--cmp)'}" opacity="${tot?1:.7}"><title>${esc(x.step)}: ${esc(fv(x.amount,'money'))}</title></rect><text x="${cx.toFixed(1)}" y="${(y1-5).toFixed(1)}" text-anchor="middle" class="wv">${esc(fv(x.amount,'money'))}</text><text x="${cx.toFixed(1)}" y="${H-18}" text-anchor="middle" class="wl">${esc(short(x.step.replace('Ad spend (Meta)','Ad spend').replace('Product cost','Cost').replace('Profit after ads','After ads'),13))}</text>`});
   return `<aside class="viz"><div class="viz-t">From revenue to profit</div><svg viewBox="0 0 ${W} ${H}" class="wf" role="img" aria-label="Revenue to profit steps">${out}</svg></aside>`;
 }
-/* One month at a time: pick the month and year; hover a bar to read its figure. */
-S.mc={key:''};
-function monthsChart(sec){
-  const all=sec.rows.filter(r=>r.key).slice().reverse();if(!all.length)return '';
-  const has=sec.columns.some(c=>c.key==='ads');
-  let key=S.mc.key;if(!all.some(r=>r.key===key))key=(all.slice().reverse().find(r=>r.key===perMonthSel())||all[all.length-1]).key;
+/* One month at a time: pick the month and year; each bar shows its percentage of a base figure; hover a bar for its exact figure.
+   rows: [{key:'2026-10', month:'Oct 2026', v:{figureKey:number}}], bars: [[figureKey,label,color]], base: figureKey, baseLabel */
+S.mc={key:'',keys:[]};
+function monthBarsChart(rows,bars,base,baseLabel){
+  const all=rows.filter(r=>r.key).sort((a,b)=>a.key<b.key?-1:1);if(!all.length)return '';
+  S.mc.keys=all.map(r=>r.key);
+  let key=S.mc.key;if(!all.some(r=>r.key===key))key=(all.find(r=>r.key===perMonthSel())||all[all.length-1]).key;
   const row=all.find(r=>r.key===key),yr=key.slice(0,4),years=[...new Set(all.map(r=>r.key.slice(0,4)))].reverse();
   const monthsOfYear=all.filter(r=>r.key.startsWith(yr));
-  const bars=[['revenue','Net revenue','#2a78d6'],['cost','Product cost','#eb6834'],...(has?[['ads','Ad spend','#eda100'],['profit','Profit after ads','#6250d6']]:[['gross','Gross profit','#6250d6']])];
-  const W=560,H=250,pl=48,pr=10,pt=38,pb=34,vals=bars.map(b=>row[b[0]]||0),mx=Math.max(1,...vals),mn=Math.min(0,...vals);
-  const Y=v=>pt+(1-(v-mn)/(mx-mn||1))*(H-pt-pb),gw=(W-pl-pr)/bars.length,bw=Math.min(70,gw-26),z=Y(0);
+  const W=560,H=250,pl=48,pr=10,pt=38,pb=34,vals=bars.map(b=>row.v[b[0]]||0),mx=Math.max(1,...vals),mn=Math.min(0,...vals),bv=row.v[base]||0;
+  const Y=v=>pt+(1-(v-mn)/(mx-mn||1))*(H-pt-pb),gw=(W-pl-pr)/bars.length,bw=Math.min(70,gw-26);
   const grid=[0,.5,1].map(f=>{const v=mn+(mx-mn)*f;return `<line x1="${pl}" x2="${W-pr}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="var(--paper-line)" stroke-width="1" opacity=".7"/><text x="${pl-6}" y="${(Y(v)+3).toFixed(1)}" text-anchor="end" class="wl">${esc(shortNum(v))}</text>`}).join('');
-  const body=bars.map((b,k)=>{const v=row[b[0]]||0,x=pl+k*gw+(gw-bw)/2,y1=Y(Math.max(v,0)),y2=Y(Math.min(v,0));
-    const tip=`${row.month} · ${b[1]}: ${fv(v,'money')}${row.revenue&&b[0]!=='revenue'?' ('+(v/row.revenue*100).toFixed(1)+'% of revenue)':''}`;
-    return `<g data-tip="${esc(tip)}"><rect x="${(pl+k*gw).toFixed(1)}" y="${pt}" width="${gw.toFixed(1)}" height="${H-pt-pb}" fill="transparent"/><rect x="${x.toFixed(1)}" y="${y1.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(2,y2-y1).toFixed(1)}" rx="4" fill="${b[2]}"/><text x="${(x+bw/2).toFixed(1)}" y="${(v>=0?y1-18:y2+13).toFixed(1)}" text-anchor="middle" class="wv">${esc(shortNum(v))}</text><text x="${(x+bw/2).toFixed(1)}" y="${(v>=0?y1-6:y2+25).toFixed(1)}" text-anchor="middle" class="wp">${row.revenue?(v/row.revenue*100).toFixed(1)+'%':'–'}</text><text x="${(x+bw/2).toFixed(1)}" y="${H-12}" text-anchor="middle" class="wl">${esc(b[1])}</text></g>`}).join('');
+  const body=bars.map((b,k)=>{const v=row.v[b[0]]||0,x=pl+k*gw+(gw-bw)/2,y1=Y(Math.max(v,0)),y2=Y(Math.min(v,0)),p=bv?(v/bv*100).toFixed(1)+'%':'–';
+    const tip=`${row.month} · ${b[1]}: ${fv(v,'money')}${bv&&b[0]!==base?' ('+p+' of '+baseLabel+')':''}`;
+    return `<g data-tip="${esc(tip)}"><rect x="${(pl+k*gw).toFixed(1)}" y="${pt}" width="${gw.toFixed(1)}" height="${H-pt-pb}" fill="transparent"/><rect x="${x.toFixed(1)}" y="${y1.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(2,y2-y1).toFixed(1)}" rx="4" fill="${b[2]}"/><text x="${(x+bw/2).toFixed(1)}" y="${(v>=0?y1-18:y2+13).toFixed(1)}" text-anchor="middle" class="wv">${esc(shortNum(v))}</text><text x="${(x+bw/2).toFixed(1)}" y="${(v>=0?y1-6:y2+25).toFixed(1)}" text-anchor="middle" class="wp">${p}</text><text x="${(x+bw/2).toFixed(1)}" y="${H-12}" text-anchor="middle" class="wl">${esc(b[1])}</text></g>`}).join('');
   const sel=(id,opts,cur,label)=>`<select class="select" id="${id}" aria-label="${label}">${opts.map(([v,l])=>`<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(l)}</option>`).join('')}</select>`;
   const mname=r=>String(r.month).split(' ')[0];
   return `<div class="viz wide"><div class="viz-h"><div class="viz-t">${esc(row.month)}</div><div class="row" style="gap:8px">${sel('mc-m',monthsOfYear.map(r=>[r.key,mname(r)]),key,'Month')}${sel('mc-y',years.map(y=>[y,y]),yr,'Year')}</div></div>
-  <svg viewBox="0 0 ${W} ${H}" class="mc2" role="img" aria-label="Figures for ${esc(row.month)}">${grid}${body}</svg><p class="muted dn">Percentages are shares of the month's net revenue. Point at a bar to read its exact figure.</p></div>`;
+  <svg viewBox="0 0 ${W} ${H}" class="mc2" role="img" aria-label="Figures for ${esc(row.month)}">${grid}${body}</svg><p class="muted dn">Percentages are shares of ${esc(baseLabel)}. Point at a bar to read its exact figure.</p></div>`;
+}
+function monthsChart(sec){
+  const has=sec.columns.some(c=>c.key==='ads');
+  const bars=[['revenue','Net revenue','#2a78d6'],['cost','Product cost','#eb6834'],...(has?[['ads','Ad spend','#eda100'],['profit','Profit after ads','#6250d6']]:[['gross','Gross profit','#6250d6']])];
+  return monthBarsChart(sec.rows.map(r=>({key:r.key,month:r.month,v:r})),bars,'revenue',"the month's net revenue");
+}
+/* Odoo: the same one-month view for the trend sections that say which figures to draw. */
+function trendMonthChart(sec){
+  if(!sec.monthBars)return '';
+  const pal=['#2a78d6','#1baf7a','#eb6834','#6250d6'],bars=sec.monthBars.keys.map((k,i)=>[k,(sec.metrics.find(m=>m.key===k)||{label:k}).label,pal[i%pal.length]]);
+  const baseM=sec.metrics.find(m=>m.key===sec.monthBars.base)||{label:sec.monthBars.base};
+  return monthBarsChart(sec.rows.map(r=>({key:r.key,month:r.label,v:r.values})),bars,sec.monthBars.base,baseM.label.toLowerCase());
 }
 /* hover tooltip for anything with data-tip */
 (function(){
@@ -883,7 +895,7 @@ function anSection(sec){
   if(sec.error)return `<section class="panel an" style="border-color:var(--warn)">${head}<p class="body-text"><b style="color:var(--warn)">This part could not be loaded.</b> ${esc(sec.error)}</p></section>`;
   let body='';
   try{
-    body=sec.kind==='kpi'?anKpi(sec):sec.kind==='funnel'?anFunnel(sec):sec.kind==='trend'?anTrend(sec):sec.kind==='table'?(sec.id==='months'?monthsChart(sec):'')+anTable(sec):sec.kind==='cohort'?anCohort(sec):sec.kind==='audit'?anAudit(sec):sec.kind==='campaigns'?metaCampaigns(sec):sec.kind==='manual'?anManual(sec):sec.kind==='text'?`<ul class="gaps">${sec.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>`:'';
+    body=sec.kind==='kpi'?anKpi(sec):sec.kind==='funnel'?anFunnel(sec):sec.kind==='trend'?trendMonthChart(sec)+anTrend(sec):sec.kind==='table'?(sec.id==='months'?monthsChart(sec):'')+anTable(sec):sec.kind==='cohort'?anCohort(sec):sec.kind==='audit'?anAudit(sec):sec.kind==='campaigns'?metaCampaigns(sec):sec.kind==='manual'?anManual(sec):sec.kind==='text'?`<ul class="gaps">${sec.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>`:'';
   }catch(e){body=`<p class="muted">Could not show this part (${esc(e.message)}).</p>`}
   return `<section class="panel an${sec.kind==='text'?' soft':''}">${head}${body}</section>`;
 }
@@ -1046,7 +1058,7 @@ document.addEventListener('keydown',e=>{
 document.addEventListener('change',async e=>{
   const t=e.target;
   if(t.matches('input[type=file]')){addFiles(t.dataset.kind,[...t.files]);t.value=''}
-  else if(t.id==='mc-m'||t.id==='mc-y'){const rows=S.an.data&&S.an.data.sections.find(x=>x.id==='months');if(t.id==='mc-m')S.mc.key=t.value;else if(rows){const k=rows.rows.map(r=>r.key).filter(Boolean).filter(k=>k.startsWith(t.value)).sort();const cur=(S.mc.key||perMonthSel()||'').slice(5);S.mc.key=k.find(x=>x.slice(5)===cur)||k[k.length-1]||S.mc.key}renderShop()}
+  else if(t.id==='mc-m'||t.id==='mc-y'){if(t.id==='mc-m')S.mc.key=t.value;else{const k=S.mc.keys.filter(k=>k.startsWith(t.value)).sort();const cur=(S.mc.key||perMonthSel()||'').slice(5);S.mc.key=k.find(x=>x.slice(5)===cur)||k[k.length-1]||S.mc.key}S.route==='odoo'?renderOdoo():renderShop()}
   else if(t.id&&t.id.startsWith('per-')){if((t.id==='per-q'||t.id==='per-y')&&S.per.mode==='quarter'){const q=+(document.getElementById('per-q').value),y=+(document.getElementById('per-y').value);if(!perQuarter(y,q)){toast('That quarter has not started yet');perRender();return}perReload()}else perChange(t)}
   else if(t.id==='ev-month'){loadEval(t.value)}
   else if(t.id==='shop-metric'){S.shop.metric=t.value;renderShop()}
