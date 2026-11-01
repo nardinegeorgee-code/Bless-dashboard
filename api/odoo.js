@@ -345,7 +345,7 @@ function build(tab, cfg, ctx) {
         // Which field holds the salesperson? Odoo's own "Salesperson" is user_id, but shops often add their own, so look at every
         // "who sold it" field on the order and use the ones that are actually filled in.
         let metaF = {}; try { metaF = await call(cfg, 'sale.order', 'fields_get', [], { attributes: ['string', 'type', 'relation'] }); } catch (err) { /* user_id below */ }
-        const repFields = Object.entries(metaF).filter(([k, f]) => f.type === 'many2one' && (k === 'user_id' || /sales\s*-?\s*(person|rep|man|agent)/i.test(String(f.string)))).map(([k]) => k);
+        const repFields = Object.entries(metaF).filter(([k, f]) => f.type === 'many2one' && f.relation !== 'crm.team' && (k === 'user_id' || /sales\s*-?\s*(person|rep|man|agent)/i.test(String(f.string)))).map(([k]) => k);
         if (!repFields.length) repFields.push('user_id');
         const [orders, lines, invs] = await Promise.all([
           sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(start)]], ['name', 'partner_id', 'partner_shipping_id', ...repFields, 'amount_untaxed', 'date_order'], { app: 'Sales', limit: 30000 }).catch(() => sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(start)]], ['name', 'partner_id', ...repFields, 'amount_untaxed', 'date_order'], { app: 'Sales', limit: 30000 })),
@@ -356,7 +356,7 @@ function build(tab, cfg, ctx) {
         for (let i = 0; i < pids.length; i += 500) {
           try { for (const g of await call(cfg, 'res.partner', 'read', [pids.slice(i, i + 500), ['city', 'state_id']])) city.set(g.id, (g.city || '').trim() || nm(g.state_id) || 'Unknown'); } catch (err) { break; }
         }
-        const filled = Object.fromEntries(repFields.map((f) => [f, orders.filter((o) => nm(o[f])).length])), order = [...repFields].sort((a, b) => filled[b] - filled[a]);
+        const filled = Object.fromEntries(repFields.map((f) => [f, orders.filter((o) => nm(o[f])).length])), order = [...repFields].sort((a, b) => (b === 'user_id') - (a === 'user_id') || filled[b] - filled[a]);
         const who = (o) => { for (const f of order) if (nm(o[f])) return nm(o[f]); return 'No salesperson'; }, inR = (d, a, b) => d >= a && d <= b;
         const byName = new Map(orders.map((o) => [o.name, who(o)])), info = new Map(orders.map((o) => [o.id, { rep: who(o), day: String(o.date_order).slice(0, 10), customer: nm(o.partner_id) || 'Unknown', city: city.get(addr(o)) || city.get(nid(o.partner_id)) || 'Unknown' }]));
         const reps = new Map(); const R = (name) => { if (!reps.has(name)) reps.set(name, { name, cur: { sales: 0, orders: 0, units: 0, invoiced: 0, invoices: 0 }, prev: { sales: 0, orders: 0, units: 0, invoiced: 0, invoices: 0 }, months: new Map(m12.map((k) => [k, { key: k, label: label(k), sales: 0, orders: 0, units: 0, invoiced: 0 }])), cities: new Map(), customers: new Map(), prods: new Map(), invoiceList: [] }); return reps.get(name); };
