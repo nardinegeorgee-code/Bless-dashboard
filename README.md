@@ -44,6 +44,16 @@ If Areas and Customers stay empty, request **protected customer data** access fo
 
 Shopify > Sales, Funnel, Products, Customer experience, Retention. Each tab loads its own numbers from Shopify reports (cached 30 minutes; "Refresh numbers" re-fetches). Retention uses your synced orders, so press **Sync now** once after this update to re-import orders with product categories. Service scores (CSAT, NPS, response time and so on) are typed in under Customer experience and saved per month.
 
+## Date ranges and comparing periods (Shopify, Odoo, Meta Ads)
+
+Every Shopify tab, every Odoo tab and both Meta Ads tabs have a date bar at the top:
+
+- **Day, Month, Quarter or Custom** (any start and end date, up to 400 days). The end is cut at today; a period that has not started is refused.
+- **Compare with**: "Previous period" is automatic (a month is compared with the previous month for the same number of days, a quarter with the previous quarter, a day with the day before, any other range with the same number of days just before it). Choose "Another period…" to pick any two dates, for example this November against last November.
+- Number cards show the change and what the earlier value was; tables for channels, categories, products, traffic sources and campaigns show a "vs ..." column.
+- API: `?from=YYYY-MM-DD&to=YYYY-MM-DD[&kind=day|month|quarter][&cfrom=...&cto=...]`. The old `?month=YYYY-MM` still works. Days follow `DASHBOARD_TZ`.
+- On Shopify, days older than the synced orders are filled from Shopify's own reports. Customer experience scores are still typed in once per calendar month (the month the period ends in).
+
 ## Odoo (read-only)
 
 Admin-only **Odoo** page with Inventory, Sales & invoices, Accounting and Employees tabs, read live through Odoo's JSON-RPC.

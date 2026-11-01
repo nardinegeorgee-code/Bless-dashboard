@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { route, allow, db, HttpError, requireAdmin } from './_lib.js';
 import { ensureShopSchema, shopConfig, shopifyql, fetchProducts, gql, resetToken } from './_shopify.js';
+import { parsePeriod, monthPeriod } from './_period.js';
 
 const DAY = 86400000;
 const TABS = ['sales', 'funnel', 'products', 'experience', 'retention'];
@@ -68,6 +69,15 @@ function buildShopifyTabs(tab, ctx, run) {
   const { s, e, ps, pe, trendStart, today, monthLabel } = ctx;
   const per = `SINCE ${s} UNTIL ${e}`;
   const margin = (r) => (n0(r.net_sales) ? pct(n0(r.gross_profit), n0(r.net_sales)) : null);
+  const vs = ctx.compareText;
+  // Net revenue per group in the comparison period, so each row can show its change. A failure here only hides that column's numbers.
+  const earlier = async (dim, fallback) => {
+    try {
+      const r = await run(`FROM sales SHOW net_sales GROUP BY ${dim} SINCE ${ps} UNTIL ${pe} ORDER BY net_sales DESC LIMIT 200`);
+      return new Map(r.rows.map((x) => [x[dim] || fallback, n0(x.net_sales)]));
+    } catch (err) { return new Map(); }
+  };
+  const change = (map, name, now) => (map.has(name) ? growth(now, map.get(name)) : null);
 
   if (tab === 'sales') return [
     section('kpi', `Results for ${monthLabel}`, 'kpi', async () => {
@@ -112,23 +122,23 @@ function buildShopifyTabs(tab, ctx, run) {
     }, 'The current year is partial, so its growth looks lower until the year ends.'),
 
     section('channel', `Sales by channel (${monthLabel})`, 'table', async () => {
-      const r = await run(`FROM sales SHOW net_sales, orders, net_items_sold, gross_profit GROUP BY sales_channel ${per} ORDER BY net_sales DESC LIMIT 15`);
+      const [r, before] = await Promise.all([run(`FROM sales SHOW net_sales, orders, net_items_sold, gross_profit GROUP BY sales_channel ${per} ORDER BY net_sales DESC LIMIT 15`), earlier('sales_channel', 'Unknown')]);
       const tot = sumBy(r.rows, 'net_sales');
-      return { columns: [{ key: 'name', label: 'Channel', fmt: 'str' }, { key: 'net_sales', label: 'Net revenue', fmt: 'money', bar: true }, { key: 'share', label: 'Share', fmt: 'pct' }, { key: 'orders', label: 'Orders', fmt: 'int' }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'gross_profit', label: 'Profit', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' }],
-        rows: r.rows.map((x) => ({ name: x.sales_channel || 'Unknown', net_sales: n0(x.net_sales), share: pct(n0(x.net_sales), tot), orders: n0(x.orders), units: n0(x.net_items_sold), gross_profit: n0(x.gross_profit), margin: margin(x) })) };
+      return { columns: [{ key: 'name', label: 'Channel', fmt: 'str' }, { key: 'net_sales', label: 'Net revenue', fmt: 'money', bar: true }, { key: 'change', label: `vs ${vs}`, fmt: 'growth' }, { key: 'share', label: 'Share', fmt: 'pct' }, { key: 'orders', label: 'Orders', fmt: 'int' }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'gross_profit', label: 'Profit', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' }],
+        rows: r.rows.map((x) => ({ name: x.sales_channel || 'Unknown', net_sales: n0(x.net_sales), change: change(before, x.sales_channel || 'Unknown', n0(x.net_sales)), share: pct(n0(x.net_sales), tot), orders: n0(x.orders), units: n0(x.net_items_sold), gross_profit: n0(x.gross_profit), margin: margin(x) })) };
     }, 'Marketplaces and social shops only appear if they are connected to Shopify as sales channels.'),
 
     section('category', `Revenue and profit by category (${monthLabel})`, 'table', async () => {
-      const r = await run(`FROM sales SHOW net_sales, net_items_sold, gross_profit GROUP BY product_type ${per} ORDER BY net_sales DESC LIMIT 15`);
+      const [r, before] = await Promise.all([run(`FROM sales SHOW net_sales, net_items_sold, gross_profit GROUP BY product_type ${per} ORDER BY net_sales DESC LIMIT 15`), earlier('product_type', 'No category')]);
       const tot = sumBy(r.rows, 'net_sales');
-      return { columns: [{ key: 'name', label: 'Category', fmt: 'str' }, { key: 'net_sales', label: 'Net revenue', fmt: 'money', bar: true }, { key: 'share', label: 'Share', fmt: 'pct' }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'gross_profit', label: 'Profit', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' }],
-        rows: r.rows.map((x) => ({ name: x.product_type || 'No category', net_sales: n0(x.net_sales), share: pct(n0(x.net_sales), tot), units: n0(x.net_items_sold), gross_profit: n0(x.gross_profit), margin: margin(x) })) };
+      return { columns: [{ key: 'name', label: 'Category', fmt: 'str' }, { key: 'net_sales', label: 'Net revenue', fmt: 'money', bar: true }, { key: 'change', label: `vs ${vs}`, fmt: 'growth' }, { key: 'share', label: 'Share', fmt: 'pct' }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'gross_profit', label: 'Profit', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' }],
+        rows: r.rows.map((x) => ({ name: x.product_type || 'No category', net_sales: n0(x.net_sales), change: change(before, x.product_type || 'No category', n0(x.net_sales)), share: pct(n0(x.net_sales), tot), units: n0(x.net_items_sold), gross_profit: n0(x.gross_profit), margin: margin(x) })) };
     }),
 
     section('products', `Revenue and profit by product (${monthLabel})`, 'table', async () => {
-      const r = await run(`FROM sales SHOW net_sales, net_items_sold, gross_profit GROUP BY product_title ${per} ORDER BY net_sales DESC LIMIT 15`);
-      return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'net_sales', label: 'Net revenue', fmt: 'money', bar: true }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'gross_profit', label: 'Profit', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' }],
-        rows: r.rows.map((x) => ({ name: x.product_title || 'Unknown', net_sales: n0(x.net_sales), units: n0(x.net_items_sold), gross_profit: n0(x.gross_profit), margin: margin(x) })) };
+      const [r, before] = await Promise.all([run(`FROM sales SHOW net_sales, net_items_sold, gross_profit GROUP BY product_title ${per} ORDER BY net_sales DESC LIMIT 15`), earlier('product_title', 'Unknown')]);
+      return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'net_sales', label: 'Net revenue', fmt: 'money', bar: true }, { key: 'change', label: `vs ${vs}`, fmt: 'growth' }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'gross_profit', label: 'Profit', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' }],
+        rows: r.rows.map((x) => ({ name: x.product_title || 'Unknown', net_sales: n0(x.net_sales), change: change(before, x.product_title || 'Unknown', n0(x.net_sales)), units: n0(x.net_items_sold), gross_profit: n0(x.gross_profit), margin: margin(x) })) };
     }),
 
     section('discounts', `Discount codes (${monthLabel})`, 'table', async () => {
@@ -141,34 +151,39 @@ function buildShopifyTabs(tab, ctx, run) {
       const r = await run(`FROM sales SHOW orders, net_sales GROUP BY is_canceled_order, order_cancellation_reason ${per}`);
       const rows = r.rows.filter((x) => x.is_canceled_order === true || String(x.is_canceled_order).toLowerCase() === 'true' || x.is_canceled_order === 'Yes')
         .map((x) => ({ name: String(x.order_cancellation_reason || 'No reason given').toLowerCase().replace(/_/g, ' '), orders: n0(x.orders), value: n0(x.net_sales) }));
-      return { columns: [{ key: 'name', label: 'Reason', fmt: 'str' }, { key: 'orders', label: 'Orders', fmt: 'int', bar: true }, { key: 'value', label: 'Value', fmt: 'money' }], rows, empty: 'No cancelled orders in this month.' };
+      return { columns: [{ key: 'name', label: 'Reason', fmt: 'str' }, { key: 'orders', label: 'Orders', fmt: 'int', bar: true }, { key: 'value', label: 'Value', fmt: 'money' }], rows, empty: 'No cancelled orders in this period.' };
     }),
   ];
 
   if (tab === 'funnel') {
     const conv = (x) => ({ sessions: n0(x.sessions), cart: n0(x.sessions_with_cart_additions), done: n0(x.sessions_that_completed_checkout) });
     const groupTable = (title, dim, nameKey) => section(title.id, title.text, 'table', async () => {
-      const r = await run(`FROM sessions SHOW sessions, sessions_with_cart_additions, sessions_that_completed_checkout GROUP BY ${dim} ${per} ORDER BY sessions DESC LIMIT 12`);
-      return { columns: [{ key: 'name', label: nameKey, fmt: 'str' }, { key: 'sessions', label: 'Sessions', fmt: 'int', bar: true }, { key: 'cartRate', label: 'Added to cart', fmt: 'pct' }, { key: 'orders', label: 'Purchases', fmt: 'int' }, { key: 'convRate', label: 'Conversion', fmt: 'pct' }],
-        rows: r.rows.map((x) => { const c = conv(x); return { name: x[dim] || 'Unknown', sessions: c.sessions, cartRate: pct(c.cart, c.sessions), orders: c.done, convRate: pct(c.done, c.sessions) }; }) };
+      const [r, r0] = await Promise.all([run(`FROM sessions SHOW sessions, sessions_with_cart_additions, sessions_that_completed_checkout GROUP BY ${dim} ${per} ORDER BY sessions DESC LIMIT 12`), run(`FROM sessions SHOW sessions GROUP BY ${dim} SINCE ${ps} UNTIL ${pe} ORDER BY sessions DESC LIMIT 100`).catch(() => ({ rows: [] }))]);
+      const was = new Map(r0.rows.map((x) => [x[dim] || 'Unknown', n0(x.sessions)]));
+      return { columns: [{ key: 'name', label: nameKey, fmt: 'str' }, { key: 'sessions', label: 'Sessions', fmt: 'int', bar: true }, { key: 'change', label: `vs ${ctx.compareText}`, fmt: 'growth' }, { key: 'cartRate', label: 'Added to cart', fmt: 'pct' }, { key: 'orders', label: 'Purchases', fmt: 'int' }, { key: 'convRate', label: 'Conversion', fmt: 'pct' }],
+        rows: r.rows.map((x) => { const c = conv(x); return { name: x[dim] || 'Unknown', sessions: c.sessions, change: was.has(x[dim] || 'Unknown') ? growth(c.sessions, was.get(x[dim] || 'Unknown')) : null, cartRate: pct(c.cart, c.sessions), orders: c.done, convRate: pct(c.done, c.sessions) }; }) };
     });
     return [
       section('funnel', `Where visitors drop off (${monthLabel})`, 'funnel', async () => {
-        const r = await run(`FROM sessions SHOW sessions, online_store_visitors, pageviews, products_viewed, products_added_to_cart, sessions_with_cart_additions, sessions_that_reached_checkout, sessions_that_completed_checkout, searches_submitted, bounces ${per}`);
+        const q = (range) => `FROM sessions SHOW sessions, online_store_visitors, pageviews, products_viewed, products_added_to_cart, sessions_with_cart_additions, sessions_that_reached_checkout, sessions_that_completed_checkout, searches_submitted, bounces ${range}`;
+        const [r, r0] = await Promise.all([run(q(per)), run(q(`SINCE ${ps} UNTIL ${pe}`)).catch(() => ({ rows: [] }))]);
         const x = r.rows[0] || {};
+        const had = r0.rows.length > 0, y = r0.rows[0] || {};
+        const P = (v) => (had ? v : undefined);
+        const S0 = n0(y.sessions), C0 = n0(y.sessions_with_cart_additions), K0 = n0(y.sessions_that_reached_checkout), D0 = n0(y.sessions_that_completed_checkout);
         const S = n0(x.sessions), C = n0(x.sessions_with_cart_additions), K = n0(x.sessions_that_reached_checkout), D = n0(x.sessions_that_completed_checkout);
         return {
           steps: [{ label: 'Sessions', value: S }, { label: 'Added to cart', value: C }, { label: 'Started checkout', value: K }, { label: 'Purchased', value: D }],
           tiles: [
-            { label: 'Visitors', value: n0(x.online_store_visitors), fmt: 'int' },
-            { label: 'Page views', value: n0(x.pageviews), fmt: 'int' },
-            { label: 'Product page views', value: n0(x.products_viewed), fmt: 'int' },
-            { label: 'Product to cart rate', value: pct(n0(x.products_added_to_cart), n0(x.products_viewed)), fmt: 'pct', sub: 'products added / products viewed' },
-            { label: 'Conversion rate', value: pct(D, S), fmt: 'pct' },
-            { label: 'Cart abandonment', value: pct(C - D, C), fmt: 'pct', sub: 'carts that never purchased' },
-            { label: 'Checkout abandonment', value: pct(K - D, K), fmt: 'pct', sub: 'started checkout, did not buy' },
-            { label: 'Bounce rate', value: pct(n0(x.bounces), S), fmt: 'pct' },
-            { label: 'Searches', value: n0(x.searches_submitted), fmt: 'int' },
+            { label: 'Visitors', value: n0(x.online_store_visitors), prev: P(n0(y.online_store_visitors)), fmt: 'int' },
+            { label: 'Page views', value: n0(x.pageviews), prev: P(n0(y.pageviews)), fmt: 'int' },
+            { label: 'Product page views', value: n0(x.products_viewed), prev: P(n0(y.products_viewed)), fmt: 'int' },
+            { label: 'Product to cart rate', value: pct(n0(x.products_added_to_cart), n0(x.products_viewed)), prev: P(pct(n0(y.products_added_to_cart), n0(y.products_viewed))), fmt: 'pct', sub: 'products added / products viewed' },
+            { label: 'Conversion rate', value: pct(D, S), prev: P(pct(D0, S0)), fmt: 'pct' },
+            { label: 'Cart abandonment', value: pct(C - D, C), prev: P(pct(C0 - D0, C0)), goodDown: true, fmt: 'pct', sub: 'carts that never purchased' },
+            { label: 'Checkout abandonment', value: pct(K - D, K), prev: P(pct(K0 - D0, K0)), goodDown: true, fmt: 'pct', sub: 'started checkout, did not buy' },
+            { label: 'Bounce rate', value: pct(n0(x.bounces), S), prev: P(pct(n0(y.bounces), S0)), goodDown: true, fmt: 'pct' },
+            { label: 'Searches', value: n0(x.searches_submitted), prev: P(n0(y.searches_submitted)), fmt: 'int' },
           ] };
       }),
       section('trend', 'Conversion by month', 'trend', async () => {
@@ -216,7 +231,7 @@ function buildShopifyTabs(tab, ctx, run) {
     section('stockout', `Stockouts and estimated lost sales (${monthLabel})`, 'table', async () => {
       const r = await run(`FROM inventory SHOW days_out_of_stock, days_in_stock, inventory_units_sold, ending_inventory_units GROUP BY product_title ${per} ORDER BY days_out_of_stock DESC LIMIT 40`);
       const rows = r.rows.filter((x) => n0(x.days_out_of_stock) > 0).slice(0, 15).map((x) => ({ name: x.product_title || 'Unknown', out: n0(x.days_out_of_stock), sold: n0(x.inventory_units_sold), lost: n0(x.days_in_stock) > 0 ? Math.round((n0(x.inventory_units_sold) / n0(x.days_in_stock)) * n0(x.days_out_of_stock)) : null }));
-      return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'out', label: 'Days out of stock', fmt: 'days', bar: true }, { key: 'sold', label: 'Units sold', fmt: 'int' }, { key: 'lost', label: 'Estimated units lost', fmt: 'int' }], rows, empty: 'No stockouts this month.' };
+      return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'out', label: 'Days out of stock', fmt: 'days', bar: true }, { key: 'sold', label: 'Units sold', fmt: 'int' }, { key: 'lost', label: 'Estimated units lost', fmt: 'int' }], rows, empty: 'No stockouts in this period.' };
     }, 'Estimate = average units sold per in-stock day multiplied by days out of stock.'),
     section('low', 'Running out soon', 'table', async () => {
       const r = await run(`FROM inventory SHOW days_of_inventory_remaining, ending_inventory_units, inventory_units_sold_per_day GROUP BY product_title ${per} ORDER BY days_of_inventory_remaining ASC LIMIT 250`);
@@ -308,20 +323,20 @@ function buildShopifyTabs(tab, ctx, run) {
       const r = await run(`FROM returns SHOW returned_quantity GROUP BY return_line_item_reason ${per} ORDER BY returned_quantity DESC LIMIT 10`);
       const tot = sumBy(r.rows, 'returned_quantity');
       return { columns: [{ key: 'name', label: 'Reason', fmt: 'str' }, { key: 'qty', label: 'Units', fmt: 'int', bar: true }, { key: 'share', label: 'Share', fmt: 'pct' }],
-        rows: r.rows.map((x) => ({ name: String(x.return_line_item_reason || 'No reason given').toLowerCase().replace(/_/g, ' '), qty: n0(x.returned_quantity), share: pct(n0(x.returned_quantity), tot) })), empty: 'No returns this month.' };
+        rows: r.rows.map((x) => ({ name: String(x.return_line_item_reason || 'No reason given').toLowerCase().replace(/_/g, ' '), qty: n0(x.returned_quantity), share: pct(n0(x.returned_quantity), tot) })), empty: 'No returns in this period.' };
     }),
     section('returned', 'Most returned products', 'table', async () => {
       const r = await run(`FROM returns SHOW returned_quantity GROUP BY product_title_at_time_of_sale ${per} ORDER BY returned_quantity DESC LIMIT 10`);
       return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'qty', label: 'Units returned', fmt: 'int', bar: true }],
-        rows: r.rows.map((x) => ({ name: x.product_title_at_time_of_sale || 'Unknown', qty: n0(x.returned_quantity) })), empty: 'No returns this month.' };
+        rows: r.rows.map((x) => ({ name: x.product_title_at_time_of_sale || 'Unknown', qty: n0(x.returned_quantity) })), empty: 'No returns in this period.' };
     }),
     section('cancelReasons', 'Why orders are cancelled', 'table', async () => {
       const r = await run(`FROM sales SHOW orders GROUP BY is_canceled_order, order_cancellation_reason ${per}`);
       const rows = r.rows.filter((x) => x.is_canceled_order === true || String(x.is_canceled_order).toLowerCase() === 'true' || x.is_canceled_order === 'Yes')
         .map((x) => ({ name: String(x.order_cancellation_reason || 'No reason given').toLowerCase().replace(/_/g, ' '), orders: n0(x.orders) }));
-      return { columns: [{ key: 'name', label: 'Reason', fmt: 'str' }, { key: 'orders', label: 'Orders', fmt: 'int', bar: true }], rows, empty: 'No cancelled orders this month.' };
+      return { columns: [{ key: 'name', label: 'Reason', fmt: 'str' }, { key: 'orders', label: 'Orders', fmt: 'int', bar: true }], rows, empty: 'No cancelled orders in this period.' };
     }),
-    async () => ({ id: 'manual', title: `Service scores you enter (${monthLabel})`, kind: 'manual', ...(await manualData(ctx)) }),
+    async () => ({ id: 'manual', title: `Service scores you enter (${label(ctx.month)})`, kind: 'manual', ...(await manualData(ctx)) }),
     { id: 'gaps', title: 'Not available from Shopify', kind: 'text', items: [
       'Customer satisfaction (CSAT), NPS, support response time and resolution rate: enter them above from your helpdesk or survey tool.',
       'Packaging, product condition and order accuracy: track complaints in the box above; Shopify does not record them.',
@@ -346,7 +361,7 @@ const MANUAL_FIELDS = [
 async function manualData(ctx) {
   const rows = await db()`SELECT month, values FROM shop_manual ORDER BY month DESC LIMIT 12`;
   const cur = rows.find((r) => r.month === ctx.month);
-  return { month: ctx.month, fields: MANUAL_FIELDS, values: cur ? cur.values : {}, history: rows.slice(0, 6).map((r) => ({ month: r.month, label: label(r.month), values: r.values })) };
+  return { month: ctx.month, monthText: label(ctx.month), fields: MANUAL_FIELDS, values: cur ? cur.values : {}, history: rows.slice(0, 6).map((r) => ({ month: r.month, label: label(r.month), values: r.values })) };
 }
 
 /* ---------- retention (from your synced orders) ---------- */
@@ -482,13 +497,14 @@ export default route(async (req, res) => {
   }
 
   const tab = TABS.includes(req.query.tab) ? req.query.tab : 'sales';
-  const month = months.includes(req.query.month) ? req.query.month : months[months.length - 1];
+  const monthKey = months.includes(req.query.month) ? req.query.month : months[months.length - 1];
   const refresh = req.query.refresh === '1';
   const today = ymd(new Date());
-  const { s, e } = monthRange(month, today);
-  const pk = prevKey(month);
-  const pr = monthRange(pk, today);
-  const ctx = { month, monthLabel: label(month), s, e, ps: pr.s, pe: pr.e, today, trendStart: `${months[0]}-01` };
+  const per = parsePeriod(req.query, cfg.tz) || monthPeriod(monthKey, cfg.tz);
+  // The service scores you type in are saved per calendar month, so they follow the month the period ends in.
+  const month = per.to.slice(0, 7);
+  // monthLabel is the name every card title uses; it now holds the label of whatever dates were chosen.
+  const ctx = { month, monthLabel: per.label, compareText: per.compareText, s: per.from, e: per.to, ps: per.compare.from, pe: per.compare.to, today, trendStart: `${months[0]}-01` };
   const run = (query) => cachedQuery(cfg, query, refresh);
 
   const tasks = tab === 'retention' ? await buildRetention(ctx, keyOf, cfg).catch((err) => [async () => ({ id: 'err', title: 'Retention', kind: 'text', error: err.message })]) : buildShopifyTabs(tab, ctx, run);
@@ -503,5 +519,5 @@ export default route(async (req, res) => {
   try { const r = await db()`SELECT currency FROM shop_orders WHERE currency IS NOT NULL LIMIT 1`; currency = r[0]?.currency || ''; } catch (err) {}
   if (!currency) { try { const j = await gql(cfg, '{shop{currencyCode}}'); currency = j.data?.shop?.currencyCode || ''; } catch (err) {} }
 
-  res.json({ configured: true, tab, month, monthLabel: ctx.monthLabel, months: months.map((k) => ({ key: k, label: label(k) })), currency, tz: cfg.tz, scopes, sections });
+  res.json({ configured: true, tab, month, monthLabel: ctx.monthLabel, period: { from: per.from, to: per.to, days: per.days, label: per.label, kind: per.kind, clamped: per.clamped }, compare: { from: per.compare.from, to: per.compare.to, days: per.compare.days, label: per.compare.label, custom: per.compare.custom }, compareText: per.compareText, months: months.map((k) => ({ key: k, label: label(k) })), currency, tz: cfg.tz, scopes, sections });
 });

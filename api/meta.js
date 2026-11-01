@@ -1,5 +1,6 @@
 import { route, allow, db, HttpError, requireAdmin } from './_lib.js';
 import { ensureShopSchema } from './_shopify.js';
+import { parsePeriod, monthPeriod, startMs, endMs } from './_period.js';
 import { metaConfig, graph, graphAll, cached, clearMetaCache, audit, recentAudit, accountInfo, metrics, INSIGHT_FIELDS, ACCOUNT_STATUS, budgetOffset } from './_meta.js';
 
 const DAY = 86400000;
@@ -7,7 +8,6 @@ const TABS = ['overview', 'campaigns'];
 const pad = (n) => String(n).padStart(2, '0');
 const label = (key) => new Date(key + '-15T12:00:00Z').toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
 const range = (key) => { const [y, m] = key.split('-').map(Number); return { s: `${key}-01`, e: `${key}-${pad(new Date(Date.UTC(y, m, 0)).getUTCDate())}` }; };
-const prevKey = (key) => { const [y, m] = key.split('-').map(Number); const d = new Date(Date.UTC(y, m - 2, 1)); return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1); };
 
 function monthKeyer(tz) {
   const f = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit' });
@@ -40,27 +40,31 @@ const monthlySeries = (cfg, ctx) => ctx.once('monthly', async () => {
   return ctx.months.map((k) => ({ key: k, label: label(k), m: by.get(k) || metrics(null), has: by.has(k) }));
 });
 const campaignInsights = (cfg, ctx) => ctx.once('campIns', () => insights(cfg, `camp|${ctx.s}|${ctx.until}`, ctx.refresh, { level: 'campaign', fields: INSIGHT_FIELDS + ',campaign_id,campaign_name', time_range: timeRange(ctx.s, ctx.until) }));
+const campaignInsightsCmp = (cfg, ctx) => ctx.once('campInsC', () => insights(cfg, `camp|${ctx.cs}|${ctx.cu}`, ctx.refresh, { level: 'campaign', fields: INSIGHT_FIELDS + ',campaign_id,campaign_name', time_range: timeRange(ctx.cs, ctx.cu) }));
+/** Account totals for any period, e.g. one day, a quarter or a custom range. */
+const totals = (cfg, ctx, a, b) => ctx.once('tot|' + a + '|' + b, async () => {
+  const rows = await insights(cfg, `tot|${a}|${b}`, ctx.refresh, { level: 'account', time_range: timeRange(a, b) });
+  return metrics(rows[0] || null);
+});
 
 /** Shopify revenue for the month, from the orders already synced into the database. Null when those orders do not cover the month. */
-async function shopifyMonth(cfg, ctx) {
+async function shopifyRevenue(cfg, ctx, a, b) {
   await ensureShopSchema();
   const q = db();
-  const [y, m] = ctx.month.split('-').map(Number);
+  const lo = startMs(a, cfg.tz), hi = endMs(b, cfg.tz);
   const first = await q`SELECT MIN(created_at) AS t FROM shop_orders`;
-  if (!first[0] || first[0].t === null || Number(first[0].t) > Date.UTC(y, m - 1, 1) + 3 * DAY) return null;
-  const rows = await q`SELECT created_at, total, cancelled, currency FROM shop_orders WHERE created_at >= ${Date.UTC(y, m - 1, 1) - 2 * DAY} AND created_at < ${Date.UTC(y, m, 1) + 2 * DAY}`;
-  const mine = rows.filter((o) => !o.cancelled && ctx.keyOf(Number(o.created_at)) === ctx.month);
-  return { revenue: mine.reduce((a, o) => a + Number(o.total), 0), orders: mine.length, currency: (mine.find((o) => o.currency) || {}).currency || '' };
+  if (!first[0] || first[0].t === null || Number(first[0].t) > lo + 3 * DAY) return null;   // synced orders do not reach back that far
+  const rows = await q`SELECT created_at, total, cancelled, currency FROM shop_orders WHERE created_at >= ${lo} AND created_at < ${hi}`;
+  const mine = rows.filter((o) => !o.cancelled);
+  return { revenue: mine.reduce((x, o) => x + Number(o.total), 0), orders: mine.length, currency: (mine.find((o) => o.currency) || {}).currency || '' };
 }
 
 /* ---------- tabs ---------- */
 function build(tab, cfg, ctx, info) {
   if (tab === 'overview') return [
-    section('kpi', `Meta ads in ${ctx.monthLabel}`, 'kpi', async () => {
-      const series = await monthlySeries(cfg, ctx);
-      const cur = (series.find((x) => x.key === ctx.month) || {}).m || metrics(null);
-      const prv = (series.find((x) => x.key === ctx.prev) || {}).m;
-      const p = (k) => (prv ? { prev: prv[k] } : {});
+    section('kpi', `Meta ads, ${ctx.periodLabel}`, 'kpi', async () => {
+      const [cur, prv] = await Promise.all([totals(cfg, ctx, ctx.s, ctx.until), totals(cfg, ctx, ctx.cs, ctx.cu)]);
+      const p = (k) => ({ prev: prv[k] });
       const tiles = [
         tile('Amount spent', cur.spend, 'money', p('spend')),
         tile('Purchases', cur.purchases, 'int', p('purchases')),
@@ -85,38 +89,43 @@ function build(tab, cfg, ctx, info) {
       };
     }),
     section('blend', 'Meta spend vs your real Shopify sales', 'kpi', async () => {
-      const series = await monthlySeries(cfg, ctx);
-      const cur = (series.find((x) => x.key === ctx.month) || {}).m || metrics(null);
-      const shop = await shopifyMonth(cfg, ctx);
-      if (!shop) return { kind: 'text', items: ['Your synced Shopify orders do not go back to this month, so the comparison is hidden. Pick a recent month, or press Sync now on the Shopify page.'] };
+      const [cur, prv] = await Promise.all([totals(cfg, ctx, ctx.s, ctx.until), totals(cfg, ctx, ctx.cs, ctx.cu)]);
+      const [shop, shopPrev] = await Promise.all([shopifyRevenue(cfg, ctx, ctx.s, ctx.until), shopifyRevenue(cfg, ctx, ctx.cs, ctx.cu)]);
+      if (!shop) return { kind: 'text', items: ['Your synced Shopify orders do not go back to the start of this period, so the comparison is hidden. Pick a more recent period, or press Sync now on the Shopify page.'] };
       if (shop.currency && info.currency && shop.currency !== info.currency) return { kind: 'text', items: [`Your Shopify store sells in ${shop.currency} but the Meta ad account bills in ${info.currency}, so the two cannot be compared without a conversion.`] };
+      const sp = shopPrev, pr = prv;
       return { tiles: [
-        tile('Shopify revenue', shop.revenue, 'money', { sub: shop.orders + ' orders, from all sources' }),
-        tile('Meta spend', cur.spend, 'money'),
-        tile('Blended return', cur.spend ? shop.revenue / cur.spend : 0, 'x', { sub: 'all Shopify revenue ÷ Meta spend' }),
-        tile('Meta says it drove', shop.revenue ? (cur.value / shop.revenue) * 100 : 0, 'pct', { sub: 'of Shopify revenue (Meta purchase value)' }),
-        tile('Ad spend per Shopify order', shop.orders ? cur.spend / shop.orders : 0, 'money2', { goodDown: true }),
+        tile('Shopify revenue', shop.revenue, 'money', { sub: shop.orders + ' orders, from all sources', ...(sp ? { prev: sp.revenue } : {}) }),
+        tile('Meta spend', cur.spend, 'money', { prev: pr.spend }),
+        tile('Blended return', cur.spend ? shop.revenue / cur.spend : 0, 'x', { sub: 'all Shopify revenue ÷ Meta spend', ...(sp ? { prev: pr.spend ? sp.revenue / pr.spend : 0 } : {}) }),
+        tile('Meta says it drove', shop.revenue ? (cur.value / shop.revenue) * 100 : 0, 'pct', { sub: 'of Shopify revenue (Meta purchase value)', ...(sp ? { prev: sp.revenue ? (pr.value / sp.revenue) * 100 : 0 } : {}) }),
+        tile('Ad spend per Shopify order', shop.orders ? cur.spend / shop.orders : 0, 'money2', { goodDown: true, ...(sp ? { prev: sp.orders ? pr.spend / sp.orders : 0 } : {}) }),
       ] };
     }, 'Blended return counts every sale, including ones that did not come from ads, so it is a sanity check rather than a precise result.'),
-    section('campaigns', 'Campaigns by spend', 'table', async () => {
-      const rows = (await campaignInsights(cfg, ctx)).map((r) => ({ name: r.campaign_name || 'Unnamed campaign', ...metrics(r) })).filter((r) => r.spend > 0).sort((a, b) => b.spend - a.spend).slice(0, 10);
-      return { columns: [{ key: 'name', label: 'Campaign', fmt: 'str' }, { key: 'spend', label: 'Spent', fmt: 'money', bar: true }, { key: 'purchases', label: 'Purchases', fmt: 'int' }, { key: 'roas', label: 'Return', fmt: 'x' }, { key: 'cpp', label: 'Per purchase', fmt: 'money2' }], rows, empty: 'No campaign spent anything this month.' };
+    section('campaigns', `Campaigns by spend (${ctx.periodLabel})`, 'table', async () => {
+      const [now, before] = await Promise.all([campaignInsights(cfg, ctx), campaignInsightsCmp(cfg, ctx)]);
+      const was = new Map(before.map((r) => [r.campaign_id, metrics(r)]));
+      const rows = now.map((r) => {
+        const m = metrics(r), w = was.get(r.campaign_id);
+        return { name: r.campaign_name || 'Unnamed campaign', ...m, change: w && w.spend ? Math.round(((m.spend - w.spend) / w.spend) * 1000) / 10 : null, roasBefore: w ? w.roas : null };
+      }).filter((r) => r.spend > 0).sort((a, b) => b.spend - a.spend).slice(0, 10);
+      return { columns: [{ key: 'name', label: 'Campaign', fmt: 'str' }, { key: 'spend', label: 'Spent', fmt: 'money', bar: true }, { key: 'change', label: `Spend vs ${ctx.compareText}`, fmt: 'growth' }, { key: 'purchases', label: 'Purchases', fmt: 'int' }, { key: 'roas', label: 'Return', fmt: 'x' }, { key: 'roasBefore', label: `Return, ${ctx.compareText}`, fmt: 'x' }, { key: 'cpp', label: 'Per purchase', fmt: 'money2' }], rows, empty: 'No campaign spent anything in this period.' };
     }),
-    section('ads', 'Ads by spend', 'table', async () => {
+    section('ads', `Ads by spend (${ctx.periodLabel})`, 'table', async () => {
       const raw = await insights(cfg, `ad|${ctx.s}|${ctx.until}`, ctx.refresh, { level: 'ad', fields: INSIGHT_FIELDS + ',ad_name,campaign_name', time_range: timeRange(ctx.s, ctx.until), limit: 500 });
       const rows = raw.map((r) => ({ name: (r.ad_name || 'Unnamed ad') + (r.campaign_name ? ' · ' + r.campaign_name : ''), ...metrics(r) })).filter((r) => r.spend > 0).sort((a, b) => b.spend - a.spend).slice(0, 10);
-      return { columns: [{ key: 'name', label: 'Ad', fmt: 'str' }, { key: 'spend', label: 'Spent', fmt: 'money', bar: true }, { key: 'purchases', label: 'Purchases', fmt: 'int' }, { key: 'roas', label: 'Return', fmt: 'x' }, { key: 'ctr', label: 'Click rate', fmt: 'pct' }], rows, empty: 'No ad spent anything this month.' };
+      return { columns: [{ key: 'name', label: 'Ad', fmt: 'str' }, { key: 'spend', label: 'Spent', fmt: 'money', bar: true }, { key: 'purchases', label: 'Purchases', fmt: 'int' }, { key: 'roas', label: 'Return', fmt: 'x' }, { key: 'ctr', label: 'Click rate', fmt: 'pct' }], rows, empty: 'No ad spent anything in this period.' };
     }, 'Useful for the Graphic Designer and Media Buyer: which creative is earning its spend.'),
-    section('platform', 'Where the money went', 'table', async () => {
+    section('platform', `Where the money went (${ctx.periodLabel})`, 'table', async () => {
       const raw = await insights(cfg, `plat|${ctx.s}|${ctx.until}`, ctx.refresh, { level: 'account', breakdowns: 'publisher_platform', time_range: timeRange(ctx.s, ctx.until) });
       const name = { facebook: 'Facebook', instagram: 'Instagram', audience_network: 'Audience Network', messenger: 'Messenger', whatsapp: 'WhatsApp', threads: 'Threads' };
       const rows = raw.map((r) => ({ name: name[r.publisher_platform] || r.publisher_platform || 'Other', ...metrics(r) })).filter((r) => r.spend > 0).sort((a, b) => b.spend - a.spend);
-      return { columns: [{ key: 'name', label: 'Platform', fmt: 'str' }, { key: 'spend', label: 'Spent', fmt: 'money', bar: true }, { key: 'impressions', label: 'Impressions', fmt: 'int' }, { key: 'purchases', label: 'Purchases', fmt: 'int' }, { key: 'roas', label: 'Return', fmt: 'x' }], rows, empty: 'Nothing was spent this month.' };
+      return { columns: [{ key: 'name', label: 'Platform', fmt: 'str' }, { key: 'spend', label: 'Spent', fmt: 'money', bar: true }, { key: 'impressions', label: 'Impressions', fmt: 'int' }, { key: 'purchases', label: 'Purchases', fmt: 'int' }, { key: 'roas', label: 'Return', fmt: 'x' }], rows, empty: 'Nothing was spent in this period.' };
     }),
   ];
 
   if (tab === 'campaigns') return [
-    section('list', 'Your campaigns', 'campaigns', async () => {
+    section('list', `Your campaigns (${ctx.periodLabel})`, 'campaigns', async () => {
       const [list, ins] = await Promise.all([
         cached(cfg, 'campaigns', ctx.refresh, () => graphAll(cfg, 'act_' + cfg.account + '/campaigns', { fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget', limit: 100 })),
         campaignInsights(cfg, ctx),
@@ -134,7 +143,7 @@ function build(tab, cfg, ctx, info) {
       }).filter((r) => r.status !== 'DELETED' && (r.status !== 'ARCHIVED' || r.spend > 0))
         .sort((a, b) => (b.status === 'ACTIVE') - (a.status === 'ACTIVE') || b.spend - a.spend);
       return { rows, empty: 'This ad account has no campaigns yet.' };
-    }, 'Pause, resume or change the daily budget. Every change is written to the log below. Spend and results are for the month chosen above.'),
+    }, 'Pause, resume or change the daily budget. Every change is written to the log below. Spend and results are for the dates chosen above.'),
     section('audit', 'Changes made from this dashboard', 'table', async () => {
       const log = await recentAudit(15);
       const rows = log.map((a) => {
@@ -200,19 +209,20 @@ export default route(async (req, res) => {
   const keyOf = monthKeyer(cfg.tz);
   const months = lastMonths(keyOf, 12);
   const tab = TABS.includes(req.query.tab) ? req.query.tab : 'overview';
-  const month = months.includes(req.query.month) ? req.query.month : months[months.length - 1];
-  const today = new Date().toLocaleDateString('en-CA', { timeZone: cfg.tz });
-  const { s, e } = range(month);
+  const monthKey = months.includes(req.query.month) ? req.query.month : months[months.length - 1];
+  const per = parsePeriod(req.query, cfg.tz) || monthPeriod(monthKey, cfg.tz);
+  const today = per.today || new Date().toLocaleDateString('en-CA', { timeZone: cfg.tz });
+  const month = per.to.slice(0, 7);
   const memo = {};
   const ctx = {
-    month, monthLabel: label(month), prev: prevKey(month), s, until: e < today ? e : today, months, keyOf, refresh: req.query.refresh === '1',
+    month, monthLabel: label(month), periodLabel: per.label, compareText: per.compareText, s: per.from, until: per.to, cs: per.compare.from, cu: per.compare.to, months, keyOf, refresh: req.query.refresh === '1',
     untilAll: range(months[months.length - 1]).e < today ? range(months[months.length - 1]).e : today,
     once: (k, fn) => (memo[k] = memo[k] || fn()),
   };
   const info = await accountInfo(cfg, ctx.refresh);
   const sections = await pool(build(tab, cfg, ctx, info), 3);
   res.json({
-    configured: true, tab, month, monthLabel: ctx.monthLabel, months: months.map((k) => ({ key: k, label: label(k) })),
+    configured: true, tab, month, monthLabel: ctx.monthLabel, period: { from: per.from, to: per.to, days: per.days, label: per.label, kind: per.kind, clamped: per.clamped }, compare: { from: per.compare.from, to: per.compare.to, days: per.compare.days, label: per.compare.label, custom: per.compare.custom }, compareText: per.compareText, months: months.map((k) => ({ key: k, label: label(k) })),
     currency: info.currency, account: info.name, accountStatus: ACCOUNT_STATUS[info.status] || 'Unknown', timezone: info.timezone, sections,
   });
 });

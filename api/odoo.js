@@ -1,5 +1,8 @@
 import { route, allow, requireAdmin } from './_lib.js';
 import { odooConfig, odooVersion, call, sr, nm, nid, fieldsOf, needModel } from './_odoo.js';
+import { parsePeriod, monthPeriod } from './_period.js';
+
+const TZ = process.env.DASHBOARD_TZ || 'Africa/Cairo';
 
 const TABS = ['inventory', 'sales', 'accounting', 'hr'];
 const pad = (n) => String(n).padStart(2, '0');
@@ -8,8 +11,6 @@ const pct = (a, b) => (b ? (a / b) * 100 : 0);
 const sum = (rows, f) => rows.reduce((a, r) => a + n0(typeof f === 'function' ? f(r) : r[f]), 0);
 const label = (key) => new Date(key + '-15T12:00:00Z').toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
 const monthsBack = (n) => { const now = new Date(); const out = []; for (let i = n - 1; i >= 0; i--) { const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1)); out.push(d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1)); } return out; };
-const range = (key) => { const [y, m] = key.split('-').map(Number); const last = new Date(Date.UTC(y, m, 0)).getUTCDate(); return { s: `${key}-01`, e: `${key}-${pad(last)}` }; };
-const prevKey = (key) => { const [y, m] = key.split('-').map(Number); const d = new Date(Date.UTC(y, m - 2, 1)); return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1); };
 const mkey = (s) => String(s || '').slice(0, 7);
 const dt = (d) => d + ' 00:00:00', dtEnd = (d) => d + ' 23:59:59';
 
@@ -51,7 +52,7 @@ function build(tab, cfg, ctx) {
         tile('Stock value (at sale price)', sum(storable, (p) => Math.max(0, n0(p.qty_available)) * n0(p.list_price)), 'money'),
         tile('Out of stock', out.length, 'int', { goodDown: true, sub: pct(out.length, storable.length).toFixed(0) + '% of stocked products' }),
         tile('Running low', low.length, 'int', { goodDown: true, sub: mins.size ? 'at or under the reorder minimum' : 'at 5 units or fewer' }),
-        ...(po ? [tile('Purchased this month', sum(po, 'amount_total'), 'money', { sub: po.length + ' purchase orders' })] : []),
+        ...(po ? [tile('Purchased in this period', sum(po, 'amount_total'), 'money', { sub: po.length + ' purchase orders' })] : []),
       ] };
     }),
     section('attention', 'Needs restocking', 'table', async () => {
@@ -188,8 +189,8 @@ function build(tab, cfg, ctx) {
         const hours = att ? sum(att, 'worked_hours') : null;
         return { tiles: [
           tile('Employees', list.length, 'int'), tile('Departments', depts.size, 'int'),
-          ...(att ? [tile('Hours worked', hours, 'num1', { sub: att.length + ' check-ins' }), tile('Average per employee', list.length ? hours / list.length : 0, 'num1', { sub: 'hours this month' })] : []),
-          ...(leave ? [tile('Approved time off', sum(leave, 'number_of_days'), 'num1', { sub: 'days touching this month' })] : []),
+          ...(att ? [tile('Hours worked', hours, 'num1', { sub: att.length + ' check-ins' }), tile('Average per employee', list.length ? hours / list.length : 0, 'num1', { sub: 'hours in this period' })] : []),
+          ...(leave ? [tile('Approved time off', sum(leave, 'number_of_days'), 'num1', { sub: 'days touching this period' })] : []),
         ] };
       }),
       section('dept', 'People by department', 'table', async () => {
@@ -224,10 +225,12 @@ export default route(async (req, res) => {
   if (cfg.missing.length) return res.json({ configured: false, missing: cfg.missing });
   const months = monthsBack(12);
   const tab = TABS.includes(req.query.tab) ? req.query.tab : 'inventory';
-  const month = months.includes(req.query.month) ? req.query.month : months[months.length - 1];
+  const monthKey = months.includes(req.query.month) ? req.query.month : months[months.length - 1];
+  const per = parsePeriod(req.query, TZ) || monthPeriod(monthKey, TZ);
+  const month = per.to.slice(0, 7);
   const today = new Date().toISOString().slice(0, 10);
-  const { s, e } = range(month), pk = prevKey(month), pr = range(pk);
-  const ctx = { month, monthLabel: label(month), s, e, ps: pr.s, pe: pr.e, today };
+  // monthLabel is the name every card title uses; it now holds the label of whatever dates were chosen
+  const ctx = { month, monthLabel: per.label, compareText: per.compareText, s: per.from, e: per.to, ps: per.compare.from, pe: per.compare.to, today };
 
   let info = { version: '', company: '', currency: '' };
   const version = await odooVersion(cfg).catch(() => null);   // unreachable server: let the first real call explain
@@ -236,5 +239,5 @@ export default route(async (req, res) => {
   info.company = company[0] ? company[0].name : '';
   info.currency = company[0] && Array.isArray(company[0].currency_id) ? String(company[0].currency_id[1]).slice(0, 3) : '';
   const sections = await pool(build(tab, cfg, ctx), 3);
-  res.json({ configured: true, tab, month, monthLabel: ctx.monthLabel, months: months.map((k) => ({ key: k, label: label(k) })), currency: info.currency, company: info.company, version: info.version, sections });
+  res.json({ configured: true, tab, month, monthLabel: ctx.monthLabel, period: { from: per.from, to: per.to, days: per.days, label: per.label, kind: per.kind, clamped: per.clamped }, compare: { from: per.compare.from, to: per.compare.to, days: per.compare.days, label: per.compare.label, custom: per.compare.custom }, compareText: per.compareText, months: months.map((k) => ({ key: k, label: label(k) })), currency: info.currency, company: info.company, version: info.version, sections });
 });

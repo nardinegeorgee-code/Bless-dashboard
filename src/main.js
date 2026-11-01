@@ -276,11 +276,61 @@ function fileHTML(f){
     <a class="fdl" href="${esc(dlUrl(url))}" download="${esc(f.name)}" title="Download ${esc(f.name)}" aria-label="Download ${esc(f.name)}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/></svg></a></div>`;
 }
 
+/* ---------- Date range (shared by Shopify, Odoo and Meta Ads) ---------- */
+const pad2=n=>String(n).padStart(2,'0');
+const todayStr=()=>{const d=new Date();return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())};
+const lastDay=(y,m)=>new Date(y,m,0).getDate();
+const MONTH_NAMES=['January','February','March','April','May','June','July','August','September','October','November','December'];
+S.per={mode:'month',from:'',to:'',cmp:'auto',cfrom:'',cto:''};
+function perSet(mode,from,to){const t=todayStr();if(from>t)return false;S.per.mode=mode;S.per.from=from;S.per.to=to>t?t:to;return true}
+function perMonth(y,m){return perSet('month',y+'-'+pad2(m)+'-01',y+'-'+pad2(m)+'-'+pad2(lastDay(y,m)))}
+function perQuarter(y,q){const m=(q-1)*3+1;return perSet('quarter',y+'-'+pad2(m)+'-01',y+'-'+pad2(m+2)+'-'+pad2(lastDay(y,m+2)))}
+(function(){const t=todayStr();perMonth(+t.slice(0,4),+t.slice(5,7))})();
+function perQuery(){const p=S.per;let q='from='+p.from+'&to='+p.to;if(p.mode!=='custom')q+='&kind='+p.mode;if(p.cmp==='custom'&&p.cfrom&&p.cto)q+='&cfrom='+p.cfrom+'&cto='+p.cto;return q}
+function perReload(refresh){S.route==='meta'?loadMeta(undefined,refresh):S.route==='odoo'?loadOdoo(undefined,refresh):loadShop()}
+function curData(){return S.route==='meta'?S.meta.data:S.route==='odoo'?S.od.data:(S.an.tab==='overview'?S.shop.data:S.an.data)}
+function cmpText(){const d=curData();return (d&&d.compareText)||'the period before'}
+function perMonthSel(){return S.per.mode==='month'?S.per.from.slice(0,7):''}
+function dateBar(d){
+  const p=S.per,t=todayStr(),Y=+t.slice(0,4),opt=(v,l,cur)=>`<option value="${v}" ${String(v)===String(cur)?'selected':''}>${esc(l)}</option>`;
+  const years=n=>Array.from({length:n},(_,i)=>Y-i);
+  let pick='';
+  if(p.mode==='day')pick=`<input type="date" class="input" id="per-day" value="${p.from}" max="${t}" aria-label="Day">`;
+  else if(p.mode==='month')pick=`<select class="select" id="per-m" aria-label="Month">${MONTH_NAMES.map((n,i)=>opt(i+1,n,+p.from.slice(5,7))).join('')}</select><select class="select" id="per-y" aria-label="Year">${years(6).map(y=>opt(y,y,p.from.slice(0,4))).join('')}</select>`;
+  else if(p.mode==='quarter')pick=`<select class="select" id="per-q" aria-label="Quarter">${[1,2,3,4].map(q=>opt(q,'Q'+q,Math.floor((+p.from.slice(5,7)-1)/3)+1)).join('')}</select><select class="select" id="per-y" aria-label="Year">${years(6).map(y=>opt(y,y,p.from.slice(0,4))).join('')}</select>`;
+  else pick=`<input type="date" class="input" id="per-from" value="${p.from}" max="${t}" aria-label="From"><span class="muted">to</span><input type="date" class="input" id="per-to" value="${p.to}" max="${t}" aria-label="To">`;
+  const cust=p.cmp==='custom'?`<input type="date" class="input" id="per-cfrom" value="${p.cfrom}" max="${t}" aria-label="Compare from"><span class="muted">to</span><input type="date" class="input" id="per-cto" value="${p.cto}" max="${t}" aria-label="Compare to">`:'';
+  const info=d&&d.period?`<span class="perinfo"><b>${esc(d.period.label)}</b> <span class="muted">(${d.period.days} day${d.period.days===1?'':'s'}) compared with</span> <b>${esc(d.compare.label)}</b>${d.period.clamped?' <span class="muted">· cut at today</span>':''}</span>`:'';
+  return `<div class="datebar"><div class="seg" role="tablist" aria-label="Period type">${[['day','Day'],['month','Month'],['quarter','Quarter'],['custom','Custom']].map(([k,l])=>`<button class="segb${p.mode===k?' on':''}" data-act="per-mode" data-mode="${k}" aria-pressed="${p.mode===k}">${l}</button>`).join('')}</div>
+  <div class="row perpick">${pick}</div>
+  <div class="row perpick"><label class="muted" for="per-cmp">Compare with</label><select class="select" id="per-cmp">${opt('auto','Previous period',p.cmp)}${opt('custom','Another period…',p.cmp)}</select>${cust}</div>
+  ${info}</div>`;
+}
+function perChange(t){
+  const p=S.per,v=t.value;
+  if(t.id==='per-day'){if(!v)return;perSet('day',v,v)}
+  else if(t.id==='per-m'||t.id==='per-y'){
+    const m=t.id==='per-m'?+v:+document.getElementById('per-m').value,y=t.id==='per-y'?+v:+document.getElementById('per-y').value;
+    if(!perMonth(y,m)){toast('That month has not started yet');return perRender()}}
+  else if(t.id==='per-from'||t.id==='per-to'){
+    const f=t.id==='per-from'?v:p.from,e=t.id==='per-to'?v:p.to;
+    if(!f||!e)return;if(f>e){toast('The start date is after the end date');return perRender()}
+    perSet('custom',f,e)}
+  else if(t.id==='per-cmp'){
+    p.cmp=v;if(v==='custom'){const d=curData();p.cfrom=(d&&d.compare&&d.compare.from)||'';p.cto=(d&&d.compare&&d.compare.to)||''}}
+  else if(t.id==='per-cfrom'||t.id==='per-cto'){
+    const f=t.id==='per-cfrom'?v:p.cfrom,e=t.id==='per-cto'?v:p.cto;
+    if(!f||!e)return;if(f>e){toast('The start date is after the end date');return perRender()}
+    p.cfrom=f;p.cto=e}
+  perReload();
+}
+function perRender(){S.route==='meta'?renderMeta():S.route==='odoo'?renderOdoo():renderShop()}
+
 /* ---------- Shopify dashboard ---------- */
-async function loadShop(month){
-  if(S.an.tab!=='overview'){if(month!==undefined)S.shop.month=month;return loadAn()}
-  const sh=S.shop;sh.loading=true;sh.err='';if(month!==undefined)sh.month=month;renderShop();
-  try{sh.data=await api('GET','/api/shopify'+(sh.month?'?month='+encodeURIComponent(sh.month):''));if(sh.data.month)sh.month=sh.data.month}
+async function loadShop(){
+  if(S.an.tab!=='overview')return loadAn();
+  const sh=S.shop;sh.loading=true;sh.err='';renderShop();
+  try{sh.data=await api('GET','/api/shopify?'+perQuery())}
   catch(e){sh.err=e.message}
   sh.loading=false;renderShop();
 }
@@ -295,7 +345,7 @@ const fmtNum=n=>Math.round(n).toLocaleString();
 function money(n){const c=(S.route==='meta'&&S.meta.data&&S.meta.data.currency)||(S.route==='odoo'&&S.od.data&&S.od.data.currency)||(S.shop.data&&S.shop.data.currency)||(S.an&&S.an.data&&S.an.data.currency);try{return new Intl.NumberFormat(undefined,c?{style:'currency',currency:c,maximumFractionDigits:0}:{maximumFractionDigits:0}).format(n)}catch(e){return fmtNum(n)}}
 function money2(n){const c=(S.route==='meta'&&S.meta.data&&S.meta.data.currency)||(S.shop.data&&S.shop.data.currency);try{return new Intl.NumberFormat(undefined,c?{style:'currency',currency:c,minimumFractionDigits:2,maximumFractionDigits:2}:{minimumFractionDigits:2,maximumFractionDigits:2}).format(n)}catch(e){return n.toFixed(2)}}
 function shortNum(n){return n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e4?Math.round(n/1e3)+'k':n>=1e3?(n/1e3).toFixed(1)+'k':String(Math.round(n))}
-function delta(v){if(v===null||v===undefined)return '';const up=v>=0;return `<span class="delta ${up?'up':'down'}">${up?'▲':'▼'} ${Math.abs(v)}% vs last month</span>`}
+function delta(v){if(v===null||v===undefined)return '';const up=v>=0;return `<span class="delta ${up?'up':'down'}">${up?'▲':'▼'} ${Math.abs(v)}% vs ${esc(cmpText())}</span>`}
 function ageText(h){return h<48?h+' h':Math.round(h/24)+' days'}
 function rankList(list,valFn,sub){
   if(!list.length)return '<p class="muted">Nothing here yet.</p>';
@@ -471,13 +521,12 @@ function renderShop(){
       <div class="list">${d.missing.map(m=>`<div class="item"><span class="mono">${esc(m)}</span></div>`).join('')}</div>
       <p class="muted">The README in the project lists the full steps, including the permissions the Shopify app needs.</p></div>`;return}
   const s=d.summary,a=d.abandoned,c=d.customers,sy=d.sync;
-  const monthOpts=d.months.slice().reverse().map(m=>`<option value="${m.key}" ${m.key===d.month?'selected':''}>${esc(m.label)}</option>`).join('');
   const last=sy.lastSync?fmtDate(Date.parse(sy.lastSync)):'never';
   const stat=(l,v,x)=>`<div class="stat"><div class="eyebrow">${l}</div><div class="n">${v}</div>${x||''}</div>`;
   const small=t=>`<span class="muted mono" style="font-size:.75rem">${t}</span>`;
-  L.innerHTML=shopTabs()+`
+  L.innerHTML=shopTabs()+dateBar(d)+`
   <div class="row" style="justify-content:space-between;gap:12px">
-    <div class="row" style="gap:10px"><label class="muted" for="shop-month" style="font-weight:600">Month</label><select class="select" id="shop-month" style="width:auto">${monthOpts}</select>${sh.loading?'<span class="muted">Loading…</span>':''}</div>
+    <div class="row" style="gap:10px">${sh.loading?'<span class="muted">Loading…</span>':''}</div>
     <div class="row" style="gap:10px"><span class="muted mono" style="font-size:.75rem">${sy.orders} orders stored · last sync ${esc(last)}</span><button class="btn primary" data-act="shop-sync" ${sh.syncing?'disabled':''}>${sh.syncing?'Syncing…':'Sync now'}</button></div>
   </div>
   ${sh.syncing?`<div class="panel" style="padding:12px 16px"><span class="mono">${esc(sh.syncMsg)}</span></div>`:''}
@@ -589,11 +638,11 @@ S.an={tab:'overview',cache:{},loading:false,err:'',metric:{},saving:false};
 function shopTabs(){return `<div class="subtabs" role="tablist">${AN_TABS.map(([k,l])=>`<button role="tab" class="subtab${S.an.tab===k?' on':''}" aria-selected="${S.an.tab===k}" data-act="an-tab" data-tab="${k}">${l}</button>`).join('')}</div>`}
 async function loadAn(refresh){
   const an=S.an,sh=S.shop,tab=an.tab;if(tab==='overview')return;
-  const key=tab+'|'+(sh.month||'');if(!refresh&&an.cache[key]){renderShop();return}
+  const key=tab+'|'+perQuery();if(!refresh&&an.cache[key]){an.last=key;renderShop();return}
   an.loading=true;an.err='';renderShop();
   try{
-    const d=await api('GET','/api/analytics?tab='+tab+(sh.month?'&month='+encodeURIComponent(sh.month):'')+(refresh?'&refresh=1':''));
-    if(d.month)sh.month=d.month;an.cache[d.configured===false?key:tab+'|'+d.month]=d;an.cache[key]=d;
+    const d=await api('GET','/api/analytics?tab='+tab+'&'+perQuery()+(refresh?'&refresh=1':''));
+    an.cache[key]=d;an.last=key;
   }catch(e){an.err=e.message}
   an.loading=false;renderShop();
 }
@@ -623,7 +672,7 @@ function iconFor(label){
 }
 function tileCard(t,i){
   const c=KPAL[i%KPAL.length];let d='';
-  if(t.prev!==undefined){const g=t.prev?Math.round((t.value-t.prev)/t.prev*1000)/10:null;if(g!==null)d=chip(g,t.goodDown)+'<span class="muted" style="font-size:.7rem"> vs last month</span>'}
+  if(t.prev!==undefined){const g=t.prev?Math.round((t.value-t.prev)/t.prev*1000)/10:null;if(g!==null)d=chip(g,t.goodDown)+'<span class="muted" style="font-size:.7rem"> vs '+esc(cmpText())+' (was '+esc(fv(t.prev,t.fmt))+')</span>'}
   return `<div class="kcard" style="--kc:${c}">${ico(iconFor(t.label),c)}<div style="min-width:0"><span class="eyebrow">${esc(t.label)}</span><div class="kn">${esc(fv(t.value,t.fmt))}</div>${d?`<div>${d}</div>`:''}${t.sub?`<small class="muted">${esc(t.sub)}</small>`:''}</div></div>`;
 }
 function anKpi(sec){return `<div class="kgrid">${sec.tiles.map(tileCard).join('')}</div>`}
@@ -636,7 +685,7 @@ function anFunnel(sec){
 function anTrend(sec){
   const od=S.route==='odoo',mt=S.route==='meta',id=sec.id+'|'+(od?'od-'+S.od.tab:mt?'meta-'+S.meta.tab:S.an.tab),m=S.an.metric[id]||sec.metrics[0].key,def=sec.metrics.find(x=>x.key===m)||sec.metrics[0];
   const max=Math.max(1e-9,...sec.rows.map(r=>r.values[def.key]));
-  const sel=od?S.od.month:mt?S.meta.month:S.shop.month;
+  const sel=perMonthSel();
   return `<div class="item-top" style="margin-bottom:6px"><span></span><select class="select" data-act="an-metric" data-id="${esc(id)}" style="width:auto" aria-label="Metric">${sec.metrics.map(x=>`<option value="${x.key}" ${x.key===def.key?'selected':''}>${esc(x.label)}</option>`).join('')}</select></div>
   <div class="mchart">${sec.rows.map(r=>{const v=r.values[def.key];return `<button class="mcol${r.key===sel?' on':''}" data-act="${od?'od-month':mt?'meta-month':'shop-month'}" data-m="${r.key}" title="${esc(r.label)}: ${esc(fv(v,def.fmt))}"><span class="mval mono">${def.fmt==='pct'?v.toFixed(1)+'%':def.fmt==='x'?v.toFixed(1)+'×':def.fmt==='money2'?v.toFixed(v<10?2:0):shortNum(v)}</span><span class="mbar"><i style="height:${Math.max(2,v/max*100)}%"></i></span><span class="mlab">${esc(r.label.slice(0,3)+" '"+r.label.slice(-2))}</span></button>`}).join('')}</div>`;
 }
@@ -670,9 +719,8 @@ function heroSpec(tab,secs){
 const TAB_INFO={sales:['Sales','Revenue, orders, channels and profit'],funnel:['Website funnel','Where visitors drop off before buying'],products:['Products','What sells, what sits, and what needs work'],experience:['Customer experience','Delivery, returns and service'],retention:['Retention','Who comes back, and who to win back']};
 function analyticsHero(tab,d){
   const sp=heroSpec(tab,d.sections),info=TAB_INFO[tab]||[tab,''];
-  const mo=(d.months||[]).slice().reverse().map(m=>`<option value="${m.key}" ${m.key===S.shop.month?'selected':''}>${esc(m.label)}</option>`).join('');
   return `<section class="hero"><div class="hero-top"><div><span class="eyebrow">${esc(info[0])} · ${esc(d.monthLabel)}</span>${sp.value?`<div class="hero-n${sp.small?' sm':''}">${sp.value}</div><div><span class="hero-vs">${esc(sp.label)}</span> ${sp.chip||''}</div>`:`<div class="hero-n sm">${esc(info[1])}</div>`}</div>
-    <div style="display:grid;gap:10px;justify-items:end"><div class="hero-actions"><select class="select" id="shop-month" aria-label="Month" style="width:auto;background:rgba(255,255,255,.9);color:#2B1D35;font-weight:600">${mo}</select><button class="btn light" data-act="an-refresh" ${S.an.loading?'disabled':''}>${S.an.loading?'Loading…':'Refresh numbers'}</button></div>
+    <div style="display:grid;gap:10px;justify-items:end"><div class="hero-actions"><button class="btn light" data-act="an-refresh" ${S.an.loading?'disabled':''}>${S.an.loading?'Loading…':'Refresh numbers'}</button></div>
       ${sp.minis?`<div class="minis">${sp.minis.map(m=>`<div class="mini"><span class="eyebrow">${esc(m.l)}</span><b>${m.v}</b></div>`).join('')}</div>`:''}</div></div>
     ${sp.spark&&sp.spark.length>1?areaSpark(sp.spark,sp.sel):''}${sp.foot?`<div class="hero-foot"><span>${esc(d.months[0].label)}</span><span>${esc(sp.foot)}</span><span>${esc(d.months[d.months.length-1].label)}</span></div>`:''}</section>`;
 }
@@ -689,7 +737,7 @@ function anAudit(sec){
 function anManual(sec){
   const v=sec.values||{};
   return `<form id="an-manual" class="manual">${sec.fields.map(f=>`<label class="mf"><span>${esc(f.label)}</span><input class="input" type="number" step="any" name="${f.key}" min="${f.min??0}" max="${f.max}" value="${v[f.key]??''}" inputmode="decimal"></label>`).join('')}
-  <div class="row" style="gap:10px;grid-column:1/-1"><button class="btn primary" type="submit" ${S.an.saving?'disabled':''}>${S.an.saving?'Saving…':'Save for '+esc(sec.history.length?S.an.data.monthLabel:'this month')}</button><span class="muted" style="font-size:.8rem">Leave a box empty if you do not track it.</span></div></form>
+  <div class="row" style="gap:10px;grid-column:1/-1"><button class="btn primary" type="submit" ${S.an.saving?'disabled':''}>${S.an.saving?'Saving…':'Save for '+esc(sec.monthText||'this month')}</button><span class="muted" style="font-size:.8rem">Leave a box empty if you do not track it.</span></div></form>
   ${sec.history.length?`<h3 class="sub">Previous months</h3><div class="tablewrap"><table class="dt"><thead><tr><th>Month</th>${sec.fields.map(f=>`<th class="num">${esc(f.label.replace(/\s*\(.*\)/,''))}</th>`).join('')}</tr></thead><tbody>${sec.history.map(h=>`<tr><td>${esc(h.label)}</td>${sec.fields.map(f=>`<td class="num mono">${h.values[f.key]??'–'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:''}`;
 }
 function anSection(sec){
@@ -702,16 +750,12 @@ function anSection(sec){
   return `<section class="panel${sec.kind==='text'?' soft':''}">${head}${body}</section>`;
 }
 function renderAnalytics(L){
-  const an=S.an,sh=S.shop,d=an.cache[an.tab+'|'+(sh.month||'')]||an.cache[an.tab+'|'+(an.last||'')];
+  const an=S.an,sh=S.shop,d=an.cache[an.tab+'|'+perQuery()]||an.cache[an.last];
   an.data=d;
-  const top=(months)=>`<div class="row" style="justify-content:space-between;gap:12px">
-    <div class="row" style="gap:10px"><label class="muted" for="shop-month" style="font-weight:600">Month</label><select class="select" id="shop-month" style="width:auto">${(months||[]).slice().reverse().map(m=>`<option value="${m.key}" ${m.key===sh.month?'selected':''}>${esc(m.label)}</option>`).join('')}</select>${an.loading?'<span class="muted">Loading…</span>':''}</div>
-    <button class="btn" data-act="an-refresh" ${an.loading?'disabled':''}>Refresh numbers</button></div>`;
   if(!d){L.innerHTML=shopTabs()+(an.err?`<div class="empty"><b>Could not load this tab</b><span>${esc(an.err)}</span><button class="btn" data-act="an-refresh">Try again</button></div>`:empty('Loading…','Asking Shopify for the numbers. This can take a few seconds.'));return}
   if(d.configured===false){L.innerHTML=shopTabs()+`<div class="panel"><h2>Connect your Shopify store first</h2><p class="muted">Missing: ${d.missing.map(esc).join(', ')}</p></div>`;return}
-  an.last=d.month;
   const scrollY=window.scrollY;
-  L.innerHTML=shopTabs()+analyticsHero(an.tab,d)+(an.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(an.err)}</p></div>`:'')+(d.scopes?`<div class="panel" style="border-color:var(--warn)"><b style="color:var(--warn)">Permissions this site currently has from Shopify</b><p class="body-text mono" style="font-size:.8rem">${d.scopes.length?d.scopes.map(esc).join(', '):'none returned'}</p><p class="muted" style="font-size:.8rem">Reports need read_reports in this list.</p></div>`:'')+d.sections.map(anSection).join('')+`<p class="muted" style="font-size:.78rem">Figures come straight from Shopify reports and are kept for 30 minutes. Press Refresh numbers to fetch them again. Times use ${esc(d.tz)}.</p>`;
+  L.innerHTML=shopTabs()+dateBar(d)+analyticsHero(an.tab,d)+(an.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(an.err)}</p></div>`:'')+(d.scopes?`<div class="panel" style="border-color:var(--warn)"><b style="color:var(--warn)">Permissions this site currently has from Shopify</b><p class="body-text mono" style="font-size:.8rem">${d.scopes.length?d.scopes.map(esc).join(', '):'none returned'}</p><p class="muted" style="font-size:.8rem">Reports need read_reports in this list.</p></div>`:'')+d.sections.map(anSection).join('')+`<p class="muted" style="font-size:.78rem">Figures come straight from Shopify reports and are kept for 30 minutes. Press Refresh numbers to fetch them again. Times use ${esc(d.tz)}.</p>`;
   window.scrollTo(0,scrollY);
 }
 
@@ -719,14 +763,14 @@ function renderAnalytics(L){
 /* ---------- Odoo ---------- */
 const OD_TABS=[['inventory','Inventory'],['sales','Sales & invoices'],['accounting','Accounting'],['hr','Employees']];
 S.od={tab:'inventory',month:'',cache:{},loading:false,err:'',data:null};
-async function loadOdoo(month,refresh){
-  const od=S.od;if(month)od.month=month;
-  const key=od.tab+'|'+(od.month||'');
+async function loadOdoo(_m,refresh){
+  const od=S.od;
+  const key=od.tab+'|'+perQuery();
   if(!refresh&&od.cache[key]){od.data=od.cache[key];renderOdoo();return}
   od.loading=true;od.err='';renderOdoo();
   try{
-    const d=await api('GET','/api/odoo?tab='+od.tab+(od.month?'&month='+encodeURIComponent(od.month):''));
-    if(d.month)od.month=d.month;od.cache[key]=d;if(d.month)od.cache[od.tab+'|'+d.month]=d;od.data=d;
+    const d=await api('GET','/api/odoo?tab='+od.tab+'&'+perQuery());
+    od.cache[key]=d;od.data=d;
   }catch(e){od.err=e.message}
   od.loading=false;renderOdoo();
 }
@@ -740,11 +784,10 @@ function renderOdoo(){
   const od=S.od,d=od.data,tabs=`<div class="subtabs" role="tablist">${OD_TABS.map(([k,l])=>`<button role="tab" class="subtab${od.tab===k?' on':''}" aria-selected="${od.tab===k}" data-act="od-tab" data-tab="${k}">${l}</button>`).join('')}</div>`;
   if(!d||d.tab!==od.tab){L.innerHTML=tabs+(od.err?`<div class="empty"><b>Could not reach Odoo</b><span>${esc(od.err)}</span><button class="btn" data-act="od-refresh">Try again</button></div>`:empty('Loading…','Asking Odoo for the numbers. This can take a few seconds.'));return}
   if(d.configured===false){L.innerHTML=tabs+odooSetup(d.missing);return}
-  const mo=d.months.slice().reverse().map(m=>`<option value="${m.key}" ${m.key===od.month?'selected':''}>${esc(m.label)}</option>`).join('');
   const info={inventory:'Stock and purchasing',sales:'Orders and invoices',accounting:'Money in and out',hr:'People and attendance'}[d.tab];
   const y=window.scrollY;
-  L.innerHTML=tabs+`<section class="hero"><div class="hero-top"><div><span class="eyebrow">Odoo${d.company?' · '+esc(d.company):''} · ${esc(d.monthLabel)}</span><div class="hero-n sm">${esc(info)}</div>${d.version?`<div><span class="hero-vs">Odoo ${esc(d.version)}</span></div>`:''}</div>
-    <div class="hero-actions"><select class="select" id="shop-month" aria-label="Month" style="width:auto;background:rgba(255,255,255,.9);color:#2B1D35;font-weight:600">${mo}</select><button class="btn light" data-act="od-refresh" ${od.loading?'disabled':''}>${od.loading?'Loading…':'Refresh numbers'}</button></div></div></section>`
+  L.innerHTML=tabs+dateBar(d)+`<section class="hero"><div class="hero-top"><div><span class="eyebrow">Odoo${d.company?' · '+esc(d.company):''} · ${esc(d.monthLabel)}</span><div class="hero-n sm">${esc(info)}</div>${d.version?`<div><span class="hero-vs">Odoo ${esc(d.version)}</span></div>`:''}</div>
+    <div class="hero-actions"><button class="btn light" data-act="od-refresh" ${od.loading?'disabled':''}>${od.loading?'Loading…':'Refresh numbers'}</button></div></div></section>`
     +(od.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(od.err)}</p></div>`:'')+d.sections.map(anSection).join('');
   window.scrollTo(0,y);
 }
@@ -752,14 +795,14 @@ function renderOdoo(){
 /* ---------- Meta Ads ---------- */
 const META_TABS=[['overview','Overview'],['campaigns','Campaigns']];
 S.meta={tab:'overview',month:'',cache:{},loading:false,busy:false,err:'',data:null};
-async function loadMeta(month,refresh){
-  const m=S.meta;if(month)m.month=month;
-  const key=m.tab+'|'+(m.month||'');
+async function loadMeta(_m,refresh){
+  const m=S.meta;
+  const key=m.tab+'|'+perQuery();
   if(!refresh&&m.cache[key]){m.data=m.cache[key];renderMeta();return}
   m.loading=true;m.err='';renderMeta();
   try{
-    const d=await api('GET','/api/meta?tab='+m.tab+(m.month?'&month='+encodeURIComponent(m.month):'')+(refresh?'&refresh=1':''));
-    if(d.month)m.month=d.month;m.cache[key]=d;if(d.month)m.cache[m.tab+'|'+d.month]=d;m.data=d;
+    const d=await api('GET','/api/meta?tab='+m.tab+'&'+perQuery()+(refresh?'&refresh=1':''));
+    m.cache[key]=d;m.data=d;
   }catch(e){m.err=e.message}
   m.loading=false;renderMeta();
 }
@@ -795,12 +838,11 @@ function renderMeta(){
   const m=S.meta,d=m.data,tabs=`<div class="subtabs" role="tablist">${META_TABS.map(([k,l])=>`<button role="tab" class="subtab${m.tab===k?' on':''}" aria-selected="${m.tab===k}" data-act="meta-tab" data-tab="${k}">${l}</button>`).join('')}</div>`;
   if(d&&d.configured===false){L.innerHTML=tabs+metaSetup(d.missing);return}
   if(!d||d.tab!==m.tab){L.innerHTML=tabs+(m.err?`<div class="empty"><b>Could not reach Meta</b><span>${esc(m.err)}</span><button class="btn" data-act="meta-refresh">Try again</button></div>`:empty('Loading…','Asking Meta for the numbers. This can take a few seconds.'));return}
-  const mo=d.months.slice().reverse().map(x=>`<option value="${x.key}" ${x.key===m.month?'selected':''}>${esc(x.label)}</option>`).join('');
   const info={overview:'Spend, results and what is working',campaigns:'Switch campaigns on or off and set budgets'}[d.tab];
   const warn=d.accountStatus&&d.accountStatus!=='Active'?`<div class="panel" style="border-color:var(--warn)"><b style="color:var(--warn)">This ad account is ${esc(d.accountStatus.toLowerCase())}</b><p class="body-text">Meta may not be delivering ads. Check Ads Manager.</p></div>`:'';
   const y=window.scrollY;
-  L.innerHTML=tabs+`<section class="hero"><div class="hero-top"><div><span class="eyebrow">Meta Ads${d.account?' · '+esc(d.account):''} · ${esc(d.monthLabel)}</span><div class="hero-n sm">${esc(info)}</div><div><span class="hero-vs">${esc(d.currency)}${d.timezone?' · '+esc(d.timezone):''}</span></div></div>
-    <div class="hero-actions"><select class="select" id="shop-month" aria-label="Month" style="width:auto;background:rgba(255,255,255,.9);color:#2B1D35;font-weight:600">${mo}</select><button class="btn light" data-act="meta-refresh" ${m.loading?'disabled':''}>${m.loading?'Loading…':'Refresh numbers'}</button></div></div></section>`
+  L.innerHTML=tabs+dateBar(d)+`<section class="hero"><div class="hero-top"><div><span class="eyebrow">Meta Ads${d.account?' · '+esc(d.account):''} · ${esc(d.monthLabel)}</span><div class="hero-n sm">${esc(info)}</div><div><span class="hero-vs">${esc(d.currency)}${d.timezone?' · '+esc(d.timezone):''}</span></div></div>
+    <div class="hero-actions"><button class="btn light" data-act="meta-refresh" ${m.loading?'disabled':''}>${m.loading?'Loading…':'Refresh numbers'}</button></div></div></section>`
     +warn+(m.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(m.err)}</p></div>`:'')+d.sections.map(anSection).join('');
   window.scrollTo(0,y);
 }
@@ -821,11 +863,12 @@ document.addEventListener('click',async e=>{
   else if(a==='ev-save-rate'){const i=b.parentElement.querySelector('.ev-rate');evPost({action:'rate',submissionId:i.dataset.id,rating:i.value===''?null:i.value},'Accuracy saved')}
   else if(a==='ev-save-beh'){const tr=b.closest('.behrow'),sc=tr.querySelector('.ev-beh'),nt=tr.querySelector('.ev-note');evPost({action:'behaviour',month:S.ev.month,userId:sc.dataset.user,score:sc.value===''?null:sc.value,note:nt.value},'Behaviour saved')}
   else if(a==='shop-reload')loadShop();
-  else if(a==='shop-month')loadShop(b.dataset.m);
-  else if(a==='od-month')loadOdoo(b.dataset.m);
+  else if(a==='shop-month'||a==='od-month'||a==='meta-month'){const [y,m]=b.dataset.m.split('-').map(Number);if(perMonth(y,m))perReload()}
+  else if(a==='per-mode'){const md=b.dataset.mode,P=S.per,t=todayStr(),e=P.to||t,y=+e.slice(0,4),m=+e.slice(5,7);
+    if(md==='day')perSet('day',e,e);else if(md==='month')perMonth(y,m);else if(md==='quarter')perQuarter(y,Math.floor((m-1)/3)+1);else{P.mode='custom'}
+    perReload()}
   else if(a==='od-tab'){S.od.tab=b.dataset.tab;S.od.err='';loadOdoo()}
   else if(a==='od-refresh')loadOdoo(undefined,true);
-  else if(a==='meta-month')loadMeta(b.dataset.m);
   else if(a==='meta-tab'){S.meta.tab=b.dataset.tab;S.meta.err='';loadMeta()}
   else if(a==='meta-refresh')loadMeta(undefined,true);
   else if(a==='meta-toggle'){if(S.meta.busy||!arm(b))return;await metaWrite({action:'status',id:b.dataset.id,status:b.dataset.to},b.dataset.to==='PAUSED'?'Campaign paused':'Campaign resumed')}
@@ -852,7 +895,7 @@ document.addEventListener('submit',async e=>{
   if(e.target.id!=='an-manual')return;e.preventDefault();
   const values={};new FormData(e.target).forEach((v,k)=>{values[k]=v});
   S.an.saving=true;renderShop();
-  try{await api('POST','/api/analytics',{month:S.shop.month,values});delete S.an.cache['experience|'+S.shop.month];S.an.saving=false;toast('Saved');await loadAn(false)}
+  try{await api('POST','/api/analytics',{month:S.an.data&&S.an.data.month,values});Object.keys(S.an.cache).forEach(k=>{if(k.startsWith('experience|'))delete S.an.cache[k]});S.an.saving=false;toast('Saved');await loadAn(false)}
   catch(x){S.an.saving=false;toast(x.message||'Could not save');renderShop()}
 });
 document.addEventListener('keydown',e=>{
@@ -862,7 +905,7 @@ document.addEventListener('keydown',e=>{
 document.addEventListener('change',async e=>{
   const t=e.target;
   if(t.matches('input[type=file]')){addFiles(t.dataset.kind,[...t.files]);t.value=''}
-  else if(t.id==='shop-month'){S.route==='meta'?loadMeta(t.value):S.route==='odoo'?loadOdoo(t.value):loadShop(t.value)}
+  else if(t.id&&t.id.startsWith('per-')){if((t.id==='per-q'||t.id==='per-y')&&S.per.mode==='quarter'){const q=+(document.getElementById('per-q').value),y=+(document.getElementById('per-y').value);if(!perQuarter(y,q)){toast('That quarter has not started yet');perRender();return}perReload()}else perChange(t)}
   else if(t.id==='ev-month'){loadEval(t.value)}
   else if(t.id==='shop-metric'){S.shop.metric=t.value;renderShop()}
   else if(t.dataset.act==='an-metric'){S.an.metric[t.dataset.id]=t.value;S.route==='meta'?renderMeta():S.route==='odoo'?renderOdoo():renderShop()}

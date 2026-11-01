@@ -1,5 +1,6 @@
 import { route, allow, db, requireAdmin } from './_lib.js';
 import { ensureShopSchema, shopConfig, getState, shopifyql } from './_shopify.js';
+import { parsePeriod, monthPeriod, startMs, endMs } from './_period.js';
 
 const DAY = 86400000;
 
@@ -36,8 +37,10 @@ export default route(async (req, res) => {
   const keyOf = monthKeyer(cfg.tz);
 
   const months = lastMonths(keyOf, 12);
-  const sel = months.includes(req.query.month) ? req.query.month : months[months.length - 1];
-  const prevKey = months[months.indexOf(sel) - 1];
+  const sel0 = months.includes(req.query.month) ? req.query.month : months[months.length - 1];
+  const per = parsePeriod(req.query, cfg.tz) || monthPeriod(sel0, cfg.tz);
+  const cmp = per.compare;
+  const sel = per.to.slice(0, 7);
 
   const since = Date.now() - 400 * DAY;
   const orders = await q`SELECT * FROM shop_orders WHERE created_at >= ${since}`;
@@ -71,18 +74,35 @@ export default route(async (req, res) => {
     } catch (e) { reportsError = String(e.message || e).slice(0, 300); }
   }
 
-  // Selected month
-  const inMonth = orders.filter((o) => keyOf(Number(o.created_at)) === sel);
-  const sales = inMonth.filter((o) => !o.cancelled);
-  const revenue = sales.reduce((a, o) => a + Number(o.total), 0);
-  const refunds = sales.reduce((a, o) => a + Number(o.refunded), 0);
-  const units = sales.reduce((a, o) => a + o.units, 0);
-  const cancelled = inMonth.length - sales.length;
-  const prev = series.get(prevKey) || { orders: 0, revenue: 0, units: 0 };
-  const rep = gap.has(sel) && series.get(sel).fromReports ? series.get(sel) : null;
-  const S = rep
-    ? { orders: rep.orders, revenue: rep.revenue, refunds: rep.refunds, units: rep.units, cancelled: 0, cancelRate: 0 }
-    : { orders: sales.length, revenue, refunds, units, cancelled, cancelRate: inMonth.length ? (cancelled / inMonth.length) * 100 : 0 };
+  // The chosen period (any days) and the period it is compared with
+  const firstTs = orders.length ? Math.min(...orders.map((o) => Number(o.created_at))) : Infinity;
+  const within = (a, b) => orders.filter((o) => Number(o.created_at) >= startMs(a, cfg.tz) && Number(o.created_at) < endMs(b, cfg.tz));
+  const tally = (list) => {
+    const sold = list.filter((o) => !o.cancelled);
+    return {
+      all: list.length, sold,
+      orders: sold.length, revenue: sold.reduce((a, o) => a + Number(o.total), 0), refunds: sold.reduce((a, o) => a + Number(o.refunded), 0),
+      units: sold.reduce((a, o) => a + o.units, 0), cancelled: list.length - sold.length,
+    };
+  };
+  // Days before the first synced order are not in the database; Shopify's own reports answer those.
+  const fromReport = async (a, b) => {
+    try {
+      const r = await shopifyql(cfg, `FROM sales SHOW total_sales, orders, net_items_sold, sales_reversals SINCE ${a} UNTIL ${b}`);
+      const x = r.rows[0] || {};
+      return { all: 0, sold: [], orders: Number(x.orders) || 0, revenue: Number(x.total_sales) || 0, refunds: Math.abs(Number(x.sales_reversals) || 0), units: Number(x.net_items_sold) || 0, cancelled: 0, fromReports: true };
+    } catch (e) { reportsError = reportsError || String(e.message || e).slice(0, 300); return null; }
+  };
+  const figures = async (a, b) => {
+    const covered = startMs(a, cfg.tz) >= firstTs - 3 * DAY;
+    if (covered || !orders.length) return tally(within(a, b));
+    return (await fromReport(a, b)) || tally(within(a, b));
+  };
+  const cur = await figures(per.from, per.to);
+  const prev = await figures(cmp.from, cmp.to);
+  const sales = cur.sold;
+  const rep = cur.fromReports ? cur : null;
+  const S = { orders: cur.orders, revenue: cur.revenue, refunds: cur.refunds, units: cur.units, cancelled: cur.cancelled, cancelRate: cur.all ? (cur.cancelled / cur.all) * 100 : 0 };
 
   const products = new Map(), countries = new Map(), cities = new Map();
   const custIds = new Set(), repeatIds = new Set();
@@ -120,7 +140,7 @@ export default route(async (req, res) => {
       p.qty += it.q; p.carts++; leftIn.set(it.t, p);
     }
   }
-  const monthCarts = checkouts.filter((c) => !c.completed && keyOf(Number(c.created_at)) === sel);
+  const monthCarts = checkouts.filter((c) => !c.completed && Number(c.created_at) >= startMs(per.from, cfg.tz) && Number(c.created_at) < endMs(per.to, cfg.tz));
   const cartsValueMonth = monthCarts.reduce((a, c) => a + Number(c.total), 0);
 
   const [{ n: orderCount }] = await q`SELECT COUNT(*)::int AS n FROM shop_orders`;
@@ -135,7 +155,10 @@ export default route(async (req, res) => {
     tz: cfg.tz,
     months: [...series.values()],
     month: sel,
-    monthLabel: label(sel),
+    monthLabel: per.label,
+    period: { from: per.from, to: per.to, days: per.days, label: per.label, kind: per.kind, clamped: per.clamped },
+    compare: cmp,
+    compareText: per.compareText,
     fromReports: !!rep,
     reportsError,
     summary: {
@@ -144,6 +167,7 @@ export default route(async (req, res) => {
       refundRate: S.revenue ? (S.refunds / S.revenue) * 100 : 0,
       cancelled: S.cancelled, cancelRate: S.cancelRate,
       change: { orders: pct(S.orders, prev.orders), revenue: pct(S.revenue, prev.revenue), units: pct(S.units, prev.units) },
+      previous: { orders: prev.orders, revenue: prev.revenue, units: prev.units, refunds: prev.refunds, net: prev.revenue - prev.refunds, aov: prev.orders ? prev.revenue / prev.orders : 0 },
     },
     bestByUnits: top(products, 10, 'units'),
     bestByRevenue: top(products, 10, 'revenue'),
