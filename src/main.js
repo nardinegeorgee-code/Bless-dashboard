@@ -633,7 +633,7 @@ async function submitUpload(kind){
 }
 
 /* ---------- Shopify analysis tabs ---------- */
-const AN_TABS=[['overview','Overview'],['sales','Sales'],['funnel','Funnel'],['products','Products'],['experience','Customer experience'],['retention','Retention']];
+const AN_TABS=[['overview','Overview'],['sales','Sales'],['profit','Profit'],['funnel','Funnel'],['products','Products'],['experience','Customer experience'],['retention','Retention']];
 S.an={tab:'overview',cache:{},loading:false,err:'',metric:{},saving:false};
 function shopTabs(){return `<div class="subtabs" role="tablist">${AN_TABS.map(([k,l])=>`<button role="tab" class="subtab${S.an.tab===k?' on':''}" aria-selected="${S.an.tab===k}" data-act="an-tab" data-tab="${k}">${l}</button>`).join('')}</div>`}
 async function loadAn(refresh){
@@ -773,14 +773,15 @@ function heroSpec(tab,secs){
   const by=id=>secs.find(s=>s.id===id&&!s.error);
   const mini=(l,v)=>({l,v});
   const gchip=t=>t&&t.prev!==undefined&&t.prev?chip(Math.round((t.value-t.prev)/t.prev*1000)/10,t.goodDown):'';
-  if(tab==='sales'){const k=by('kpi'),m=by('monthly');if(!k)return {};const T=k.tiles;return {label:'Net revenue',value:fv(T[0].value,'money'),chip:gchip(T[0]),minis:[mini('Orders',fv(T[4].value,'int')),mini('Units sold',fv(T[5].value,'int')),mini('Average order',fv(T[6].value,'money'))],spark:m?m.rows.map(r=>r.values.net_sales):null,sel:m?m.rows.findIndex(r=>r.key===S.shop.month):-1,foot:'12 months of net revenue'}}
-  if(tab==='funnel'){const f=by('funnel'),t=by('trend');if(!f)return {};const g=l=>f.tiles.find(x=>x.label===l);return {label:'Conversion rate',value:fv(g('Conversion rate').value,'pct'),minis:[mini('Sessions',fv(f.steps[0].value,'int')),mini('Cart abandonment',fv(g('Cart abandonment').value,'pct')),mini('Checkout abandonment',fv(g('Checkout abandonment').value,'pct'))],spark:t?t.rows.map(r=>r.values.conv):null,sel:t?t.rows.findIndex(r=>r.key===S.shop.month):-1,foot:'12 months of conversion rate'}}
+  if(tab==='sales'){const k=by('kpi'),m=by('monthly');if(!k)return {};const T=k.tiles;return {label:'Net revenue',value:fv(T[0].value,'money'),chip:gchip(T[0]),minis:[mini('Orders',fv(T[4].value,'int')),mini('Units sold',fv(T[5].value,'int')),mini('Average order',fv(T[6].value,'money'))],spark:m?m.rows.map(r=>r.values.net_sales):null,sel:m?m.rows.findIndex(r=>r.key===perMonthSel()):-1,foot:'12 months of net revenue'}}
+  if(tab==='profit'){const k=by('kpi'),m=by('trend');if(!k)return {};const T=k.tiles,pr=T.find(t=>t.label==='Profit after ads')||T.find(t=>t.label==='Gross profit');return {label:pr.label,value:fv(pr.value,'money'),chip:gchip(pr),minis:[mini('Net revenue',fv(T[0].value,'money')),mini('Product cost',fv(T[1].value,'money')),...(T.find(t=>t.label==='Ad spend (Meta)')?[mini('Ad spend',fv(T.find(t=>t.label==='Ad spend (Meta)').value,'money'))]:[])],spark:m?m.rows.map(r=>r.values.profit):null,sel:m?m.rows.findIndex(r=>r.key===perMonthSel()):-1,foot:'12 months of '+pr.label.toLowerCase()}}
+  if(tab==='funnel'){const f=by('funnel'),t=by('trend');if(!f)return {};const g=l=>f.tiles.find(x=>x.label===l);return {label:'Conversion rate',value:fv(g('Conversion rate').value,'pct'),minis:[mini('Sessions',fv(f.steps[0].value,'int')),mini('Cart abandonment',fv(g('Cart abandonment').value,'pct')),mini('Checkout abandonment',fv(g('Checkout abandonment').value,'pct'))],spark:t?t.rows.map(r=>r.values.conv):null,sel:t?t.rows.findIndex(r=>r.key===perMonthSel()):-1,foot:'12 months of conversion rate'}}
   if(tab==='products'){const b=by('best');if(!b||!b.rows.length)return {};const r=b.rows[0];return {label:'Best seller',value:esc(r.name),small:true,minis:[mini('Units sold',fv(r.units,'int')),mini('Net revenue',fv(r.revenue,'money'))]}}
   if(tab==='experience'){const dl=by('delivery'),rk=by('returnsKpi');if(!dl)return {};const T=dl.tiles;return {label:'Order to delivered (median)',value:fv(T[4].value,'hours'),minis:[mini('Delivered',fv(T[1].value,'int')),...(rk?[mini('Return rate',fv(rk.tiles[1].value,'pct')),mini('Cancellation rate',fv(rk.tiles[4].value,'pct'))]:[])]}}
   if(tab==='retention'){const k=by('kpi');if(!k)return {};const T=k.tiles;return {label:'Repeat purchase rate',value:fv(T[1].value,'pct'),minis:[mini('Customers',fv(T[0].value,'int')),mini('Orders each',fv(T[2].value,'num1')),mini('Average lifetime value',fv(T[4].value,'money'))]}}
   return {};
 }
-const TAB_INFO={sales:['Sales','Revenue, orders, channels and profit'],funnel:['Website funnel','Where visitors drop off before buying'],products:['Products','What sells, what sits, and what needs work'],experience:['Customer experience','Delivery, returns and service'],retention:['Retention','Who comes back, and who to win back']};
+const TAB_INFO={profit:['Profit','Revenue, product cost and ad spend'],sales:['Sales','Revenue, orders, channels and profit'],funnel:['Website funnel','Where visitors drop off before buying'],products:['Products','What sells, what sits, and what needs work'],experience:['Customer experience','Delivery, returns and service'],retention:['Retention','Who comes back, and who to win back']};
 function analyticsHero(tab,d){
   const sp=heroSpec(tab,d.sections),info=TAB_INFO[tab]||[tab,''];
   return `<section class="hero"><div class="hero-top"><div><span class="eyebrow">${esc(info[0])} · ${esc(d.monthLabel)}</span>${sp.value?`<div class="hero-n${sp.small?' sm':''}">${sp.value}</div><div><span class="hero-vs">${esc(sp.label)}</span> ${sp.chip||''}</div>`:`<div class="hero-n sm">${esc(info[1])}</div>`}</div>

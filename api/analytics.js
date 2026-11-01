@@ -2,9 +2,10 @@ import { createHash } from 'node:crypto';
 import { route, allow, db, HttpError, requireAdmin } from './_lib.js';
 import { ensureShopSchema, shopConfig, shopifyql, fetchProducts, fetchProductImages, gql, resetToken } from './_shopify.js';
 import { parsePeriod, monthPeriod, dayList } from './_period.js';
+import { metaConfig, graph, graphAll, cached as metaCached } from './_meta.js';
 
 const DAY = 86400000;
-const TABS = ['sales', 'funnel', 'products', 'experience', 'retention'];
+const TABS = ['sales', 'profit', 'funnel', 'products', 'experience', 'retention'];
 const CACHE_MS = 30 * 60000;
 
 /* ---------- dates ---------- */
@@ -75,8 +76,9 @@ async function pool(tasks, size = 4) {
 
 /** A section never throws: a failed query becomes an error card so the rest of the tab still loads. */
 /* Tables whose first column is a product (or a product variant) get a picture from Shopify. */
-const PICTURE_TABLES = new Set(['products', 'best', 'sku', 'slow', 'stockout', 'low']);
+const PICTURE_TABLES = new Set(['products', 'best', 'sku', 'slow', 'stockout', 'low', 'cost']);
 let pictureLoader = null;
+const shopConfigCacheRef = () => shopConfigCache;
 const section = (id, title, kind, fn, note) => async () => {
   try {
     const r = await fn();
@@ -88,6 +90,24 @@ const section = (id, title, kind, fn, note) => async () => {
   }
   catch (e) { return { id, title, kind, note, error: String(e.message || e).slice(0, 400) }; }
 };
+
+/**
+ * Ad spend from Meta for the profit tab. Returns { sum(from,to), monthly(from,to) } or { off: 'why not' }.
+ * Ad spend is left out (with a reason) when Meta is not connected or bills in another currency than the store.
+ */
+async function adSpend(ctx, shopCurrency) {
+  const cfg = metaConfig();
+  if (cfg.missing.length) return { off: 'Meta Ads is not connected yet, so ad spend is not counted. Connect it on the Meta Ads page.' };
+  try {
+    const acct = await metaCached(cfg, 'acct-currency', ctx.refresh, () => graph(cfg, 'GET', 'act_' + cfg.account, { fields: 'currency' }));
+    if (shopCurrency && acct.currency && acct.currency !== shopCurrency) return { off: `Your store sells in ${shopCurrency} but the Meta ad account bills in ${acct.currency}, so ad spend cannot be mixed in without a conversion.` };
+    const rows = (a, b, extra) => metaCached(cfg, `spend|${a}|${b}|${extra ? 'm' : 't'}`, ctx.refresh, () => graphAll(cfg, 'act_' + cfg.account + '/insights', { fields: 'spend', level: 'account', time_range: { since: a, until: b }, ...(extra ? { time_increment: 'monthly' } : {}), limit: 100 }, 2));
+    return {
+      sum: async (a, b) => (await rows(a, b, false)).reduce((x, r) => x + (Number(r.spend) || 0), 0),
+      monthly: async (a, b) => new Map((await rows(a, b, true)).map((r) => [String(r.date_start).slice(0, 7), Number(r.spend) || 0])),
+    };
+  } catch (e) { return { off: 'Could not read ad spend from Meta: ' + String(e.message || e).slice(0, 200) }; }
+}
 
 /* ---------- Shopify-analytics tabs ---------- */
 function buildShopifyTabs(tab, ctx, run) {
@@ -103,6 +123,62 @@ function buildShopifyTabs(tab, ctx, run) {
     } catch (err) { return new Map(); }
   };
   const change = (map, name, now) => (map.has(name) ? growth(now, map.get(name)) : null);
+
+  if (tab === 'profit') {
+    let curMemo;
+    const shopCurrency = () => (curMemo ||= gql(shopConfigCacheRef(), '{shop{currencyCode}}').then((j) => j.data?.shop?.currencyCode || '').catch(() => ''));
+    let adsMemo;
+    const ads = async () => (adsMemo ||= adSpend(ctx, await shopCurrency()));
+    const costNote = 'Product cost is revenue minus profit as Shopify reports it, so it only knows products that have a Cost per item set in Shopify.';
+    return [
+      section('kpi', `Profit after ads (${monthLabel})`, 'kpi', async () => {
+        const [c0, p0, a] = await Promise.all([run(`FROM sales SHOW net_sales, gross_profit ${per}`), run(`FROM sales SHOW net_sales, gross_profit SINCE ${ps} UNTIL ${pe}`), ads()]);
+        const c = c0.rows[0] || {}, p = p0.rows[0] || {};
+        const rev = n0(c.net_sales), gp = n0(c.gross_profit), cost = Math.max(0, rev - gp);
+        const rev0 = n0(p.net_sales), gp0 = n0(p.gross_profit), cost0 = Math.max(0, rev0 - gp0);
+        const dz = await dailyFn(run, ctx, 'sales', 'net_sales, gross_profit');
+        const D = (fn) => (dz ? { daily: dz(fn) } : {});
+        const tiles = [
+          { label: 'Net revenue', value: rev, prev: rev0, fmt: 'money', ...D((x) => n0(x.net_sales)) },
+          { label: 'Product cost', value: cost, prev: cost0, fmt: 'money', goodDown: true, sub: pct(cost, rev).toFixed(1) + '% of revenue', ...D((x) => Math.max(0, n0(x.net_sales) - n0(x.gross_profit))) },
+          { label: 'Gross profit', value: gp, prev: gp0, fmt: 'money', sub: (rev ? pct(gp, rev) : 0).toFixed(1) + '% margin', ...D((x) => n0(x.gross_profit)) },
+        ];
+        if (a.sum) {
+          const [s1, s0] = await Promise.all([a.sum(s, e), a.sum(ps, pe)]);
+          tiles.push({ label: 'Ad spend (Meta)', value: s1, prev: s0, fmt: 'money', goodDown: true, sub: pct(s1, rev).toFixed(1) + '% of revenue' });
+          tiles.push({ label: 'Profit after ads', value: gp - s1, prev: gp0 - s0, fmt: 'money', sub: (rev ? pct(gp - s1, rev) : 0).toFixed(1) + '% of revenue' });
+          tiles.push({ label: 'Revenue per 1 spent on ads', value: s1 ? rev / s1 : 0, prev: s0 ? rev0 / s0 : 0, fmt: 'x', sub: 'net revenue ÷ ad spend, all sales' });
+        }
+        return { tiles, note: a.off ? a.off + ' ' + costNote : costNote };
+      }),
+      section('trend', 'Month by month', 'trend', async () => {
+        const [r, a] = await Promise.all([run(`FROM sales SHOW net_sales, gross_profit TIMESERIES month SINCE ${trendStart} UNTIL ${today}`), ads()]);
+        const spend = a.monthly ? await a.monthly(trendStart, today) : new Map();
+        const rows = r.rows.map((x) => { const k = String(x.month).slice(0, 7), rev = n0(x.net_sales), gp = n0(x.gross_profit), ad = spend.get(k) || 0; return { key: k, label: label(k), values: { revenue: rev, cost: Math.max(0, rev - gp), gross: gp, ads: ad, profit: gp - ad } }; });
+        const metrics = [{ key: 'profit', label: a.monthly ? 'Profit after ads' : 'Gross profit', fmt: 'money' }, { key: 'revenue', label: 'Net revenue', fmt: 'money' }, { key: 'cost', label: 'Product cost', fmt: 'money' }, { key: 'gross', label: 'Gross profit', fmt: 'money' }, ...(a.monthly ? [{ key: 'ads', label: 'Ad spend (Meta)', fmt: 'money' }] : [])].filter((m, i, arr) => arr.findIndex((y) => y.key === m.key) === i);
+        if (!a.monthly) rows.forEach((x) => { x.values.profit = x.values.gross; });
+        return { rows, metrics, selectable: true };
+      }, 'Click a month to look at it in detail.'),
+      section('months', 'The numbers, month by month', 'table', async () => {
+        const [r, a] = await Promise.all([run(`FROM sales SHOW net_sales, gross_profit TIMESERIES month SINCE ${trendStart} UNTIL ${today}`), ads()]);
+        const spend = a.monthly ? await a.monthly(trendStart, today) : new Map();
+        const rows = r.rows.map((x) => { const k = String(x.month).slice(0, 7), rev = n0(x.net_sales), gp = n0(x.gross_profit), ad = spend.get(k) || 0, cost = Math.max(0, rev - gp); return { month: label(k), revenue: rev, cost, gross: gp, ads: ad, profit: gp - ad, margin: rev ? pct(gp - ad, rev) : null }; }).reverse();
+        const cols = [{ key: 'month', label: 'Month', fmt: 'str' }, { key: 'revenue', label: 'Net revenue', fmt: 'money' }, { key: 'cost', label: 'Product cost', fmt: 'money' }, { key: 'gross', label: 'Gross profit', fmt: 'money' }];
+        if (a.monthly) cols.push({ key: 'ads', label: 'Ad spend', fmt: 'money' }, { key: 'profit', label: 'Profit after ads', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' });
+        return { columns: cols, rows, empty: 'No sales in these months.' };
+      }),
+      section('cost', `Cost per product (${monthLabel})`, 'table', async () => {
+        const K = ['net_sales', 'net_items_sold', 'gross_profit'];
+        const r0 = await run(`FROM sales SHOW net_sales, net_items_sold, gross_profit GROUP BY product_title, product_variant_title ${per} ORDER BY net_sales DESC LIMIT 250`);
+        const list = foldBy(r0.rows, salesName, K).sort((a, b) => b.net_sales - a.net_sales).slice(0, 25);
+        const rows = list.map((x) => {
+          const cost = Math.max(0, x.net_sales - x.gross_profit), hasCost = cost > 0;
+          return { name: x._n, net_sales: x.net_sales, units: x.net_items_sold, unitCost: hasCost && x.net_items_sold ? cost / x.net_items_sold : null, cost: hasCost ? cost : null, profit: hasCost ? x.gross_profit : null, margin: hasCost && x.net_sales ? pct(x.gross_profit, x.net_sales) : null };
+        });
+        return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'net_sales', label: 'Net revenue', fmt: 'money', bar: true }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'unitCost', label: 'Cost per unit', fmt: 'money2' }, { key: 'cost', label: 'Total cost', fmt: 'money' }, { key: 'profit', label: 'Profit', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' }], rows, empty: 'No sales in this period.' };
+      }, 'A product with no cost figure has no Cost per item set in Shopify, so its profit is left blank instead of looking like 100%.'),
+    ];
+  }
 
   if (tab === 'sales') return [
     section('kpi', `Results for ${monthLabel}`, 'kpi', async () => {
@@ -537,7 +613,7 @@ export default route(async (req, res) => {
   // The service scores you type in are saved per calendar month, so they follow the month the period ends in.
   const month = per.to.slice(0, 7);
   // monthLabel is the name every card title uses; it now holds the label of whatever dates were chosen.
-  const ctx = { month, monthLabel: per.label, compareText: per.compareText, s: per.from, e: per.to, ps: per.compare.from, pe: per.compare.to, today, trendStart: `${months[0]}-01` };
+  const ctx = { refresh, month, monthLabel: per.label, compareText: per.compareText, s: per.from, e: per.to, ps: per.compare.from, pe: per.compare.to, today, trendStart: `${months[0]}-01` };
   const run = (query) => cachedQuery(cfg, query, refresh);
 
   const tasks = tab === 'retention' ? await buildRetention(ctx, keyOf, cfg).catch((err) => [async () => ({ id: 'err', title: 'Retention', kind: 'text', error: err.message })]) : buildShopifyTabs(tab, ctx, run);
