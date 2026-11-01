@@ -313,14 +313,14 @@ function perChange(t){
     const m=t.id==='per-m'?+v:+document.getElementById('per-m').value,y=t.id==='per-y'?+v:+document.getElementById('per-y').value;
     if(!perMonth(y,m)){toast('That month has not started yet');return perRender()}}
   else if(t.id==='per-from'||t.id==='per-to'){
-    const f=t.id==='per-from'?v:p.from,e=t.id==='per-to'?v:p.to;
-    if(!f||!e)return;if(f>e){toast('The start date is after the end date');return perRender()}
+    let f=t.id==='per-from'?v:p.from,e=t.id==='per-to'?v:p.to;
+    if(!f||!e)return;if(f>e){if(t.id==='per-from')e=f;else f=e}
     perSet('custom',f,e)}
   else if(t.id==='per-cmp'){
     p.cmp=v;if(v==='custom'){const d=curData();p.cfrom=(d&&d.compare&&d.compare.from)||'';p.cto=(d&&d.compare&&d.compare.to)||''}}
   else if(t.id==='per-cfrom'||t.id==='per-cto'){
-    const f=t.id==='per-cfrom'?v:p.cfrom,e=t.id==='per-cto'?v:p.cto;
-    if(!f||!e)return;if(f>e){toast('The start date is after the end date');return perRender()}
+    let f=t.id==='per-cfrom'?v:p.cfrom,e=t.id==='per-cto'?v:p.cto;
+    if(!f||!e)return;if(f>e){if(t.id==='per-cfrom')e=f;else f=e}
     p.cfrom=f;p.cto=e}
   perReload();
 }
