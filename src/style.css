@@ -511,3 +511,10 @@ tr.drow{display:none}tr.drow .rkdetail{display:block;margin:4px 0 8px}tr.open+tr
 .tipbox{position:fixed;z-index:60;display:none;max-width:280px;background:var(--ink);color:#fff;font-size:.8rem;line-height:1.35;padding:7px 10px;border-radius:8px;pointer-events:none;box-shadow:0 6px 18px rgba(0,0,0,.25)}
 .mc2 g[data-tip]{cursor:default}.mc2 g[data-tip]:hover rect:nth-child(2){filter:brightness(1.08)}
 .wp{font-size:9.5px;font-weight:600;fill:var(--muted);font-family:var(--f-body)}
+
+.repbox{border:1px solid var(--line,#e4dcee);border-radius:14px;margin:10px 0;background:var(--card,#fff)}
+.repbox>summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 16px;font-size:1rem}
+.repbox>summary::-webkit-details-marker{display:none}
+.repbox>summary::before{content:'▸';margin-right:8px;color:var(--accent)}
+.repbox[open]>summary::before{content:'▾'}
+.repin{padding:0 16px 16px}

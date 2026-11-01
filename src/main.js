@@ -928,28 +928,30 @@ function odooHero(d){
     ${sp.spark&&sp.spark.length>1?areaSpark(sp.spark,sp.sel):''}${sp.spark&&sp.spark.length>1&&rows?`<div class="hero-foot"><span>${esc(rows[0].label)}</span><span>12 months of ${esc((sp.label||'').toLowerCase())}</span><span>${esc(rows[rows.length-1].label)}</span></div>`:''}</section>`;
 }
 
-/* One salesperson at a time: totals, month by month, and what they sold by city, distributor, product and invoice. */
+/* Every salesperson gets their own block: totals, month by month, and what they sold by city, distributor, product and invoice. */
 function anReps(sec){
   if(!sec.people.length)return `<p class="muted">${esc(sec.empty)}</p>`;
-  const p=sec.people.find(x=>x.name===S.od.rep)||sec.people[0],c=p.cur,q=p.prev;
-  const team=anTable({columns:[{key:'name',label:'Salesperson',fmt:'str'},{key:'sales',label:'Sales (before tax)',fmt:'money',bar:true},{key:'orders',label:'Orders',fmt:'int'},{key:'units',label:'Units',fmt:'int'},{key:'invoiced',label:'Invoiced',fmt:'money'}],rows:sec.people.map(x=>({name:x.name,sales:x.cur.sales,orders:x.cur.orders,units:x.cur.units,invoiced:x.cur.invoiced}))});
-  const tiles=[{label:'Sales',value:c.sales,prev:q.sales,fmt:'money'},{label:'Orders',value:c.orders,prev:q.orders,fmt:'int'},{label:'Units sold',value:c.units,prev:q.units,fmt:'int'},{label:'Invoiced',value:c.invoiced,prev:q.invoiced,fmt:'money',sub:c.invoices+' invoices'},{label:'Average order',value:c.orders?c.sales/c.orders:0,prev:q.orders?q.sales/q.orders:0,fmt:'money'}];
-  const tr={rows:p.months.map(m=>({key:m.key,label:m.label,values:{sales:m.sales,invoiced:m.invoiced}})),metrics:[{key:'sales',label:'Sales',fmt:'money'},{key:'invoiced',label:'Invoiced',fmt:'money'}],monthBars:{keys:['sales','invoiced'],base:'sales'}};
   const T=(cols,rows,empty)=>anTable({columns:cols,rows,empty});
   const lst=(first)=>[{key:'name',label:first,fmt:'str'},{key:'sales',label:'Sales',fmt:'money',bar:true},{key:'orders',label:'Orders',fmt:'int'},{key:'units',label:'Units',fmt:'int'}];
-  return `<h3 class="sub">Everyone, this period</h3>${team}
-  <div class="item-top" style="margin:18px 0 6px"><h3 class="sub" style="margin:0">One salesperson</h3><select class="select" data-act="od-rep" style="width:auto" aria-label="Salesperson">${sec.people.map(x=>`<option ${x.name===p.name?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
-  ${anKpi({tiles})}
-  <h3 class="sub">Month by month</h3>${trendMonthChart(tr)}
-  ${T([{key:'label',label:'Month',fmt:'str'},{key:'sales',label:'Sales',fmt:'money'},{key:'orders',label:'Orders',fmt:'int'},{key:'units',label:'Units',fmt:'int'},{key:'invoiced',label:'Invoiced',fmt:'money'}],p.months.slice().reverse(),'No sales.')}
-  <h3 class="sub">By city</h3>${T(lst('City'),p.cities,'No sales in this period.')}
-  <h3 class="sub">By distributor</h3>${T(lst('Distributor'),p.customers,'No sales in this period.')}
-  <h3 class="sub">By product and quantity</h3>${T(lst('Product'),p.products,'No sales in this period.')}
-  <h3 class="sub">Invoices</h3>${T([{key:'name',label:'Invoice',fmt:'str'},{key:'customer',label:'Distributor',fmt:'str'},{key:'date',label:'Date',fmt:'str'},{key:'amount',label:'Amount',fmt:'money'},{key:'status',label:'Payment',fmt:'str'}],p.invoices,'No invoices in this period.')}`;
+  const team=T([{key:'name',label:'Salesperson',fmt:'str'},{key:'sales',label:'Sales (before tax)',fmt:'money',bar:true},{key:'orders',label:'Orders',fmt:'int'},{key:'units',label:'Units',fmt:'int'},{key:'invoiced',label:'Invoiced',fmt:'money'}],sec.people.map(x=>({name:x.name,sales:x.cur.sales,orders:x.cur.orders,units:x.cur.units,invoiced:x.cur.invoiced})));
+  const one=(p,n)=>{
+    const c=p.cur,q=p.prev;
+    const tiles=[{label:'Sales',value:c.sales,prev:q.sales,fmt:'money'},{label:'Orders',value:c.orders,prev:q.orders,fmt:'int'},{label:'Units sold',value:c.units,prev:q.units,fmt:'int'},{label:'Invoiced',value:c.invoiced,prev:q.invoiced,fmt:'money',sub:c.invoices+' invoices'},{label:'Average order',value:c.orders?c.sales/c.orders:0,prev:q.orders?q.sales/q.orders:0,fmt:'money'}];
+    const tr={id:'rep'+n,rows:p.months.map(m=>({key:m.key,label:m.label,values:{sales:m.sales,invoiced:m.invoiced,units:m.units}})),metrics:[{key:'sales',label:'Sales',fmt:'money'},{key:'invoiced',label:'Invoiced',fmt:'money'},{key:'units',label:'Units',fmt:'int'}]};
+    return `<details class="repbox"${n===0?' open':''}><summary><b>${esc(p.name)}</b><span class="muted">${esc(fv(c.sales,'money'))} · ${fmtNum(c.orders)} orders · ${fmtNum(c.units)} units</span></summary>
+    <div class="repin">${anKpi({tiles})}
+    <h3 class="sub">Month by month</h3>${anTrend(tr)}
+    ${T([{key:'label',label:'Month',fmt:'str'},{key:'sales',label:'Sales',fmt:'money'},{key:'orders',label:'Orders',fmt:'int'},{key:'units',label:'Units',fmt:'int'},{key:'invoiced',label:'Invoiced',fmt:'money'}],p.months.slice().reverse(),'No sales.')}
+    <h3 class="sub">By city</h3>${T(lst('City'),p.cities,'No sales in this period.')}
+    <h3 class="sub">By distributor</h3>${T(lst('Distributor'),p.customers,'No sales in this period.')}
+    <h3 class="sub">By product and quantity</h3>${T(lst('Product'),p.products,'No sales in this period.')}
+    <h3 class="sub">Invoices</h3>${T([{key:'name',label:'Invoice',fmt:'str'},{key:'customer',label:'Distributor',fmt:'str'},{key:'date',label:'Date',fmt:'str'},{key:'amount',label:'Amount',fmt:'money'},{key:'status',label:'Payment',fmt:'str'}],p.invoices,'No invoices in this period.')}</div></details>`;
+  };
+  return `<h3 class="sub">Everyone, this period</h3>${team}<h3 class="sub" style="margin-top:20px">Each salesperson</h3>${sec.people.map(one).join('')}`;
 }
 /* ---------- Odoo ---------- */
 const OD_TABS=[['inventory','Inventory'],['sales','Sales & invoices'],['profit','Profit'],['accounting','Accounting'],['hr','Employees']];
-S.od={rep:'',tab:'inventory',month:'',cache:{},loading:false,err:'',data:null};
+S.od={tab:'inventory',month:'',cache:{},loading:false,err:'',data:null};
 async function loadOdoo(_m,refresh){
   const od=S.od;
   const key=od.tab+'|'+perQuery();
@@ -1097,7 +1099,6 @@ document.addEventListener('change',async e=>{
   else if(t.id&&t.id.startsWith('per-')){if((t.id==='per-q'||t.id==='per-y')&&S.per.mode==='quarter'){const q=+(document.getElementById('per-q').value),y=+(document.getElementById('per-y').value);if(!perQuarter(y,q)){toast('That quarter has not started yet');perRender();return}perReload()}else perChange(t)}
   else if(t.id==='ev-month'){loadEval(t.value)}
   else if(t.id==='shop-metric'){S.shop.metric=t.value;renderShop()}
-  else if(t.dataset.act==='od-rep'){S.od.rep=t.value;renderOdoo()}
   else if(t.dataset.act==='an-metric'){S.an.metric[t.dataset.id]=t.value;S.route==='meta'?renderMeta():S.route==='odoo'?renderOdoo():renderShop()}
   else if(t.id==='f-role'){S.fRole=t.value;update()}
   else if(t.id==='f-user'){S.fUser=t.value;update()}
