@@ -779,16 +779,16 @@ function monthsChart(sec){
   const row=all.find(r=>r.key===key),yr=key.slice(0,4),years=[...new Set(all.map(r=>r.key.slice(0,4)))].reverse();
   const monthsOfYear=all.filter(r=>r.key.startsWith(yr));
   const bars=[['revenue','Net revenue','#2a78d6'],['cost','Product cost','#eb6834'],...(has?[['ads','Ad spend','#eda100'],['profit','Profit after ads','#6250d6']]:[['gross','Gross profit','#6250d6']])];
-  const W=560,H=240,pl=48,pr=10,pt=26,pb=34,vals=bars.map(b=>row[b[0]]||0),mx=Math.max(1,...vals),mn=Math.min(0,...vals);
+  const W=560,H=250,pl=48,pr=10,pt=38,pb=34,vals=bars.map(b=>row[b[0]]||0),mx=Math.max(1,...vals),mn=Math.min(0,...vals);
   const Y=v=>pt+(1-(v-mn)/(mx-mn||1))*(H-pt-pb),gw=(W-pl-pr)/bars.length,bw=Math.min(70,gw-26),z=Y(0);
   const grid=[0,.5,1].map(f=>{const v=mn+(mx-mn)*f;return `<line x1="${pl}" x2="${W-pr}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="var(--paper-line)" stroke-width="1" opacity=".7"/><text x="${pl-6}" y="${(Y(v)+3).toFixed(1)}" text-anchor="end" class="wl">${esc(shortNum(v))}</text>`}).join('');
   const body=bars.map((b,k)=>{const v=row[b[0]]||0,x=pl+k*gw+(gw-bw)/2,y1=Y(Math.max(v,0)),y2=Y(Math.min(v,0));
     const tip=`${row.month} · ${b[1]}: ${fv(v,'money')}${row.revenue&&b[0]!=='revenue'?' ('+(v/row.revenue*100).toFixed(1)+'% of revenue)':''}`;
-    return `<g data-tip="${esc(tip)}"><rect x="${(pl+k*gw).toFixed(1)}" y="${pt}" width="${gw.toFixed(1)}" height="${H-pt-pb}" fill="transparent"/><rect x="${x.toFixed(1)}" y="${y1.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(2,y2-y1).toFixed(1)}" rx="4" fill="${b[2]}"/><text x="${(x+bw/2).toFixed(1)}" y="${(v>=0?y1-6:y2+13).toFixed(1)}" text-anchor="middle" class="wv">${esc(shortNum(v))}</text><text x="${(x+bw/2).toFixed(1)}" y="${H-12}" text-anchor="middle" class="wl">${esc(b[1])}</text></g>`}).join('');
+    return `<g data-tip="${esc(tip)}"><rect x="${(pl+k*gw).toFixed(1)}" y="${pt}" width="${gw.toFixed(1)}" height="${H-pt-pb}" fill="transparent"/><rect x="${x.toFixed(1)}" y="${y1.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(2,y2-y1).toFixed(1)}" rx="4" fill="${b[2]}"/><text x="${(x+bw/2).toFixed(1)}" y="${(v>=0?y1-18:y2+13).toFixed(1)}" text-anchor="middle" class="wv">${esc(shortNum(v))}</text><text x="${(x+bw/2).toFixed(1)}" y="${(v>=0?y1-6:y2+25).toFixed(1)}" text-anchor="middle" class="wp">${row.revenue?(v/row.revenue*100).toFixed(1)+'%':'–'}</text><text x="${(x+bw/2).toFixed(1)}" y="${H-12}" text-anchor="middle" class="wl">${esc(b[1])}</text></g>`}).join('');
   const sel=(id,opts,cur,label)=>`<select class="select" id="${id}" aria-label="${label}">${opts.map(([v,l])=>`<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(l)}</option>`).join('')}</select>`;
   const mname=r=>String(r.month).split(' ')[0];
   return `<div class="viz wide"><div class="viz-h"><div class="viz-t">${esc(row.month)}</div><div class="row" style="gap:8px">${sel('mc-m',monthsOfYear.map(r=>[r.key,mname(r)]),key,'Month')}${sel('mc-y',years.map(y=>[y,y]),yr,'Year')}</div></div>
-  <svg viewBox="0 0 ${W} ${H}" class="mc2" role="img" aria-label="Figures for ${esc(row.month)}">${grid}${body}</svg><p class="muted dn">Point at a bar to read its exact figure.</p></div>`;
+  <svg viewBox="0 0 ${W} ${H}" class="mc2" role="img" aria-label="Figures for ${esc(row.month)}">${grid}${body}</svg><p class="muted dn">Percentages are shares of the month's net revenue. Point at a bar to read its exact figure.</p></div>`;
 }
 /* hover tooltip for anything with data-tip */
 (function(){
