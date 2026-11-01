@@ -36,6 +36,17 @@ async function addPictures(cfg, list) {
   list.forEach((r) => { delete r.pid; });
   return list;
 }
+/** Unit cost (the Cost field on the product in Odoo) for a list of product ids. Missing ids simply have no cost. */
+async function costsOf(cfg, ids) {
+  const out = new Map();
+  const list = [...new Set(ids.filter(Boolean))];
+  if (!list.length) return out;
+  try {
+    const got = await call(cfg, 'product.product', 'read', [list, ['standard_price']], { context: { lang: 'en_US' } });
+    for (const g of got) if (typeof g.standard_price === 'number') out.set(g.id, g.standard_price);
+  } catch (err) { /* the table still works without costs */ }
+  return out;
+}
 const tile = (label, value, fmt, extra = {}) => ({ label, value, fmt, ...extra });
 const rows = (r, limit) => r.slice(0, limit);
 
@@ -77,8 +88,8 @@ function build(tab, cfg, ctx) {
       const { storable, mins } = await products();
       const list = storable.filter((p) => n0(p.qty_available) <= (mins.get(p.id) ?? 5))
         .sort((a, b) => n0(a.qty_available) - n0(b.qty_available)).slice(0, 15)
-        .map((p) => ({ pid: p.id, name: p.display_name, qty: n0(p.qty_available), incoming: Math.max(0, n0(p.virtual_available) - n0(p.qty_available)), min: mins.get(p.id) ?? 5 }));
-      return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'qty', label: 'On hand', fmt: 'int', bar: true, barReverse: true }, { key: 'incoming', label: 'Arriving', fmt: 'int' }, { key: 'min', label: 'Minimum', fmt: 'int' }], rows: await addPictures(cfg, list), empty: 'Nothing is running low.' };
+        .map((p) => ({ pid: p.id, name: p.display_name, qty: n0(p.qty_available), incoming: Math.max(0, n0(p.virtual_available) - n0(p.qty_available)), min: mins.get(p.id) ?? 5, cost: n0(p.standard_price) }));
+      return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'qty', label: 'On hand', fmt: 'int', bar: true, barReverse: true }, { key: 'incoming', label: 'Arriving', fmt: 'int' }, { key: 'min', label: 'Minimum', fmt: 'int' }, { key: 'cost', label: 'Unit cost', fmt: 'money2' }], rows: await addPictures(cfg, list), empty: 'Nothing is running low.' };
     }, 'Products at or under their reorder minimum (5 units when no minimum is set in Odoo).'),
     section('value', 'Where your money is sitting in stock', 'table', async () => {
       const { storable } = await products();
@@ -146,7 +157,10 @@ function build(tab, cfg, ctx) {
     section('products', `Top products sold (${ctx.monthLabel})`, 'table', async () => {
       const list = await sr(cfg, 'sale.order.line', [['order_id.state', 'in', ['sale', 'done']], ['order_id.date_order', '>=', dt(s)], ['order_id.date_order', '<=', dtEnd(e)]], ['product_id', 'product_uom_qty', 'price_subtotal'], { app: 'Sales', limit: 20000 });
       const m = new Map(); list.forEach((l) => { const k = nm(l.product_id) || 'Other'; const g = m.get(k) || { name: k, pid: nid(l.product_id), value: 0, units: 0 }; g.value += n0(l.price_subtotal); g.units += n0(l.product_uom_qty); m.set(k, g); });
-      return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'value', label: 'Sales (before tax)', fmt: 'money', bar: true }, { key: 'units', label: 'Units', fmt: 'int' }], rows: await addPictures(cfg, [...m.values()].sort((a, b) => b.value - a.value).slice(0, 10)), empty: 'No sales lines in this period.' };
+      const top = [...m.values()].sort((a, b) => b.value - a.value).slice(0, 10);
+      const costs = await costsOf(cfg, top.map((g) => g.pid));
+      top.forEach((g) => { const c = costs.get(g.pid); if (c !== undefined) { g.cost = c; g.totalCost = c * g.units; g.profit = g.value - g.totalCost; g.margin = g.value ? (g.profit / g.value) * 100 : null; } });
+      return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'value', label: 'Sales (before tax)', fmt: 'money', bar: true }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'cost', label: 'Unit cost', fmt: 'money2' }, { key: 'totalCost', label: 'Total cost', fmt: 'money' }, { key: 'profit', label: 'Profit', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' }], rows: await addPictures(cfg, top), empty: 'No sales lines in this period.' };
     }),
     section('overdue', 'Overdue invoices to chase', 'table', async () => {
       const list = (await invoices(['out_invoice'], [['payment_state', 'in', ['not_paid', 'partial']], ['invoice_date_due', '<', today]])).sort((a, b) => resid(b) - resid(a)).slice(0, 12);
