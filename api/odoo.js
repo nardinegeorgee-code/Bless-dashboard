@@ -18,6 +18,24 @@ const section = (id, title, kind, fn, note) => async () => {
   try { return { id, title, kind, note, ...(await fn()) }; }
   catch (e) { return { id, title, kind, note, error: String(e.message || e).slice(0, 400) }; }
 };
+/** Product pictures straight from Odoo, as small inline images (256 px), so the browser needs no Odoo login. */
+const MIME = [['/9j/', 'image/jpeg'], ['iVBOR', 'image/png'], ['R0lGO', 'image/gif'], ['UklGR', 'image/webp'], ['PHN2', 'image/svg+xml']];
+async function addPictures(cfg, list) {
+  const ids = [...new Set(list.map((r) => r.pid).filter(Boolean))];
+  list.forEach((r) => { if (!ids.length) delete r.pid; });
+  if (!ids.length) return list;
+  try {
+    const have = await fieldsOf(cfg, 'product.product');
+    if (have.has('image_256')) {
+      const got = await call(cfg, 'product.product', 'read', [ids, ['image_256']], { context: { lang: 'en_US' } });
+      const by = new Map();
+      for (const g of got) { const b = typeof g.image_256 === 'string' ? g.image_256 : ''; const m = b && b.length < 160000 && MIME.find(([p]) => b.startsWith(p)); if (m) by.set(g.id, `data:${m[1]};base64,${b}`); }
+      list.forEach((r) => { if (by.has(r.pid)) r.img = by.get(r.pid); });
+    }
+  } catch (err) { /* pictures are an extra; the table still works without them */ }
+  list.forEach((r) => { delete r.pid; });
+  return list;
+}
 const tile = (label, value, fmt, extra = {}) => ({ label, value, fmt, ...extra });
 const rows = (r, limit) => r.slice(0, limit);
 
@@ -59,14 +77,14 @@ function build(tab, cfg, ctx) {
       const { storable, mins } = await products();
       const list = storable.filter((p) => n0(p.qty_available) <= (mins.get(p.id) ?? 5))
         .sort((a, b) => n0(a.qty_available) - n0(b.qty_available)).slice(0, 15)
-        .map((p) => ({ name: p.display_name, qty: n0(p.qty_available), incoming: Math.max(0, n0(p.virtual_available) - n0(p.qty_available)), min: mins.get(p.id) ?? 5 }));
-      return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'qty', label: 'On hand', fmt: 'int', bar: true, barReverse: true }, { key: 'incoming', label: 'Arriving', fmt: 'int' }, { key: 'min', label: 'Minimum', fmt: 'int' }], rows: list, empty: 'Nothing is running low.' };
+        .map((p) => ({ pid: p.id, name: p.display_name, qty: n0(p.qty_available), incoming: Math.max(0, n0(p.virtual_available) - n0(p.qty_available)), min: mins.get(p.id) ?? 5 }));
+      return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'qty', label: 'On hand', fmt: 'int', bar: true, barReverse: true }, { key: 'incoming', label: 'Arriving', fmt: 'int' }, { key: 'min', label: 'Minimum', fmt: 'int' }], rows: await addPictures(cfg, list), empty: 'Nothing is running low.' };
     }, 'Products at or under their reorder minimum (5 units when no minimum is set in Odoo).'),
     section('value', 'Where your money is sitting in stock', 'table', async () => {
       const { storable } = await products();
-      const list = storable.map((p) => ({ name: p.display_name, value: Math.max(0, n0(p.qty_available)) * n0(p.standard_price), qty: n0(p.qty_available), cost: n0(p.standard_price) }))
+      const list = storable.map((p) => ({ pid: p.id, name: p.display_name, value: Math.max(0, n0(p.qty_available)) * n0(p.standard_price), qty: n0(p.qty_available), cost: n0(p.standard_price) }))
         .filter((p) => p.value > 0).sort((a, b) => b.value - a.value).slice(0, 15);
-      return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'value', label: 'Stock value', fmt: 'money', bar: true }, { key: 'qty', label: 'On hand', fmt: 'int' }, { key: 'cost', label: 'Unit cost', fmt: 'money' }], rows: list, empty: 'No stock value yet. Set a cost on your products in Odoo.' };
+      return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'value', label: 'Stock value', fmt: 'money', bar: true }, { key: 'qty', label: 'On hand', fmt: 'int' }, { key: 'cost', label: 'Unit cost', fmt: 'money' }], rows: await addPictures(cfg, list), empty: 'No stock value yet. Set a cost on your products in Odoo.' };
     }),
     section('cat', 'Stock by category', 'table', async () => {
       const { storable } = await products();
@@ -127,8 +145,8 @@ function build(tab, cfg, ctx) {
     }),
     section('products', `Top products sold (${ctx.monthLabel})`, 'table', async () => {
       const list = await sr(cfg, 'sale.order.line', [['order_id.state', 'in', ['sale', 'done']], ['order_id.date_order', '>=', dt(s)], ['order_id.date_order', '<=', dtEnd(e)]], ['product_id', 'product_uom_qty', 'price_subtotal'], { app: 'Sales', limit: 20000 });
-      const m = new Map(); list.forEach((l) => { const k = nm(l.product_id) || 'Other'; const g = m.get(k) || { name: k, value: 0, units: 0 }; g.value += n0(l.price_subtotal); g.units += n0(l.product_uom_qty); m.set(k, g); });
-      return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'value', label: 'Sales (before tax)', fmt: 'money', bar: true }, { key: 'units', label: 'Units', fmt: 'int' }], rows: [...m.values()].sort((a, b) => b.value - a.value).slice(0, 10), empty: 'No sales lines this month.' };
+      const m = new Map(); list.forEach((l) => { const k = nm(l.product_id) || 'Other'; const g = m.get(k) || { name: k, pid: nid(l.product_id), value: 0, units: 0 }; g.value += n0(l.price_subtotal); g.units += n0(l.product_uom_qty); m.set(k, g); });
+      return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'value', label: 'Sales (before tax)', fmt: 'money', bar: true }, { key: 'units', label: 'Units', fmt: 'int' }], rows: await addPictures(cfg, [...m.values()].sort((a, b) => b.value - a.value).slice(0, 10)), empty: 'No sales lines in this period.' };
     }),
     section('overdue', 'Overdue invoices to chase', 'table', async () => {
       const list = (await invoices(['out_invoice'], [['payment_state', 'in', ['not_paid', 'partial']], ['invoice_date_due', '<', today]])).sort((a, b) => resid(b) - resid(a)).slice(0, 12);

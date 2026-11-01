@@ -743,7 +743,7 @@ function tileDetail(t){
   return `<div class="dl"><span>${esc(per)}</span><b class="mono">${esc(fv(t.value,t.fmt))}</b></div>${t.prev!==undefined?diffLine(cmp?'Compared with '+cmp:'Before',t.value,t.prev,t.fmt):'<p class="muted dn">No earlier figure is available for this one.</p>'}${t.sub?`<p class="muted dn">${esc(t.sub)}</p>`:''}${t.daily&&t.daily.cur&&t.daily.cur.length>1?dailyChart(t.daily,t.fmt):''}`;
 }
 function rowDetail(sec,r,i,barCol,total){
-  const cols=sec.columns,name=cols[0];let h=(r.img?`<a class="pbig" href="${esc(r.img)}" target="_blank" rel="noopener"><img src="${esc(picUrl(r.img,640))}" srcset="${esc(picUrl(r.img,640))} 1x, ${esc(picUrl(r.img,1280))} 2x" alt="${esc(String(r.name||''))}" loading="lazy" referrerpolicy="no-referrer"></a>`:'')+`<div class="dl"><span>Rank</span><b class="mono">#${i+1} of ${sec.rows.length}</b></div>`;
+  const cols=sec.columns,name=cols[0];let h=(r.img?`<a class="pbig"${/^https?:/.test(r.img)?` href="${esc(r.img)}" target="_blank" rel="noopener"`:''}><img src="${esc(picUrl(r.img,640))}" ${/^https:\/\/cdn\.shopify\.com\//.test(r.img)?`srcset="${esc(picUrl(r.img,640))} 1x, ${esc(picUrl(r.img,1280))} 2x"`:''} alt="${esc(String(r.name||''))}" loading="lazy" referrerpolicy="no-referrer"></a>`:'')+`<div class="dl"><span>Rank</span><b class="mono">#${i+1} of ${sec.rows.length}</b></div>`;
   for(const c of cols.slice(1)){const v=r[c.key];if(v===null||v===undefined||v==='')continue;h+=`<div class="dl"><span>${esc(c.label)}</span><b class="mono">${cellText(v,c.fmt)}</b></div>`}
   if(barCol&&total>0){const v=Number(r[barCol.key])||0;h+=`<div class="dl"><span>Share of the ${sec.rows.length} listed</span><b class="mono">${(v/total*100).toFixed(1)}%</b></div>`}
   const gc=cols.find(c=>c.fmt==='growth'),g=gc&&r[gc.key];
@@ -751,8 +751,8 @@ function rowDetail(sec,r,i,barCol,total){
   return h;
 }
 /* Shopify serves the same picture at any width; ask for 2x and 3x so it stays sharp on high-density screens. */
-function picUrl(u,w){return u+(u.includes('?')?'&':'?')+'width='+w}
-function pic(r,size){if(!r.img)return '';return `<img class="pimg" src="${esc(picUrl(r.img,size*2))}" srcset="${esc(picUrl(r.img,size*2))} 1x, ${esc(picUrl(r.img,size*3))} 1.5x, ${esc(picUrl(r.img,size*4))} 2x" width="${size}" height="${size}" alt="${esc(String(r.name||''))}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.removeAttribute('srcset');this.removeAttribute('src');this.classList.add('ph')">`}
+function picUrl(u,w){return /^https:\/\/cdn\.shopify\.com\//.test(u)?u+(u.includes('?')?'&':'?')+'width='+w:u}
+function pic(r,size){if(!r.img)return '';return `<img class="pimg" src="${esc(picUrl(r.img,size*2))}" ${/^https:\/\/cdn\.shopify\.com\//.test(r.img)?`srcset="${esc(picUrl(r.img,size*2))} 1x, ${esc(picUrl(r.img,size*3))} 1.5x, ${esc(picUrl(r.img,size*4))} 2x"`:''} width="${size}" height="${size}" alt="${esc(String(r.name||''))}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.removeAttribute('srcset');this.removeAttribute('src');this.classList.add('ph')">`}
 function anTable(sec){
   if(!sec.rows.length)return `<p class="muted">${esc(sec.empty||'No data for this period.')}</p>`;
   const cols=sec.columns,nameCol=cols[0],barCol=cols.find(c=>c.bar);
@@ -893,7 +893,7 @@ function metaCampaigns(sec){
       ?`<span class="mcell"><input class="input mbud" type="number" min="1" step="any" inputmode="decimal" value="${esc(r.dailyBudget)}" data-id="${esc(r.id)}" aria-label="Daily budget for ${esc(r.name)}"><button class="btn sm" data-act="meta-budget" data-id="${esc(r.id)}" ${busy}>Save</button></span>`
       :r.lifetimeBudget!==null&&r.lifetimeBudget!==undefined?`<span class="muted">Lifetime ${esc(money(r.lifetimeBudget))}</span>`:`<span class="muted">Set on each ad set</span>`;
     const act=r.canToggle?(r.status==='ACTIVE'?`<button class="btn sm danger" data-act="meta-toggle" data-id="${esc(r.id)}" data-to="PAUSED" ${busy}>Pause</button>`:`<button class="btn sm" data-act="meta-toggle" data-id="${esc(r.id)}" data-to="ACTIVE" ${busy}>Resume</button>`):'';
-    return `<tr><td title="${esc(r.name)}"><span class="ct">${esc(r.name)}</span>${r.objective?`<small class="muted">${esc(r.objective)}</small>`:''}</td><td>${pill}</td><td class="num">${budget}</td><td class="num mono">${esc(money(r.spend))}</td><td class="num mono">${esc(fmtNum(r.purchases))}</td><td class="num mono">${r.spend?esc(fv(r.roas,'x')):'–'}</td><td class="num mono">${r.purchases?esc(money2(r.cpp)):'–'}</td><td class="num">${act}</td></tr>`;
+    return `<tr><td title="${esc(r.name)}">${r.img?`<span class="pcell">${pic(r,40)}<span><span class="ct">${esc(r.name)}</span>${r.objective?`<small class="muted">${esc(r.objective)}</small>`:''}</span></span>`:`<span class="ct">${esc(r.name)}</span>${r.objective?`<small class="muted">${esc(r.objective)}</small>`:''}`}</td><td>${pill}</td><td class="num">${budget}</td><td class="num mono">${esc(money(r.spend))}</td><td class="num mono">${esc(fmtNum(r.purchases))}</td><td class="num mono">${r.spend?esc(fv(r.roas,'x')):'–'}</td><td class="num mono">${r.purchases?esc(money2(r.cpp)):'–'}</td><td class="num">${act}</td></tr>`;
   }).join('');
   return `<div class="tablewrap"><table class="dt"><thead><tr><th>Campaign</th><th>Status</th><th class="num">Daily budget</th><th class="num">Spent</th><th class="num">Purchases</th><th class="num">Return</th><th class="num">Per purchase</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }

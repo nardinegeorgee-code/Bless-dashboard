@@ -57,6 +57,28 @@ const dailyFor = (cfg, ctx) => ctx.once('daily', async () => {
   } catch (err) { return null; }
 });
 
+/** Ad-level figures for the period (shared by the ads table and the campaign pictures). */
+const adRows = (cfg, ctx) => ctx.once('adRows', () => insights(cfg, `ad|${ctx.s}|${ctx.until}`, ctx.refresh, { level: 'ad', fields: INSIGHT_FIELDS + ',ad_id,ad_name,campaign_id,campaign_name', time_range: timeRange(ctx.s, ctx.until), limit: 500 }));
+/** Picture of each ad (Meta's own, as large as it offers). A failure only means no pictures. */
+async function adPictures(cfg, ctx, ids) {
+  const list = [...new Set(ids.filter(Boolean))].slice(0, 50), out = new Map();
+  if (!list.length) return out;
+  try {
+    const rows = await cached(cfg, 'cre|' + list.join(','), ctx.refresh, () => graphAll(cfg, 'act_' + cfg.account + '/ads', { fields: 'id,creative.thumbnail_width(640).thumbnail_height(640){thumbnail_url,image_url}', filtering: [{ field: 'id', operator: 'IN', value: list }], limit: 50 }, 2));
+    for (const a of rows) { const u = (a.creative && (a.creative.image_url || a.creative.thumbnail_url)) || ''; if (u) out.set(a.id, u); }
+  } catch (e) { /* pictures are an extra */ }
+  return out;
+}
+/** Picture for each campaign: the creative of its highest-spending ad. */
+async function campaignPictures(cfg, ctx) {
+  try {
+    const ads = (await adRows(cfg, ctx)).map((r) => ({ id: r.ad_id, c: r.campaign_id, spend: metrics(r).spend })).filter((r) => r.id && r.c && r.spend > 0).sort((a, b) => b.spend - a.spend);
+    const top = new Map(); for (const a of ads) if (!top.has(a.c)) top.set(a.c, a.id);
+    const pics = await adPictures(cfg, ctx, [...top.values()]);
+    return new Map([...top].filter(([, id]) => pics.has(id)).map(([c, id]) => [c, pics.get(id)]));
+  } catch (e) { return new Map(); }
+}
+
 /** Shopify revenue for the month, from the orders already synced into the database. Null when those orders do not cover the month. */
 async function shopifyRevenue(cfg, ctx, a, b) {
   await ensureShopSchema();
@@ -116,15 +138,18 @@ function build(tab, cfg, ctx, info) {
     section('campaigns', `Campaigns by spend (${ctx.periodLabel})`, 'table', async () => {
       const [now, before] = await Promise.all([campaignInsights(cfg, ctx), campaignInsightsCmp(cfg, ctx)]);
       const was = new Map(before.map((r) => [r.campaign_id, metrics(r)]));
+      const cpics = await campaignPictures(cfg, ctx);
       const rows = now.map((r) => {
         const m = metrics(r), w = was.get(r.campaign_id);
-        return { name: r.campaign_name || 'Unnamed campaign', ...m, change: w && w.spend ? Math.round(((m.spend - w.spend) / w.spend) * 1000) / 10 : null, roasBefore: w ? w.roas : null };
+        return { ...(cpics.get(r.campaign_id) ? { img: cpics.get(r.campaign_id) } : {}), name: r.campaign_name || 'Unnamed campaign', ...m, change: w && w.spend ? Math.round(((m.spend - w.spend) / w.spend) * 1000) / 10 : null, roasBefore: w ? w.roas : null };
       }).filter((r) => r.spend > 0).sort((a, b) => b.spend - a.spend).slice(0, 10);
       return { columns: [{ key: 'name', label: 'Campaign', fmt: 'str' }, { key: 'spend', label: 'Spent', fmt: 'money', bar: true }, { key: 'change', label: `Spend vs ${ctx.compareText}`, fmt: 'growth' }, { key: 'purchases', label: 'Purchases', fmt: 'int' }, { key: 'roas', label: 'Return', fmt: 'x' }, { key: 'roasBefore', label: `Return, ${ctx.compareText}`, fmt: 'x' }, { key: 'cpp', label: 'Per purchase', fmt: 'money2' }], rows, empty: 'No campaign spent anything in this period.' };
     }),
     section('ads', `Ads by spend (${ctx.periodLabel})`, 'table', async () => {
-      const raw = await insights(cfg, `ad|${ctx.s}|${ctx.until}`, ctx.refresh, { level: 'ad', fields: INSIGHT_FIELDS + ',ad_name,campaign_name', time_range: timeRange(ctx.s, ctx.until), limit: 500 });
-      const rows = raw.map((r) => ({ name: (r.ad_name || 'Unnamed ad') + (r.campaign_name ? ' · ' + r.campaign_name : ''), ...metrics(r) })).filter((r) => r.spend > 0).sort((a, b) => b.spend - a.spend).slice(0, 10);
+      const raw = await adRows(cfg, ctx);
+      const rows = raw.map((r) => ({ adId: r.ad_id, name: (r.ad_name || 'Unnamed ad') + (r.campaign_name ? ' · ' + r.campaign_name : ''), ...metrics(r) })).filter((r) => r.spend > 0).sort((a, b) => b.spend - a.spend).slice(0, 10);
+      const pics = await adPictures(cfg, ctx, rows.map((r) => r.adId));
+      rows.forEach((r) => { const u = pics.get(r.adId); if (u) r.img = u; delete r.adId; });
       return { columns: [{ key: 'name', label: 'Ad', fmt: 'str' }, { key: 'spend', label: 'Spent', fmt: 'money', bar: true }, { key: 'purchases', label: 'Purchases', fmt: 'int' }, { key: 'roas', label: 'Return', fmt: 'x' }, { key: 'ctr', label: 'Click rate', fmt: 'pct' }], rows, empty: 'No ad spent anything in this period.' };
     }, 'Useful for the Graphic Designer and Media Buyer: which creative is earning its spend.'),
     section('platform', `Where the money went (${ctx.periodLabel})`, 'table', async () => {
@@ -142,12 +167,13 @@ function build(tab, cfg, ctx, info) {
         campaignInsights(cfg, ctx),
       ]);
       const by = new Map(ins.map((r) => [r.campaign_id, metrics(r)]));
+      const cpics = await campaignPictures(cfg, ctx);
       const off = budgetOffset(info.currency);
       const rows = list.map((c) => {
         const m = by.get(c.id) || metrics(null);
         const eff = String(c.effective_status || c.status || '');
         return {
-          id: c.id, name: c.name || 'Unnamed campaign', status: c.status, effective: eff, objective: String(c.objective || '').replace(/^OUTCOME_/, '').replace(/_/g, ' ').toLowerCase(),
+          id: c.id, img: cpics.get(c.id) || '', name: c.name || 'Unnamed campaign', status: c.status, effective: eff, objective: String(c.objective || '').replace(/^OUTCOME_/, '').replace(/_/g, ' ').toLowerCase(),
           dailyBudget: c.daily_budget ? Number(c.daily_budget) / off : null, lifetimeBudget: c.lifetime_budget ? Number(c.lifetime_budget) / off : null,
           canToggle: c.status === 'ACTIVE' || c.status === 'PAUSED', ...m,
         };
