@@ -343,16 +343,16 @@ function build(tab, cfg, ctx) {
       section('reps', 'Sales by salesperson', 'reps', async () => {
         const m12 = monthsBack(12), start = [ps, s, m12[0] + '-01'].sort()[0];
         const [orders, lines, invs] = await Promise.all([
-          sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(start)]], ['name', 'partner_id', 'user_id', 'amount_untaxed', 'date_order'], { app: 'Sales', limit: 30000 }),
+          sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(start)]], ['name', 'partner_id', 'partner_shipping_id', 'user_id', 'amount_untaxed', 'date_order'], { app: 'Sales', limit: 30000 }).catch(() => sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(start)]], ['name', 'partner_id', 'user_id', 'amount_untaxed', 'date_order'], { app: 'Sales', limit: 30000 })),
           sr(cfg, 'sale.order.line', [['order_id.state', 'in', ['sale', 'done']], ['order_id.date_order', '>=', dt(start)]], ['order_id', 'product_id', 'product_uom_qty', 'price_subtotal'], { app: 'Sales', limit: 60000 }),
           sr(cfg, 'account.move', [['move_type', 'in', ['out_invoice', 'out_refund']], ['state', '=', 'posted'], ['invoice_date', '>=', start]], ['name', 'partner_id', 'invoice_user_id', 'move_type', 'invoice_date', 'amount_untaxed_signed', 'payment_state'], { app: 'Accounting', limit: 30000 }),
         ]);
-        const pids = [...new Set(orders.map((o) => nid(o.partner_id)).filter(Boolean))], city = new Map();
+        const addr = (o) => nid(o.partner_shipping_id) || nid(o.partner_id), pids = [...new Set(orders.flatMap((o) => [addr(o), nid(o.partner_id)]).filter(Boolean))], city = new Map();
         for (let i = 0; i < pids.length; i += 500) {
           try { for (const g of await call(cfg, 'res.partner', 'read', [pids.slice(i, i + 500), ['city', 'state_id']])) city.set(g.id, (g.city || '').trim() || nm(g.state_id) || 'Unknown'); } catch (err) { break; }
         }
         const who = (o) => nm(o.user_id) || 'No salesperson', inR = (d, a, b) => d >= a && d <= b;
-        const info = new Map(orders.map((o) => [o.id, { rep: who(o), day: String(o.date_order).slice(0, 10), customer: nm(o.partner_id) || 'Unknown', city: city.get(nid(o.partner_id)) || 'Unknown' }]));
+        const info = new Map(orders.map((o) => [o.id, { rep: who(o), day: String(o.date_order).slice(0, 10), customer: nm(o.partner_id) || 'Unknown', city: city.get(addr(o)) || city.get(nid(o.partner_id)) || 'Unknown' }]));
         const reps = new Map(); const R = (name) => { if (!reps.has(name)) reps.set(name, { name, cur: { sales: 0, orders: 0, units: 0, invoiced: 0, invoices: 0 }, prev: { sales: 0, orders: 0, units: 0, invoiced: 0, invoices: 0 }, months: new Map(m12.map((k) => [k, { key: k, label: label(k), sales: 0, orders: 0, units: 0, invoiced: 0 }])), cities: new Map(), customers: new Map(), prods: new Map(), invoiceList: [] }); return reps.get(name); };
         const bump = (map, key, f) => { const g = map.get(key) || { name: key, orders: 0, units: 0, sales: 0, ids: new Set() }; f(g); map.set(key, g); };
         for (const o of orders) {
@@ -381,7 +381,7 @@ function build(tab, cfg, ctx) {
           .map((r) => ({ name: r.name, cur: r.cur, prev: r.prev, months: [...r.months.values()], cities: list(r.cities), customers: list(r.customers), products: list(r.prods), invoices: r.invoiceList.sort((a, b) => b.amount - a.amount).slice(0, 60) }))
           .sort((a, b) => b.cur.sales - a.cur.sales).slice(0, 40);
         return { people, empty: 'No confirmed orders in the last 12 months.' };
-      }, 'Salesperson is the one on the sales order (and on the invoice). Amounts are before tax. City is the customer city in Odoo, and the distributor is the customer on the order. The lists follow the dates you picked; the month chart always shows the last 12 months.'),
+      }, 'Salesperson is the one on the sales order (and on the invoice). Amounts are before tax. City is taken from the delivery address on the order (the customer address when there is none), and the distributor is the customer on the order. The lists follow the dates you picked; the month chart always shows the last 12 months.'),
       section('dept', 'People by department', 'table', async () => {
         const m = new Map(); (await emps()).forEach((x) => { const k = nm(x.department_id) || 'No department'; m.set(k, (m.get(k) || 0) + 1); });
         return { columns: [{ key: 'name', label: 'Department', fmt: 'str' }, { key: 'n', label: 'People', fmt: 'int', bar: true }], rows: [...m.entries()].map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n) };
