@@ -670,10 +670,41 @@ function iconFor(label){
   if(/day|hour|time|speed|response|between/.test(l))return 'clock';if(/rate|repeat|conversion|bounce/.test(l))return 'repeat';
   return 'tag';
 }
-function tileCard(t,i){
-  const c=KPAL[i%KPAL.length];let d='';
-  if(t.prev!==undefined){const g=t.prev?Math.round((t.value-t.prev)/t.prev*1000)/10:null;if(g!==null)d=chip(g,t.goodDown)+'<span class="muted" style="font-size:.7rem"> vs '+esc(cmpText())+' (was '+esc(fv(t.prev,t.fmt))+')</span>'}
-  return `<div class="kcard" data-detail tabindex="0" role="button" aria-expanded="false" style="--kc:${c}">${ico(iconFor(t.label),c)}<div style="min-width:0"><span class="eyebrow">${esc(t.label)}</span><div class="kn">${esc(fv(t.value,t.fmt))}</div>${d?`<div>${d}</div>`:''}${t.sub?`<small class="muted">${esc(t.sub)}</small>`:''}<div class="rkdetail">${tileDetail(t)}</div></div></div>`;
+/* Change pill: arrow + percent, green when it moved the good way, red when the bad way, grey when flat. */
+function dp(g,goodDown){if(g===null||g===undefined||!isFinite(g))return '';if(Math.abs(g)<0.05)return '<span class="dp flat">– 0%</span>';const good=goodDown?g<0:g>0;return `<span class="dp ${good?'good':'bad'}"><i aria-hidden="true">${g>0?'▲':'▼'}</i>${Math.abs(g).toLocaleString(undefined,{maximumFractionDigits:1})}%<span class="vh">${good?' better':' worse'}</span></span>`}
+function pctChange(v,p){return p?Math.round((v-p)/Math.abs(p)*1000)/10:null}
+/* Small line chart for a card: this period solid, comparison dashed, end dot on the latest day. */
+function sparkline(dl){
+  const W=200,H=38,a=dl.cur,b=dl.prev||[],all=[...a,...b].filter(v=>typeof v==='number'&&isFinite(v)),mx=Math.max(1e-9,...all),mn=Math.min(0,...all);
+  const X=(k,n)=>1+(n>1?k/(n-1):0.5)*(W-8),Y=v=>3+(1-(v-mn)/(mx-mn||1))*(H-8);
+  const path=arr=>arr.map((v,k)=>(k?'L':'M')+X(k,arr.length).toFixed(1)+' '+Y(v).toFixed(1)).join('');
+  const lx=X(a.length-1,a.length),ly=Y(a[a.length-1]);
+  return `<svg class="spk" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><path class="spk-p" d="${path(b)}"/><path class="spk-c" d="${path(a)}"/></svg>`;
+}
+/* Without a daily series: two bars, this period against the comparison, drawn on one shared scale. */
+function pairBars(t){
+  const v=Math.abs(t.value),p=Math.abs(t.prev),mx=Math.max(v,p,1e-9);
+  return `<div class="pbars" aria-hidden="true"><i class="pb-c" style="width:${Math.max(2,v/mx*100)}%"></i><i class="pb-p" style="width:${Math.max(2,p/mx*100)}%"></i></div>`;
+}
+function tileCard(t){
+  const g=t.prev!==undefined?pctChange(t.value,t.prev):null,hasD=t.daily&&t.daily.cur&&t.daily.cur.length>1;
+  const vs=t.prev!==undefined?`<div class="mx-s">${g===null?'No earlier figure':'vs '+esc(cmpText())+' · was <b>'+esc(fv(t.prev,t.fmt))+'</b>'}</div>`:'';
+  const viz=hasD?sparkline(t.daily):(t.prev!==undefined&&(t.value||t.prev)?pairBars(t):'');
+  return `<div class="mx" data-detail tabindex="0" role="button" aria-expanded="false"><div class="mx-top"><span class="mx-l">${esc(t.label)}</span>${dp(g,t.goodDown)}</div><div class="mx-v">${esc(fv(t.value,t.fmt))}</div>${vs}${viz}${t.sub?`<div class="mx-n">${esc(t.sub)}</div>`:''}<div class="rkdetail">${tileDetail(t)}</div></div>`;
+}
+/* The few things worth reading first: what improved most, what slipped most, the strongest day. */
+function highlights(secs){
+  const tiles=[];(secs||[]).forEach(x=>{if(!x.error&&(x.kind==='kpi'||x.kind==='funnel')&&x.tiles)x.tiles.forEach(t=>tiles.push(t))});
+  const moved=tiles.filter(t=>t.prev!==undefined&&t.prev&&isFinite(t.value)).map(t=>{const g=pctChange(t.value,t.prev);return {t,g,score:t.goodDown?-g:g}});
+  if(moved.length<2)return '';
+  const best=moved.reduce((a,b)=>b.score>a.score?b:a),worst=moved.reduce((a,b)=>b.score<a.score?b:a);
+  const card=(cls,title,m)=>`<div class="hl ${cls}"><span class="hl-t">${title}</span><b>${esc(m.t.label)}</b><span class="hl-d">${dp(m.g,m.t.goodDown)} <span class="muted">${esc(fv(m.t.prev,m.t.fmt))} → ${esc(fv(m.t.value,m.t.fmt))}</span></span></div>`;
+  let h='';
+  if(best.score>0)h+=card('good','Biggest improvement',best);
+  if(worst.score<0&&worst!==best)h+=card('bad','Biggest drop',worst);
+  const dt=tiles.find(t=>t.daily&&t.daily.cur&&t.daily.cur.length>2&&(t.fmt==='money'||t.fmt==='int'));
+  if(dt){const a=dt.daily.cur,k=a.indexOf(Math.max(...a));if(a[k]>0){const nice=new Date(dt.daily.dates[k]+'T12:00:00Z').toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short',timeZone:'UTC'});h+=`<div class="hl"><span class="hl-t">Strongest day</span><b>${esc(nice)}</b><span class="hl-d"><span class="muted">${esc(dt.label)}: ${esc(fv(a[k],dt.fmt))}</span></span></div>`}}
+  return h?`<section class="hls" aria-label="Highlights">${h}</section>`:'';
 }
 function anKpi(sec){return `<div class="kgrid">${sec.tiles.map(tileCard).join('')}</div>`}
 function anFunnel(sec){
@@ -771,12 +802,12 @@ function anManual(sec){
 }
 function anSection(sec){
   const head=`<div><h2>${esc(sec.title)}</h2>${sec.note?`<p class="muted" style="font-size:.85rem">${esc(sec.note)}</p>`:''}</div>`;
-  if(sec.error)return `<section class="panel" style="border-color:var(--warn)">${head}<p class="body-text"><b style="color:var(--warn)">This part could not be loaded.</b> ${esc(sec.error)}</p></section>`;
+  if(sec.error)return `<section class="panel an" style="border-color:var(--warn)">${head}<p class="body-text"><b style="color:var(--warn)">This part could not be loaded.</b> ${esc(sec.error)}</p></section>`;
   let body='';
   try{
     body=sec.kind==='kpi'?anKpi(sec):sec.kind==='funnel'?anFunnel(sec):sec.kind==='trend'?anTrend(sec):sec.kind==='table'?anTable(sec):sec.kind==='cohort'?anCohort(sec):sec.kind==='audit'?anAudit(sec):sec.kind==='campaigns'?metaCampaigns(sec):sec.kind==='manual'?anManual(sec):sec.kind==='text'?`<ul class="gaps">${sec.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>`:'';
   }catch(e){body=`<p class="muted">Could not show this part (${esc(e.message)}).</p>`}
-  return `<section class="panel${sec.kind==='text'?' soft':''}">${head}${body}</section>`;
+  return `<section class="panel an${sec.kind==='text'?' soft':''}">${head}${body}</section>`;
 }
 function renderAnalytics(L){
   const an=S.an,sh=S.shop,d=an.cache[an.tab+'|'+perQuery()]||an.cache[an.last];
@@ -784,7 +815,7 @@ function renderAnalytics(L){
   if(!d){L.innerHTML=shopTabs()+(an.err?`<div class="empty"><b>Could not load this tab</b><span>${esc(an.err)}</span><button class="btn" data-act="an-refresh">Try again</button></div>`:empty('Loading…','Asking Shopify for the numbers. This can take a few seconds.'));return}
   if(d.configured===false){L.innerHTML=shopTabs()+`<div class="panel"><h2>Connect your Shopify store first</h2><p class="muted">Missing: ${d.missing.map(esc).join(', ')}</p></div>`;return}
   const scrollY=window.scrollY;
-  L.innerHTML=shopTabs()+dateBar(d)+analyticsHero(an.tab,d)+(an.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(an.err)}</p></div>`:'')+(d.scopes?`<div class="panel" style="border-color:var(--warn)"><b style="color:var(--warn)">Permissions this site currently has from Shopify</b><p class="body-text mono" style="font-size:.8rem">${d.scopes.length?d.scopes.map(esc).join(', '):'none returned'}</p><p class="muted" style="font-size:.8rem">Reports need read_reports in this list.</p></div>`:'')+d.sections.map(anSection).join('')+`<p class="muted" style="font-size:.78rem">Figures come straight from Shopify reports and are kept for 30 minutes. Press Refresh numbers to fetch them again. Times use ${esc(d.tz)}.</p>`;
+  L.innerHTML=shopTabs()+dateBar(d)+analyticsHero(an.tab,d)+(an.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(an.err)}</p></div>`:'')+(d.scopes?`<div class="panel" style="border-color:var(--warn)"><b style="color:var(--warn)">Permissions this site currently has from Shopify</b><p class="body-text mono" style="font-size:.8rem">${d.scopes.length?d.scopes.map(esc).join(', '):'none returned'}</p><p class="muted" style="font-size:.8rem">Reports need read_reports in this list.</p></div>`:'')+highlights(d.sections)+d.sections.map(anSection).join('')+`<p class="muted" style="font-size:.78rem">Figures come straight from Shopify reports and are kept for 30 minutes. Press Refresh numbers to fetch them again. Times use ${esc(d.tz)}.</p>`;
   window.scrollTo(0,scrollY);
 }
 
@@ -817,7 +848,7 @@ function renderOdoo(){
   const y=window.scrollY;
   L.innerHTML=tabs+dateBar(d)+`<section class="hero"><div class="hero-top"><div><span class="eyebrow">Odoo${d.company?' · '+esc(d.company):''} · ${esc(d.monthLabel)}</span><div class="hero-n sm">${esc(info)}</div>${d.version?`<div><span class="hero-vs">Odoo ${esc(d.version)}</span></div>`:''}</div>
     <div class="hero-actions"><button class="btn light" data-act="od-refresh" ${od.loading?'disabled':''}>${od.loading?'Loading…':'Refresh numbers'}</button></div></div></section>`
-    +(od.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(od.err)}</p></div>`:'')+d.sections.map(anSection).join('');
+    +(od.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(od.err)}</p></div>`:'')+highlights(d.sections)+d.sections.map(anSection).join('');
   window.scrollTo(0,y);
 }
 
@@ -872,7 +903,7 @@ function renderMeta(){
   const y=window.scrollY;
   L.innerHTML=tabs+dateBar(d)+`<section class="hero"><div class="hero-top"><div><span class="eyebrow">Meta Ads${d.account?' · '+esc(d.account):''} · ${esc(d.monthLabel)}</span><div class="hero-n sm">${esc(info)}</div><div><span class="hero-vs">${esc(d.currency)}${d.timezone?' · '+esc(d.timezone):''}</span></div></div>
     <div class="hero-actions"><button class="btn light" data-act="meta-refresh" ${m.loading?'disabled':''}>${m.loading?'Loading…':'Refresh numbers'}</button></div></div></section>`
-    +warn+(m.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(m.err)}</p></div>`:'')+d.sections.map(anSection).join('');
+    +warn+(m.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(m.err)}</p></div>`:'')+highlights(d.sections)+d.sections.map(anSection).join('');
   window.scrollTo(0,y);
 }
 

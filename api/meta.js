@@ -106,7 +106,7 @@ function build(tab, cfg, ctx, info) {
       if (shop.currency && info.currency && shop.currency !== info.currency) return { kind: 'text', items: [`Your Shopify store sells in ${shop.currency} but the Meta ad account bills in ${info.currency}, so the two cannot be compared without a conversion.`] };
       const sp = shopPrev, pr = prv;
       return { tiles: [
-        tile('Shopify revenue', shop.revenue, 'money', { sub: shop.orders + ' orders, from all sources', ...(sp ? { prev: sp.revenue } : {}) }),
+        tile('Shopify revenue', shop.revenue, 'money', { sub: shop.orders + (shop.orders === 1 ? ' order' : ' orders') + ', from all sources', ...(sp ? { prev: sp.revenue } : {}) }),
         tile('Meta spend', cur.spend, 'money', { prev: pr.spend }),
         tile('Blended return', cur.spend ? shop.revenue / cur.spend : 0, 'x', { sub: 'all Shopify revenue ÷ Meta spend', ...(sp ? { prev: pr.spend ? sp.revenue / pr.spend : 0 } : {}) }),
         tile('Meta says it drove', shop.revenue ? (cur.value / shop.revenue) * 100 : 0, 'pct', { sub: 'of Shopify revenue (Meta purchase value)', ...(sp ? { prev: sp.revenue ? (pr.value / sp.revenue) * 100 : 0 } : {}) }),
