@@ -738,13 +738,60 @@ function dailyChart(dl,fmt){
   return `<div class="dchart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Day by day chart" preserveAspectRatio="none"><path d="${line(dl.prev||[])}" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 3" opacity=".8"/><path d="${line(dl.cur)}" fill="none" stroke="var(--accent-text)" stroke-width="2"/>${dots}<text x="${pl}" y="${H-3}" class="dax">${esc(lo.slice(5))}</text><text x="${W-pr}" y="${H-3}" text-anchor="end" class="dax">${esc(hi.slice(5))}</text></svg>
   <div class="dleg"><span><i style="background:var(--accent-text)"></i>This period</span><span><i style="background:var(--muted)"></i>Compared period</span><span class="muted">peak ${esc(fv(Math.max(...dl.cur),fmt))}</span></div></div>`;
 }
+/* ---------- charts that sit beside the tables ---------- */
+const CAT=['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300'],CAT_OTHER='#9b8aa8';
+function short(t,n){t=String(t==null?'':t);return t.length>n?t.slice(0,n-1)+'…':t}
+/* Share of the whole: biggest 6 slices plus "Other", every slice labelled with its percentage. */
+function shareDonut(sec,col){
+  if(!col||!['money','money2','int'].includes(col.fmt))return '';
+  const items=sec.rows.map(r=>({n:String(r[sec.columns[0].key]&&r[sec.columns[0].key].text||r[sec.columns[0].key]||'Unknown'),v:Math.max(0,Number(r[col.key])||0)})).filter(x=>x.v>0);
+  if(items.length<3)return '';
+  items.sort((a,b)=>b.v-a.v);const top=items.slice(0,6),rest=items.slice(6).reduce((a,x)=>a+x.v,0);if(rest>0)top.push({n:'Other',v:rest});
+  const total=top.reduce((a,x)=>a+x.v,0),R=52,C=2*Math.PI*R;let off=0;
+  const arcs=top.map((x,i)=>{const len=x.v/total*C,col2=x.n==='Other'&&i===top.length-1&&rest>0?CAT_OTHER:CAT[i%CAT.length],a=`<circle cx="70" cy="70" r="${R}" fill="none" stroke="${col2}" stroke-width="22" stroke-dasharray="${Math.max(0,len-1.5).toFixed(2)} ${(C-Math.max(0,len-1.5)).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 70 70)"><title>${esc(x.n)}: ${esc(fv(x.v,col.fmt))} (${(x.v/total*100).toFixed(1)}%)</title></circle>`;off+=len;return a}).join('');
+  const leg=top.map((x,i)=>`<li><i style="background:${x.n==='Other'&&rest>0&&i===top.length-1?CAT_OTHER:CAT[i%CAT.length]}"></i><span title="${esc(x.n)}">${esc(short(x.n,26))}</span><b>${(x.v/total*100).toFixed(x.v/total<0.1?1:0)}%</b></li>`).join('');
+  return `<aside class="viz" aria-label="Share chart"><div class="viz-t">Share of ${esc(col.label.toLowerCase())}</div><div class="donutw"><svg viewBox="0 0 140 140" role="img" aria-label="Share chart">${arcs}<text x="70" y="67" text-anchor="middle" class="dn1">${esc(fv(total,col.fmt==='int'?'int':'money'))}</text><text x="70" y="82" text-anchor="middle" class="dn2">listed</text></svg><ul class="dleg2">${leg}</ul></div></aside>`;
+}
+/* Horizontal bars for the biggest lines of a breakdown. */
+function bkBars(b){
+  const col=[...b.columns].reverse().find(c=>['money','int'].includes(c.fmt)&&c.key!=='units');if(!col||!b.rows.length)return '';
+  const rows=b.rows.map(r=>({n:r[b.columns[0].key],v:Number(r[col.key])||0})).filter(x=>x.v>0).sort((a,c)=>c.v-a.v).slice(0,8);if(rows.length<2)return '';
+  const mx=rows[0].v;
+  return `<aside class="viz"><div class="viz-t">Biggest by ${esc(col.label.toLowerCase())}</div>${rows.map(x=>`<div class="hb"><div class="hb-top"><span class="hb-n" title="${esc(x.n)}">${esc(short(x.n,28))}</span><b>${esc(fv(x.v,col.fmt))}</b></div><span class="hb-b"><i style="width:${Math.max(2,x.v/mx*100)}%"></i></span></div>`).join('')}</aside>`;
+}
+/* Revenue down to profit after ads as steps: totals in orange, deductions in plum. */
+function waterfall(b){
+  const st=b.rows;if(!st||st.length<3)return '';
+  const W=320,H=190,pl=6,pt=22,pb=34,bw=Math.min(46,(W-pl*2)/st.length-14),top=Math.max(...st.map(x=>Math.abs(x.amount)),1);
+  const Y=v=>pt+(1-Math.max(0,v)/top)*(H-pt-pb);let run=0,out='';
+  st.forEach((x,i)=>{const cx=pl+(i+.5)*(W-pl*2)/st.length,tot=/^(Net revenue|Gross profit|Profit after ads)$/.test(x.step);let a,z;
+    if(tot){run=x.amount;a=0;z=x.amount}else{a=run;run=run+x.amount;z=run}
+    const y1=Y(Math.max(a,z)),y2=Y(Math.min(a,z));
+    out+=`<rect x="${(cx-bw/2).toFixed(1)}" y="${y1.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(2,y2-y1).toFixed(1)}" rx="3" fill="${tot?'var(--accent)':'var(--cmp)'}" opacity="${tot?1:.7}"><title>${esc(x.step)}: ${esc(fv(x.amount,'money'))}</title></rect><text x="${cx.toFixed(1)}" y="${(y1-5).toFixed(1)}" text-anchor="middle" class="wv">${esc(fv(x.amount,'money'))}</text><text x="${cx.toFixed(1)}" y="${H-18}" text-anchor="middle" class="wl">${esc(short(x.step.replace('Ad spend (Meta)','Ad spend').replace('Product cost','Cost').replace('Profit after ads','After ads'),13))}</text>`});
+  return `<aside class="viz"><div class="viz-t">From revenue to profit</div><svg viewBox="0 0 ${W} ${H}" class="wf" role="img" aria-label="Revenue to profit steps">${out}</svg></aside>`;
+}
+/* Month by month: bars for revenue, product cost and ad spend, a line for profit. */
+function monthsChart(sec){
+  const rows=sec.rows.slice().reverse(),has=sec.columns.some(c=>c.key==='ads');if(rows.length<2)return '';
+  const W=640,H=220,pl=44,pr=8,pt=12,pb=26,series=[['revenue','Net revenue','#2a78d6'],['cost','Product cost','#eb6834'],...(has?[['ads','Ad spend','#eda100']]:[])];
+  const vals=rows.flatMap(r=>[...series.map(x=>r[x[0]]),has?r.profit:r.gross]),mx=Math.max(1,...vals),mn=Math.min(0,...vals);
+  const Y=v=>pt+(1-(v-mn)/(mx-mn||1))*(H-pt-pb),gw=(W-pl-pr)/rows.length,bw=Math.min(18,(gw-8)/series.length);
+  const bars=rows.map((r,i)=>{const x0=pl+i*gw+(gw-bw*series.length)/2;return series.map((x,k)=>`<rect x="${(x0+k*bw).toFixed(1)}" y="${Y(Math.max(0,r[x[0]])).toFixed(1)}" width="${(bw-2).toFixed(1)}" height="${Math.max(1,Math.abs(Y(0)-Y(r[x[0]]))).toFixed(1)}" rx="2" fill="${x[2]}"><title>${esc(r.month)} · ${x[1]}: ${esc(fv(r[x[0]],'money'))}</title></rect>`).join('')}).join('');
+  const pk=has?'profit':'gross',line=rows.map((r,i)=>(i?'L':'M')+(pl+i*gw+gw/2).toFixed(1)+' '+Y(r[pk]).toFixed(1)).join(''),dots=rows.map((r,i)=>`<circle cx="${(pl+i*gw+gw/2).toFixed(1)}" cy="${Y(r[pk]).toFixed(1)}" r="3.5" fill="#6250d6" stroke="#fff" stroke-width="1.5"><title>${esc(r.month)} · ${has?'Profit after ads':'Gross profit'}: ${esc(fv(r[pk],'money'))}</title></circle>`).join('');
+  const lab=rows.map((r,i)=>`<text x="${(pl+i*gw+gw/2).toFixed(1)}" y="${H-8}" text-anchor="middle" class="wl">${esc(String(r.month).slice(0,3))}</text>`).join('');
+  const grid=[0,.5,1].map(f=>{const v=mn+(mx-mn)*f;return `<line x1="${pl}" x2="${W-pr}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="var(--paper-line)" stroke-width="1" opacity=".7"/><text x="${pl-6}" y="${(Y(v)+3).toFixed(1)}" text-anchor="end" class="wl">${esc(shortNum(v))}</text>`}).join('');
+  return `<div class="viz wide"><div class="viz-t">Month by month</div><svg viewBox="0 0 ${W} ${H}" class="mc2" role="img" aria-label="Month by month chart">${grid}${bars}<path d="${line}" fill="none" stroke="#6250d6" stroke-width="2.2" stroke-linejoin="round"/>${dots}${lab}</svg>
+  <ul class="dleg3">${series.map(x=>`<li><i style="background:${x[2]}"></i>${x[1]}</li>`).join('')}<li><i class="ln" style="background:#6250d6"></i>${has?'Profit after ads':'Gross profit'}</li></ul></div>`;
+}
 /* Breakdown behind a number: a few headline figures, then the lines it is made of. */
 function breakdownHtml(b){
   if(!b)return '';
   const sum=(b.summary||[]).map(x=>`<span class="bk-s"><em>${esc(x.l)}</em><b>${esc(fv(x.v,x.f))}</b></span>`).join('');
   const head=b.columns.map(c=>`<th class="${c.fmt==='str'?'':'num'}">${esc(c.label)}</th>`).join('');
   const body=b.rows.map(r=>`<tr>${b.columns.map(c=>{const v=r[c.key];return `<td class="${c.fmt==='str'?'':'num'}">${v===null||v===undefined?'–':esc(c.fmt==='str'?String(v):fv(v,c.fmt))}</td>`}).join('')}</tr>`).join('');
-  return `<div class="bk">${sum?`<div class="bk-sum">${sum}</div>`:''}${b.note?`<p class="muted dn">${esc(b.note)}</p>`:''}${b.rows.length?`<div class="bk-wrap"><table class="bk-t"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>${b.more?`<p class="muted dn">Showing the first ${b.rows.length}. ${b.more} more are not listed.</p>`:''}`:''}</div>`;
+  const chart=b.columns[0].key==='step'?waterfall(b):bkBars(b);
+  const tbl=b.rows.length?`<div><div class="bk-wrap"><table class="bk-t"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>${b.more?`<p class="muted dn">Showing the first ${b.rows.length}. ${b.more} more are not listed.</p>`:''}</div>`:'';
+  return `<div class="bk">${sum?`<div class="bk-sum">${sum}</div>`:''}${b.note?`<p class="muted dn">${esc(b.note)}</p>`:''}<div class="${chart?'splitc':''}">${tbl}${chart}</div></div>`;
 }
 function tileDetail(t){
   const d=curData(),per=d&&d.period?d.period.label:'this period',cmp=d&&d.compare?d.compare.label:'';
@@ -769,8 +816,10 @@ function anTable(sec){
     const rest=cols.filter(c=>c!==nameCol&&c!==barCol&&!(nameCol.fmt==='str'&&cols[1]&&cols[1].fmt==='str'&&c===cols[1]&&false));
     const total=sec.rows.reduce((a,r)=>a+(Number(r[barCol.key])||0),0);
     const anyPic=sec.rows.some(r=>r.img);
-    return `<div class="rkl">${sec.rows.map((r,i)=>{const v=Number(r[barCol.key])||0,w=barCol.barReverse?(1-Math.min(1,v/maxv)):v/maxv;
+    const donut=barCol.barReverse?'':shareDonut(sec,barCol);
+    const list=`<div class="rkl">${sec.rows.map((r,i)=>{const v=Number(r[barCol.key])||0,w=barCol.barReverse?(1-Math.min(1,v/maxv)):v/maxv;
       return `<div class="rkr${anyPic?' hp':''}" data-detail tabindex="0" role="button" aria-expanded="false"><span class="rkn">${i+1}</span>${anyPic?(r.img?pic(r,52):'<span class="pimg ph" aria-hidden="true"></span>'):''}<div class="rkmain"><div class="rkt"><b title="${esc(String(r[nameCol.key]&&r[nameCol.key].text||r[nameCol.key]||''))}">${cellText(r[nameCol.key],nameCol.fmt)}</b><span class="rkv mono">${cellText(r[barCol.key],barCol.fmt)}</span></div><span class="rkbar"><i style="width:${Math.max(2,w*100)}%"></i></span>${rest.length?`<div class="rkchips">${rest.map(c=>rkChip(c,r[c.key])).join('')}</div>`:''}<div class="rkdetail">${rowDetail(sec,r,i,barCol,total)}</div></div></div>`}).join('')}</div>`;
+    return donut?`<div class="splitc">${list}${donut}</div>`:list;
   }
   if(cols.some(c=>c.rate)){
     return `<div class="mgrid">${sec.rows.map(r=>`<div class="mtile"><div class="rkt"><b>${cellText(r[nameCol.key],nameCol.fmt)}</b></div><div class="rkchips">${cols.slice(1).map(c=>rkChip(c,r[c.key])).join('')}</div></div>`).join('')}</div>`;
@@ -818,7 +867,7 @@ function anSection(sec){
   if(sec.error)return `<section class="panel an" style="border-color:var(--warn)">${head}<p class="body-text"><b style="color:var(--warn)">This part could not be loaded.</b> ${esc(sec.error)}</p></section>`;
   let body='';
   try{
-    body=sec.kind==='kpi'?anKpi(sec):sec.kind==='funnel'?anFunnel(sec):sec.kind==='trend'?anTrend(sec):sec.kind==='table'?anTable(sec):sec.kind==='cohort'?anCohort(sec):sec.kind==='audit'?anAudit(sec):sec.kind==='campaigns'?metaCampaigns(sec):sec.kind==='manual'?anManual(sec):sec.kind==='text'?`<ul class="gaps">${sec.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>`:'';
+    body=sec.kind==='kpi'?anKpi(sec):sec.kind==='funnel'?anFunnel(sec):sec.kind==='trend'?anTrend(sec):sec.kind==='table'?(sec.id==='months'?monthsChart(sec):'')+anTable(sec):sec.kind==='cohort'?anCohort(sec):sec.kind==='audit'?anAudit(sec):sec.kind==='campaigns'?metaCampaigns(sec):sec.kind==='manual'?anManual(sec):sec.kind==='text'?`<ul class="gaps">${sec.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>`:'';
   }catch(e){body=`<p class="muted">Could not show this part (${esc(e.message)}).</p>`}
   return `<section class="panel an${sec.kind==='text'?' soft':''}">${head}${body}</section>`;
 }

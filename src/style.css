@@ -488,3 +488,19 @@ tr.drow{display:none}tr.drow .rkdetail{display:block;margin:4px 0 8px}tr.open+tr
 .bk-t td{padding:6px 10px;border-bottom:1px solid color-mix(in srgb,var(--paper-line) 50%,transparent);font-variant-numeric:tabular-nums}
 .bk-t .num{text-align:right;white-space:nowrap}
 .bk-t tr:last-child td{border-bottom:0}
+
+/* charts beside the tables */
+.splitc{display:grid;gap:16px;align-items:start}
+@media(min-width:900px){.splitc{grid-template-columns:minmax(0,1fr) 300px}}
+.viz{background:#fff;border:1px solid var(--paper-line);border-radius:14px;padding:14px 16px;min-width:0;display:grid;gap:8px;align-content:start}
+.viz.wide{margin-bottom:6px}
+.viz-t{font-size:.84rem;font-weight:600;color:var(--muted)}
+.donutw{display:grid;gap:10px;justify-items:center}.donutw svg{width:160px;height:160px}
+.dn1{font-family:var(--f-display);font-weight:700;font-size:13px;fill:var(--ink)}.dn2{font-size:8px;fill:var(--muted)}
+.dleg2{list-style:none;margin:0;padding:0;display:grid;gap:5px;width:100%;font-size:.8rem}
+.dleg2 li{display:grid;grid-template-columns:12px minmax(0,1fr) auto;gap:8px;align-items:center}.dleg2 i{width:10px;height:10px;border-radius:3px}.dleg2 span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dleg2 b{font-variant-numeric:tabular-nums}
+.hb{display:grid;gap:3px;font-size:.78rem}.hb-top{display:flex;justify-content:space-between;gap:10px}.hb-top b{font-variant-numeric:tabular-nums;white-space:nowrap}
+.hb-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hb-b{display:block;height:7px;border-radius:4px;background:color-mix(in srgb,var(--paper-line) 55%,transparent)}.hb-b i{display:block;height:100%;border-radius:4px;background:#2a78d6}
+.wf{width:100%;height:auto;display:block}.wv{font-size:9px;font-weight:700;fill:var(--ink);font-family:var(--f-body)}.wl{font-size:9px;fill:var(--muted);font-family:var(--f-body)}
+.mc2{width:100%;height:auto;display:block}
+.dleg3{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:4px 16px;font-size:.78rem;color:var(--muted)}.dleg3 i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px}.dleg3 i.ln{height:3px;border-radius:2px;width:14px;vertical-align:middle}
