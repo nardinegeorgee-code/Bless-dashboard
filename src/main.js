@@ -68,7 +68,7 @@ function onData(){
     return;
   }
 }
-async function logout(msg){try{await api('POST','/api/auth?action=logout')}catch(e){}S.lastJson='';S.me=null;S.shop.data=null;S.speeds=[];S.sel.clear();renderSelBar();S.mode='login';showLogin();if(msg)toast(msg)}
+async function logout(msg){try{await api('POST','/api/auth?action=logout')}catch(e){}S.lastJson='';S.me=null;S.shop.data=null;S.meta.data=null;S.meta.cache={};S.speeds=[];S.sel.clear();renderSelBar();S.mode='login';showLogin();if(msg)toast(msg)}
 
 /* ---------- auth screens ---------- */
 const brandHTML=`<div class="brand"><img class="logo" src="/bless-logo.png" alt="Bless" width="116" height="44"><small>Team Hub</small></div>`;
@@ -96,7 +96,7 @@ const validName=u=>u.length>=2&&u.length<=40;
 
 /* ---------- app shell ---------- */
 function navItems(){
-  if(isAdmin())return [['home','Overview'],['send','Send instruction'],['content','All content'],['eval','Evaluation'],['shop','Shopify'],['odoo','Odoo'],['team','Team by role'],['users','Users']];
+  if(isAdmin())return [['home','Overview'],['send','Send instruction'],['content','All content'],['eval','Evaluation'],['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads'],['team','Team by role'],['users','Users']];
   const pending=myInstructions().filter(i=>!responded(i.id)).length;
   return [['home','Instructions',pending],['uploads','My uploads'],['team','Team by role']];
 }
@@ -125,7 +125,7 @@ function targetChips(ins){
 /* ---------- views: mount builds static parts (forms), update fills live parts ---------- */
 function mount(){
   const v=$('#view');const r=S.route;
-  if(!isAdmin()&&['send','content','users','shop','eval','odoo'].includes(r)){S.route='home'}
+  if(!isAdmin()&&['send','content','users','shop','eval','odoo','meta'].includes(r)){S.route='home'}
   if(S.route==='home')v.innerHTML=isAdmin()?`<div id="live"></div>`
     :`<div class="head"><div><h1>Instructions</h1><p>Briefs from your Super Admin. Open one to send back your files.</p></div><button class="btn" data-act="go" data-route="uploads">Upload without an instruction</button></div><div id="live"></div>`;
   else if(S.route==='ins')v.innerHTML=`<button class="btn ghost back" data-act="go" data-route="${isAdmin()?'send':'home'}">← Back</button><div id="live"></div>${isAdmin()?'':`<div class="panel"><div><h2>Respond</h2><p class="muted">Attach your files and add a note if needed.</p></div>${uploadForm('resp')}</div>`}<div id="live2"></div>`;
@@ -146,6 +146,7 @@ function mount(){
     <select class="select" id="f-kind" style="width:auto" aria-label="Filter by type"><option value="">Responses and uploads</option><option value="resp" ${S.fKind==='resp'?'selected':''}>Responses to instructions</option><option value="free" ${S.fKind==='free'?'selected':''}>Uploads without instruction</option></select></div><div id="live"></div>`;
   else if(S.route==='eval'){v.innerHTML=`<div class="head"><div><h1>Team evaluation</h1><p>Monthly KPIs and ranking. You enter the speed and accuracy percentages; HR gives behaviour once a month.</p></div></div><div id="live"></div>`;if(!S.ev.data&&!S.ev.loading)loadEval();else renderEval(true)}
   else if(S.route==='odoo'){v.innerHTML=`<div class="head"><div><h1>Odoo</h1><p>Stock, sales, accounting and your team, read live from Odoo.</p></div></div><div id="live"></div>`;if(!S.od.cache[S.od.tab+'|'+(S.od.month||'')]&&!S.od.loading)loadOdoo();else renderOdoo()}
+  else if(S.route==='meta'){v.innerHTML=`<div class="head"><div><h1>Meta Ads</h1><p>Facebook and Instagram advertising, read live from Meta. Pause campaigns and change budgets from here.</p></div></div><div id="live"></div>`;if(!S.meta.cache[S.meta.tab+'|'+(S.meta.month||'')]&&!S.meta.loading)loadMeta();else renderMeta()}
   else if(S.route==='shop'){v.innerHTML=`<div class="head"><div><h1>Shopify</h1><p>Sales, funnel, products, customer experience and retention, one tab each.</p></div></div><div id="live"></div>`;if(S.an.tab==='overview'){if(!S.shop.data&&!S.shop.loading)loadShop()}else loadAn();}
   else if(S.route==='users')v.innerHTML=`<div class="head"><div><h1>Users</h1><p>Add people, change their role, or set a new password.</p></div></div>
     <form class="panel" data-form="adduser"><h2>Add a user</h2><div class="grid2">
@@ -169,6 +170,7 @@ function update(){
   else if(r==='users')L.innerHTML=usersHTML();
   else if(r==='shop')renderShop();
   else if(r==='odoo')renderOdoo();
+  else if(r==='meta')renderMeta();
   else if(r==='eval')renderEval();
   syncUploadAvail();renderSelBar();
 }
@@ -290,7 +292,8 @@ async function runSync(){
   }catch(e){sh.err=e.message;sh.syncing=false;renderShop()}
 }
 const fmtNum=n=>Math.round(n).toLocaleString();
-function money(n){const c=(S.route==='odoo'&&S.od.data&&S.od.data.currency)||(S.shop.data&&S.shop.data.currency)||(S.an&&S.an.data&&S.an.data.currency);try{return new Intl.NumberFormat(undefined,c?{style:'currency',currency:c,maximumFractionDigits:0}:{maximumFractionDigits:0}).format(n)}catch(e){return fmtNum(n)}}
+function money(n){const c=(S.route==='meta'&&S.meta.data&&S.meta.data.currency)||(S.route==='odoo'&&S.od.data&&S.od.data.currency)||(S.shop.data&&S.shop.data.currency)||(S.an&&S.an.data&&S.an.data.currency);try{return new Intl.NumberFormat(undefined,c?{style:'currency',currency:c,maximumFractionDigits:0}:{maximumFractionDigits:0}).format(n)}catch(e){return fmtNum(n)}}
+function money2(n){const c=(S.route==='meta'&&S.meta.data&&S.meta.data.currency)||(S.shop.data&&S.shop.data.currency);try{return new Intl.NumberFormat(undefined,c?{style:'currency',currency:c,minimumFractionDigits:2,maximumFractionDigits:2}:{minimumFractionDigits:2,maximumFractionDigits:2}).format(n)}catch(e){return n.toFixed(2)}}
 function shortNum(n){return n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e4?Math.round(n/1e3)+'k':n>=1e3?(n/1e3).toFixed(1)+'k':String(Math.round(n))}
 function delta(v){if(v===null||v===undefined)return '';const up=v>=0;return `<span class="delta ${up?'up':'down'}">${up?'▲':'▼'} ${Math.abs(v)}% vs last month</span>`}
 function ageText(h){return h<48?h+' h':Math.round(h/24)+' days'}
@@ -597,7 +600,7 @@ async function loadAn(refresh){
 function fv(v,f){
   if(v===null||v===undefined||(typeof v==='number'&&!isFinite(v)))return '–';
   switch(f){
-    case 'money':return money(v);case 'int':return fmtNum(v);
+    case 'money':return money(v);case 'money2':return money2(v);case 'x':return v.toFixed(2)+'×';case 'int':return fmtNum(v);
     case 'pct':return v.toFixed(1)+'%';case 'num1':return v.toFixed(1);case 'num2':return v.toFixed(2);
     case 'ms':return v>=1000?(v/1000).toFixed(1)+' s':Math.round(v)+' ms';
     case 'days':return v>=100?fmtNum(v):v.toFixed(v%1?1:0)+' d';
@@ -631,11 +634,11 @@ function anFunnel(sec){
   return steps+anKpi({tiles:sec.tiles});
 }
 function anTrend(sec){
-  const od=S.route==='odoo',id=sec.id+'|'+(od?'od-'+S.od.tab:S.an.tab),m=S.an.metric[id]||sec.metrics[0].key,def=sec.metrics.find(x=>x.key===m)||sec.metrics[0];
+  const od=S.route==='odoo',mt=S.route==='meta',id=sec.id+'|'+(od?'od-'+S.od.tab:mt?'meta-'+S.meta.tab:S.an.tab),m=S.an.metric[id]||sec.metrics[0].key,def=sec.metrics.find(x=>x.key===m)||sec.metrics[0];
   const max=Math.max(1e-9,...sec.rows.map(r=>r.values[def.key]));
-  const sel=od?S.od.month:S.shop.month;
+  const sel=od?S.od.month:mt?S.meta.month:S.shop.month;
   return `<div class="item-top" style="margin-bottom:6px"><span></span><select class="select" data-act="an-metric" data-id="${esc(id)}" style="width:auto" aria-label="Metric">${sec.metrics.map(x=>`<option value="${x.key}" ${x.key===def.key?'selected':''}>${esc(x.label)}</option>`).join('')}</select></div>
-  <div class="mchart">${sec.rows.map(r=>{const v=r.values[def.key];return `<button class="mcol${r.key===sel?' on':''}" data-act="${od?'od-month':'shop-month'}" data-m="${r.key}" title="${esc(r.label)}: ${esc(fv(v,def.fmt))}"><span class="mval mono">${def.fmt==='pct'?v.toFixed(1)+'%':shortNum(v)}</span><span class="mbar"><i style="height:${Math.max(2,v/max*100)}%"></i></span><span class="mlab">${esc(r.label.slice(0,3)+" '"+r.label.slice(-2))}</span></button>`}).join('')}</div>`;
+  <div class="mchart">${sec.rows.map(r=>{const v=r.values[def.key];return `<button class="mcol${r.key===sel?' on':''}" data-act="${od?'od-month':mt?'meta-month':'shop-month'}" data-m="${r.key}" title="${esc(r.label)}: ${esc(fv(v,def.fmt))}"><span class="mval mono">${def.fmt==='pct'?v.toFixed(1)+'%':def.fmt==='x'?v.toFixed(1)+'×':def.fmt==='money2'?v.toFixed(v<10?2:0):shortNum(v)}</span><span class="mbar"><i style="height:${Math.max(2,v/max*100)}%"></i></span><span class="mlab">${esc(r.label.slice(0,3)+" '"+r.label.slice(-2))}</span></button>`}).join('')}</div>`;
 }
 function rateClass(v,r){return !r?'':v<=r[0]?'good':v<=r[1]?'mid':'bad'}
 function rkChip(c,v){const cls=c.rate&&typeof v==='number'?' r-'+rateClass(v,c.rate):'';return `<span class="rkc${cls}"><em>${esc(c.label)}</em><b class="mono">${cellText(v,c.fmt)}</b></span>`}
@@ -694,7 +697,7 @@ function anSection(sec){
   if(sec.error)return `<section class="panel" style="border-color:var(--warn)">${head}<p class="body-text"><b style="color:var(--warn)">This part could not be loaded.</b> ${esc(sec.error)}</p></section>`;
   let body='';
   try{
-    body=sec.kind==='kpi'?anKpi(sec):sec.kind==='funnel'?anFunnel(sec):sec.kind==='trend'?anTrend(sec):sec.kind==='table'?anTable(sec):sec.kind==='cohort'?anCohort(sec):sec.kind==='audit'?anAudit(sec):sec.kind==='manual'?anManual(sec):sec.kind==='text'?`<ul class="gaps">${sec.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>`:'';
+    body=sec.kind==='kpi'?anKpi(sec):sec.kind==='funnel'?anFunnel(sec):sec.kind==='trend'?anTrend(sec):sec.kind==='table'?anTable(sec):sec.kind==='cohort'?anCohort(sec):sec.kind==='audit'?anAudit(sec):sec.kind==='campaigns'?metaCampaigns(sec):sec.kind==='manual'?anManual(sec):sec.kind==='text'?`<ul class="gaps">${sec.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>`:'';
   }catch(e){body=`<p class="muted">Could not show this part (${esc(e.message)}).</p>`}
   return `<section class="panel${sec.kind==='text'?' soft':''}">${head}${body}</section>`;
 }
@@ -746,6 +749,62 @@ function renderOdoo(){
   window.scrollTo(0,y);
 }
 
+/* ---------- Meta Ads ---------- */
+const META_TABS=[['overview','Overview'],['campaigns','Campaigns']];
+S.meta={tab:'overview',month:'',cache:{},loading:false,busy:false,err:'',data:null};
+async function loadMeta(month,refresh){
+  const m=S.meta;if(month)m.month=month;
+  const key=m.tab+'|'+(m.month||'');
+  if(!refresh&&m.cache[key]){m.data=m.cache[key];renderMeta();return}
+  m.loading=true;m.err='';renderMeta();
+  try{
+    const d=await api('GET','/api/meta?tab='+m.tab+(m.month?'&month='+encodeURIComponent(m.month):'')+(refresh?'&refresh=1':''));
+    if(d.month)m.month=d.month;m.cache[key]=d;if(d.month)m.cache[m.tab+'|'+d.month]=d;m.data=d;
+  }catch(e){m.err=e.message}
+  m.loading=false;renderMeta();
+}
+async function metaWrite(body,msg){
+  const m=S.meta;m.busy=true;
+  try{await api('POST','/api/meta',body);toast(msg);m.cache={};await loadMeta(undefined,true)}
+  catch(e){toast(e.message||'Could not change the campaign');renderMeta()}
+  m.busy=false;
+}
+function metaSetup(missing){
+  return `<section class="panel"><h2>Connect Meta Ads</h2><p class="body-text">This site is not connected to your Meta ad account yet. Create a token in Meta Business Settings, then add the settings in Vercel (Project, Settings, Environment Variables) and redeploy:</p>
+  <ol class="gaps"><li>Open <b>business.facebook.com</b>, then Business Settings, Users, <b>System users</b>, and add a system user with the Admin role.</li><li>Under <b>Add assets</b>, give that user your ad account. Choose "Manage campaigns" if you want to pause campaigns and change budgets from here, or "View performance" for reports only.</li><li>Press <b>Generate new token</b>, pick your Meta app, and tick <b>ads_read</b> (add <b>ads_management</b> to allow changes). Copy the token.</li></ol>
+  <ul class="gaps"><li><b>META_ACCESS_TOKEN</b>: the token you just copied</li><li><b>META_AD_ACCOUNT_ID</b>: your ad account number, shown in Ads Manager (with or without the act_ in front)</li><li><b>META_API_VERSION</b> (optional): defaults to v23.0</li></ul>
+  <p class="muted">Still missing: ${missing.map(esc).join(', ')}</p></section>`;
+}
+const META_STATUS=s=>String(s||'').replace(/_/g,' ').toLowerCase().replace(/^./,c=>c.toUpperCase());
+function metaCampaigns(sec){
+  if(!sec.rows.length)return `<p class="muted">${esc(sec.empty)}</p>`;
+  const busy=S.meta.busy?'disabled':'';
+  const rows=sec.rows.map(r=>{
+    const live=r.status==='ACTIVE'&&r.effective==='ACTIVE';
+    const pill=`<span class="pill ${live?'done':'new'}">${esc(r.status==='PAUSED'?'Paused':r.status==='ACTIVE'&&r.effective==='ACTIVE'?'Active':META_STATUS(r.effective||r.status))}</span>`;
+    const budget=r.dailyBudget!==null&&r.dailyBudget!==undefined
+      ?`<span class="mcell"><input class="input mbud" type="number" min="1" step="any" inputmode="decimal" value="${esc(r.dailyBudget)}" data-id="${esc(r.id)}" aria-label="Daily budget for ${esc(r.name)}"><button class="btn sm" data-act="meta-budget" data-id="${esc(r.id)}" ${busy}>Save</button></span>`
+      :r.lifetimeBudget!==null&&r.lifetimeBudget!==undefined?`<span class="muted">Lifetime ${esc(money(r.lifetimeBudget))}</span>`:`<span class="muted">Set on each ad set</span>`;
+    const act=r.canToggle?(r.status==='ACTIVE'?`<button class="btn sm danger" data-act="meta-toggle" data-id="${esc(r.id)}" data-to="PAUSED" ${busy}>Pause</button>`:`<button class="btn sm" data-act="meta-toggle" data-id="${esc(r.id)}" data-to="ACTIVE" ${busy}>Resume</button>`):'';
+    return `<tr><td title="${esc(r.name)}"><span class="ct">${esc(r.name)}</span>${r.objective?`<small class="muted">${esc(r.objective)}</small>`:''}</td><td>${pill}</td><td class="num">${budget}</td><td class="num mono">${esc(money(r.spend))}</td><td class="num mono">${esc(fmtNum(r.purchases))}</td><td class="num mono">${r.spend?esc(fv(r.roas,'x')):'–'}</td><td class="num mono">${r.purchases?esc(money2(r.cpp)):'–'}</td><td class="num">${act}</td></tr>`;
+  }).join('');
+  return `<div class="tablewrap"><table class="dt"><thead><tr><th>Campaign</th><th>Status</th><th class="num">Daily budget</th><th class="num">Spent</th><th class="num">Purchases</th><th class="num">Return</th><th class="num">Per purchase</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+function renderMeta(){
+  if(S.screen!=='app'||S.route!=='meta')return;const L=$('#live');if(!L)return;
+  const m=S.meta,d=m.data,tabs=`<div class="subtabs" role="tablist">${META_TABS.map(([k,l])=>`<button role="tab" class="subtab${m.tab===k?' on':''}" aria-selected="${m.tab===k}" data-act="meta-tab" data-tab="${k}">${l}</button>`).join('')}</div>`;
+  if(d&&d.configured===false){L.innerHTML=tabs+metaSetup(d.missing);return}
+  if(!d||d.tab!==m.tab){L.innerHTML=tabs+(m.err?`<div class="empty"><b>Could not reach Meta</b><span>${esc(m.err)}</span><button class="btn" data-act="meta-refresh">Try again</button></div>`:empty('Loading…','Asking Meta for the numbers. This can take a few seconds.'));return}
+  const mo=d.months.slice().reverse().map(x=>`<option value="${x.key}" ${x.key===m.month?'selected':''}>${esc(x.label)}</option>`).join('');
+  const info={overview:'Spend, results and what is working',campaigns:'Switch campaigns on or off and set budgets'}[d.tab];
+  const warn=d.accountStatus&&d.accountStatus!=='Active'?`<div class="panel" style="border-color:var(--warn)"><b style="color:var(--warn)">This ad account is ${esc(d.accountStatus.toLowerCase())}</b><p class="body-text">Meta may not be delivering ads. Check Ads Manager.</p></div>`:'';
+  const y=window.scrollY;
+  L.innerHTML=tabs+`<section class="hero"><div class="hero-top"><div><span class="eyebrow">Meta Ads${d.account?' · '+esc(d.account):''} · ${esc(d.monthLabel)}</span><div class="hero-n sm">${esc(info)}</div><div><span class="hero-vs">${esc(d.currency)}${d.timezone?' · '+esc(d.timezone):''}</span></div></div>
+    <div class="hero-actions"><select class="select" id="shop-month" aria-label="Month" style="width:auto;background:rgba(255,255,255,.9);color:#2B1D35;font-weight:600">${mo}</select><button class="btn light" data-act="meta-refresh" ${m.loading?'disabled':''}>${m.loading?'Loading…':'Refresh numbers'}</button></div></div></section>`
+    +warn+(m.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(m.err)}</p></div>`:'')+d.sections.map(anSection).join('');
+  window.scrollTo(0,y);
+}
+
 /* ---------- events ---------- */
 function arm(btn){if(btn.dataset.armed)return true;btn.dataset.armed='1';btn.classList.add('armed');const t=btn.textContent;btn.textContent='Click again to confirm';setTimeout(()=>{if(btn.isConnected){delete btn.dataset.armed;btn.classList.remove('armed');btn.textContent=t}},4000);return false}
 
@@ -766,6 +825,11 @@ document.addEventListener('click',async e=>{
   else if(a==='od-month')loadOdoo(b.dataset.m);
   else if(a==='od-tab'){S.od.tab=b.dataset.tab;S.od.err='';loadOdoo()}
   else if(a==='od-refresh')loadOdoo(undefined,true);
+  else if(a==='meta-month')loadMeta(b.dataset.m);
+  else if(a==='meta-tab'){S.meta.tab=b.dataset.tab;S.meta.err='';loadMeta()}
+  else if(a==='meta-refresh')loadMeta(undefined,true);
+  else if(a==='meta-toggle'){if(S.meta.busy||!arm(b))return;await metaWrite({action:'status',id:b.dataset.id,status:b.dataset.to},b.dataset.to==='PAUSED'?'Campaign paused':'Campaign resumed')}
+  else if(a==='meta-budget'){if(S.meta.busy)return;const i=document.querySelector('.mbud[data-id="'+b.dataset.id+'"]');if(!i||!(Number(i.value)>0)){toast('Enter a daily budget above zero');return}if(!arm(b))return;await metaWrite({action:'budget',id:b.dataset.id,amount:Number(i.value)},'Daily budget saved')}
   else if(a==='ov-seg'){S.shop[b.dataset.k]=b.dataset.v;const y=window.scrollY;renderShop();window.scrollTo(0,y)}
   else if(a==='an-tab'){S.an.tab=b.dataset.tab;S.an.err='';if(S.an.tab==='overview'){if(!S.shop.data)loadShop();else renderShop()}else loadAn()}
   else if(a==='an-refresh')loadAn(true);
@@ -798,10 +862,10 @@ document.addEventListener('keydown',e=>{
 document.addEventListener('change',async e=>{
   const t=e.target;
   if(t.matches('input[type=file]')){addFiles(t.dataset.kind,[...t.files]);t.value=''}
-  else if(t.id==='shop-month'){S.route==='odoo'?loadOdoo(t.value):loadShop(t.value)}
+  else if(t.id==='shop-month'){S.route==='meta'?loadMeta(t.value):S.route==='odoo'?loadOdoo(t.value):loadShop(t.value)}
   else if(t.id==='ev-month'){loadEval(t.value)}
   else if(t.id==='shop-metric'){S.shop.metric=t.value;renderShop()}
-  else if(t.dataset.act==='an-metric'){S.an.metric[t.dataset.id]=t.value;S.route==='odoo'?renderOdoo():renderShop()}
+  else if(t.dataset.act==='an-metric'){S.an.metric[t.dataset.id]=t.value;S.route==='meta'?renderMeta():S.route==='odoo'?renderOdoo():renderShop()}
   else if(t.id==='f-role'){S.fRole=t.value;update()}
   else if(t.id==='f-user'){S.fUser=t.value;update()}
   else if(t.id==='f-kind'){S.fKind=t.value;update()}
@@ -852,5 +916,5 @@ document.addEventListener('submit',async e=>{
   else if(k==='up-free')submitUpload('free');
 });
 
-(function(){try{const h=location.hash.slice(1);if(h.startsWith('ins-')){S.route='ins';S.param=h.slice(4)}else if(['home','uploads','team','send','content','users','shop','eval','odoo'].includes(h))S.route=h}catch(e){}})();
+(function(){try{const h=location.hash.slice(1);if(h.startsWith('ins-')){S.route='ins';S.param=h.slice(4)}else if(['home','uploads','team','send','content','users','shop','eval','odoo','meta'].includes(h))S.route=h}catch(e){}})();
 boot();

@@ -356,3 +356,8 @@ h3.sub{font-size:.85rem;margin:16px 0 4px;color:var(--muted);text-transform:uppe
 .fbarc b{font-family:var(--f-display)}.fbarc small{opacity:.8;font-weight:400}
 .fdrop{font-family:var(--f-mono);font-size:.7rem;color:var(--danger);display:flex;align-items:center;gap:6px}
 .fdrop span{background:#F4D2CE;color:#A11A12;border-radius:999px;padding:1px 10px}
+
+/* Meta Ads */
+.mcell{display:inline-flex;align-items:center;gap:6px;justify-content:flex-end}
+.mbud{width:96px;padding:6px 8px;text-align:right}
+.dt td small.muted{display:block;font-size:.72rem;text-transform:capitalize}

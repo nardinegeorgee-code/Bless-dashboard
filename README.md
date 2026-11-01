@@ -55,3 +55,21 @@ Set these in Vercel, then redeploy:
 - `ODOO_API_KEY` made in Odoo: avatar, My Profile, Account Security, New API Key
 
 Apps that are not installed in Odoo show a message in that card instead of breaking the page.
+
+## Meta Ads (Super Admin only)
+
+Admin-only **Meta Ads** page with two tabs, read live from Meta's Marketing API (numbers are cached for 15 minutes; "Refresh numbers" re-fetches).
+
+- **Overview**: amount spent, purchases, purchase value, return on ad spend, cost per purchase, reach, link clicks and rates, with a 12-month trend; a comparison of Meta spend against your real Shopify revenue (blended return and ad spend per order); and the top campaigns, top ads and platforms by spend.
+- **Campaigns**: every campaign with its status, daily budget, spend and results. You can **pause or resume** a campaign and **change its daily budget**. Both ask you to click twice to confirm, only touch campaigns in the connected ad account, refuse a budget more than 10 times the current one, and are written to a "Changes made from this dashboard" log (table `meta_audit`).
+
+### Connect your ad account
+1. In Meta Business Settings, open Users, **System users**, and add a system user (Admin).
+2. Add your ad account as an asset of that user. Choose "Manage campaigns" to allow pausing and budget changes, or "View performance" for reports only.
+3. Generate a token for your Meta app with **ads_read** (add **ads_management** to allow changes) and copy it.
+4. In Vercel add `META_ACCESS_TOKEN` (the token) and `META_AD_ACCOUNT_ID` (your ad account number from Ads Manager, with or without `act_`). Optional: `META_API_VERSION` (default `v23.0`). `DASHBOARD_TZ` is shared with the other pages.
+5. Redeploy and open the Meta Ads page.
+
+The token stays on the server and is sent to Meta in a request header. Pausing and budget changes need `ads_management`; without it the page still shows reports and Meta's error is shown if you try to change something. Campaigns with a lifetime budget, or with budgets set per ad set, can be paused but their budget is not editable here.
+
+Note: Vercel's free (Hobby) plan allows 12 serverless functions per project, and `api/meta.js` is the 12th.
