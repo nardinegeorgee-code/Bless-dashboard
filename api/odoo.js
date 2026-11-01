@@ -56,6 +56,18 @@ const daily = (ctx, cur, prev, dateOf, valOf) => {
   const fill = (list, days) => { const m = new Map(days.map((d) => [d, 0])); for (const r of list) { const k = String(dateOf(r) || '').slice(0, 10); if (m.has(k)) m.set(k, m.get(k) + valOf(r)); } return days.map((d) => m.get(d)); };
   return { dates: da, cur: fill(cur, da), cmpDates: db, prev: fill(prev, db) };
 };
+/**
+ * Stock is sorted into raw materials, packaging and finished products by the product category name in Odoo
+ * (for example "All / Raw Materials", "All / Packaging"). Words can be changed with ODOO_RAW_WORDS and ODOO_PACKAGING_WORDS.
+ */
+const wordsRe = (env, dflt) => new RegExp((process.env[env] || dflt).split(',').map((w) => w.trim()).filter(Boolean).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'i');
+const KINDS = [['raw', 'Raw materials'], ['pack', 'Packaging'], ['prod', 'Finished products']];
+function kindOf(categ) {
+  const c = String(categ || '');
+  if (wordsRe('ODOO_PACKAGING_WORDS', 'packag,box,carton,bag,label,sticker,wrap,pouch,tape,ribbon,tag').test(c)) return 'pack';
+  if (wordsRe('ODOO_RAW_WORDS', 'raw,material,fabric,satin,silk,thread,yarn,elastic,textile,component').test(c)) return 'raw';
+  return 'prod';
+}
 /** What is behind a card: a few totals and the lines that make it up. */
 const bd = (summary, columns, list, note) => ({ summary, columns, rows: list.slice(0, 60), more: Math.max(0, list.length - 60), note });
 const groupBy = (list, keyOf, init, add) => { const m = new Map(); for (const r of list) { const k = keyOf(r); const g = m.get(k) || { name: k, ...init() }; add(g, r); m.set(k, g); } return [...m.values()]; };
@@ -87,10 +99,16 @@ function build(tab, cfg, ctx) {
       const low = storable.filter((p) => n0(p.qty_available) > 0 && n0(p.qty_available) <= (mins.get(p.id) ?? 5));
       const po = await sr(cfg, 'purchase.order', [['state', 'in', ['purchase', 'done']], ['date_order', '>=', dt(s)], ['date_order', '<=', dtEnd(e)]], ['amount_total'], { app: 'Purchase', limit: 5000 }).catch(() => null);
       const totalCost = sum(storable, cost), totalSale = sum(storable, (p) => Math.max(0, n0(p.qty_available)) * n0(p.list_price));
+      const kind = (p) => kindOf(nm(p.categ_id));
+      const kinds = KINDS.map(([k, name]) => { const list = storable.filter((p) => kind(p) === k); return { k, name, list, value: sum(list, cost), units: sum(list, (p) => Math.max(0, n0(p.qty_available))), cats: [...new Set(list.map((p) => nm(p.categ_id) || 'No category'))] }; });
+      const kindTile = (g) => tile(g.name, g.value, 'money', { sub: (totalCost ? pct(g.value, totalCost).toFixed(0) : 0) + '% of stock value · ' + g.list.length + ' products',
+        breakdown: bd([{ l: 'Products', v: g.list.length, f: 'int' }, { l: 'Units', v: g.units, f: 'int' }, { l: 'Share of stock value', v: totalCost ? pct(g.value, totalCost) : 0, f: 'pct' }], [COL.name('Product'), COL.str('cat', 'Category'), COL.int('units', 'On hand'), { key: 'unit', label: 'Unit cost', fmt: 'money2' }, COL.money('value', 'Stock value')],
+          g.list.map((p) => ({ name: p.display_name, cat: nm(p.categ_id) || 'No category', units: Math.max(0, n0(p.qty_available)), unit: n0(p.standard_price), value: cost(p) })).filter((x) => x.value > 0).sort((a, b) => b.value - a.value), g.cats.length ? 'Categories counted here: ' + g.cats.slice(0, 12).join(', ') : 'No products in this group.') });
       const byCat = groupBy(storable, (p) => nm(p.categ_id) || 'No category', () => ({ products: 0, units: 0, value: 0 }), (g, p) => { g.products++; g.units += Math.max(0, n0(p.qty_available)); g.value += cost(p); }).sort((a, b) => b.value - a.value).map((g) => ({ ...g, share: totalCost ? pct(g.value, totalCost) : null }));
       const topValue = storable.map((p) => ({ name: p.display_name, units: Math.max(0, n0(p.qty_available)), unit: n0(p.standard_price), value: cost(p), share: totalCost ? pct(cost(p), totalCost) : null })).filter((x) => x.value > 0).sort((a, b) => b.value - a.value);
       const bSale = storable.map((p) => ({ name: p.display_name, units: Math.max(0, n0(p.qty_available)), price: n0(p.list_price), value: Math.max(0, n0(p.qty_available)) * n0(p.list_price), cost: cost(p) })).filter((x) => x.value > 0).sort((a, b) => b.value - a.value);
       return { tiles: [
+        ...kinds.map(kindTile),
         tile('Stocked products', storable.length, 'int', { breakdown: bd([{ l: 'Categories', v: byCat.length, f: 'int' }, { l: 'Units on hand', v: sum(storable, (p) => Math.max(0, n0(p.qty_available))), f: 'int' }], [COL.name('Category'), COL.int('products', 'Products'), COL.int('units', 'Units'), COL.money('value', 'Stock value'), COL.pct('share', 'Share of value')], byCat) }),
         tile('Stock value (at cost)', totalCost, 'money', { breakdown: bd([{ l: 'Products with value', v: topValue.length, f: 'int' }], [COL.name('Product'), COL.int('units', 'On hand'), { key: 'unit', label: 'Unit cost', fmt: 'money2' }, COL.money('value', 'Stock value'), COL.pct('share', 'Share of value')], topValue) }),
         tile('Stock value (at sale price)', totalSale, 'money', { sub: totalSale ? 'potential margin ' + pct(totalSale - totalCost, totalSale).toFixed(0) + '%' : undefined, breakdown: bd([{ l: 'At sale price', v: totalSale, f: 'money' }, { l: 'At cost', v: totalCost, f: 'money' }, { l: 'Potential gross profit', v: totalSale - totalCost, f: 'money' }], [COL.name('Product'), COL.int('units', 'On hand'), { key: 'price', label: 'Sale price', fmt: 'money2' }, COL.money('value', 'Value at sale price'), COL.money('cost', 'Value at cost')], bSale) }),
@@ -99,6 +117,13 @@ function build(tab, cfg, ctx) {
         ...(po ? [tile('Purchased in this period', sum(po, 'amount_total'), 'money', { sub: po.length + ' purchase orders' })] : []),
       ] };
     }),
+    section('kinds', 'Stock value by type', 'table', async () => {
+      const { storable } = await products();
+      const cost = (p) => Math.max(0, n0(p.qty_available)) * n0(p.standard_price);
+      const rowsK = KINDS.map(([k, name]) => { const list = storable.filter((p) => kindOf(nm(p.categ_id)) === k); const cats = groupBy(list, (p) => nm(p.categ_id) || 'No category', () => ({ v: 0 }), (g, p) => { g.v += cost(p); }).sort((a, b) => b.v - a.v).slice(0, 4).map((g) => g.name.replace(/^All\s*\/\s*/i, ''));
+        return { name, value: sum(list, cost), products: list.length, units: sum(list, (p) => Math.max(0, n0(p.qty_available))), cats: cats.join(', ') || '–' }; });
+      return { columns: [{ key: 'name', label: 'Type', fmt: 'str' }, { key: 'value', label: 'Stock value (at cost)', fmt: 'money', bar: true }, { key: 'products', label: 'Products', fmt: 'int' }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'cats', label: 'Main categories', fmt: 'str' }], rows: rowsK };
+    }, 'Sorted by the product category name in Odoo. If a product lands in the wrong group, rename its category (for example "Raw Materials" or "Packaging") or set ODOO_RAW_WORDS / ODOO_PACKAGING_WORDS in Vercel.'),
     section('attention', 'Needs restocking', 'table', async () => {
       const { storable, mins } = await products();
       const list = storable.filter((p) => n0(p.qty_available) <= (mins.get(p.id) ?? 5))

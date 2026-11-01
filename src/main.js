@@ -690,7 +690,7 @@ function tileCard(t){
   const g=t.prev!==undefined?pctChange(t.value,t.prev):null,hasD=t.daily&&t.daily.cur&&t.daily.cur.length>1;
   const vs=t.prev!==undefined?`<div class="mx-s">${g===null?'No earlier figure':'vs '+esc(cmpText())+' · was <b>'+esc(fv(t.prev,t.fmt))+'</b>'}</div>`:'';
   const viz=hasD?sparkline(t.daily):(t.prev!==undefined&&(t.value||t.prev)?pairBars(t):'');
-  return `<div class="mx" data-detail tabindex="0" role="button" aria-expanded="false"><div class="mx-top"><span class="mx-l">${esc(t.label)}</span>${dp(g,t.goodDown)}</div><div class="mx-v">${esc(fv(t.value,t.fmt))}</div>${vs}${viz}${t.sub?`<div class="mx-n">${esc(t.sub)}</div>`:''}<div class="rkdetail">${tileDetail(t)}</div></div>`;
+  return `<div class="mx" data-detail tabindex="0" role="button" aria-expanded="false"><div class="mx-top"><span class="mx-l">${esc(t.label)}</span>${dp(g,t.goodDown)}</div><div class="mx-v${fv(t.value,t.fmt).length>13?' xl':fv(t.value,t.fmt).length>10?' lg':''}">${esc(fv(t.value,t.fmt))}</div>${vs}${viz}${t.sub?`<div class="mx-n">${esc(t.sub)}</div>`:''}<div class="rkdetail">${tileDetail(t)}</div></div>`;
 }
 /* The few things worth reading first: what improved most, what slipped most, the strongest day. */
 function highlights(secs){
