@@ -673,7 +673,7 @@ function iconFor(label){
 function tileCard(t,i){
   const c=KPAL[i%KPAL.length];let d='';
   if(t.prev!==undefined){const g=t.prev?Math.round((t.value-t.prev)/t.prev*1000)/10:null;if(g!==null)d=chip(g,t.goodDown)+'<span class="muted" style="font-size:.7rem"> vs '+esc(cmpText())+' (was '+esc(fv(t.prev,t.fmt))+')</span>'}
-  return `<div class="kcard" style="--kc:${c}">${ico(iconFor(t.label),c)}<div style="min-width:0"><span class="eyebrow">${esc(t.label)}</span><div class="kn">${esc(fv(t.value,t.fmt))}</div>${d?`<div>${d}</div>`:''}${t.sub?`<small class="muted">${esc(t.sub)}</small>`:''}</div></div>`;
+  return `<div class="kcard" data-detail tabindex="0" role="button" aria-expanded="false" style="--kc:${c}">${ico(iconFor(t.label),c)}<div style="min-width:0"><span class="eyebrow">${esc(t.label)}</span><div class="kn">${esc(fv(t.value,t.fmt))}</div>${d?`<div>${d}</div>`:''}${t.sub?`<small class="muted">${esc(t.sub)}</small>`:''}<div class="rkdetail">${tileDetail(t)}</div></div></div>`;
 }
 function anKpi(sec){return `<div class="kgrid">${sec.tiles.map(tileCard).join('')}</div>`}
 function anFunnel(sec){
@@ -691,19 +691,39 @@ function anTrend(sec){
 }
 function rateClass(v,r){return !r?'':v<=r[0]?'good':v<=r[1]?'mid':'bad'}
 function rkChip(c,v){const cls=c.rate&&typeof v==='number'?' r-'+rateClass(v,c.rate):'';return `<span class="rkc${cls}"><em>${esc(c.label)}</em><b class="mono">${cellText(v,c.fmt)}</b></span>`}
+/* ---------- click-to-open details (cards and table rows) ---------- */
+function numFmt(fmt,v){return fmt==='growth'||fmt==='str'||fmt==='link'?null:fv(v,fmt)}
+function diffLine(label,cur,prev,fmt){
+  if(prev===undefined||prev===null||!isFinite(prev))return '';
+  const d=cur-prev,g=prev?Math.round((cur-prev)/Math.abs(prev)*1000)/10:null,up=d>=0,f=fmt==='pct'?(x=>x.toFixed(1)+' pts'):(x=>fv(x,fmt));
+  return `<div class="dl"><span>${esc(label)}</span><b class="mono">${esc(fv(prev,fmt))}</b></div><div class="dl"><span>Difference</span><b class="mono ${up?'up':'down'}">${up?'+':'−'}${esc(f(Math.abs(d)))}${g!==null?' ('+(up?'+':'−')+Math.abs(g)+'%)':''}</b></div>`;
+}
+function tileDetail(t){
+  const d=curData(),per=d&&d.period?d.period.label:'this period',cmp=d&&d.compare?d.compare.label:'';
+  return `<div class="dl"><span>${esc(per)}</span><b class="mono">${esc(fv(t.value,t.fmt))}</b></div>${t.prev!==undefined?diffLine(cmp?'Compared with '+cmp:'Before',t.value,t.prev,t.fmt):'<p class="muted dn">No earlier figure is available for this one.</p>'}${t.sub?`<p class="muted dn">${esc(t.sub)}</p>`:''}`;
+}
+function rowDetail(sec,r,i,barCol,total){
+  const cols=sec.columns,name=cols[0];let h=`<div class="dl"><span>Rank</span><b class="mono">#${i+1} of ${sec.rows.length}</b></div>`;
+  for(const c of cols.slice(1)){const v=r[c.key];if(v===null||v===undefined||v==='')continue;h+=`<div class="dl"><span>${esc(c.label)}</span><b class="mono">${cellText(v,c.fmt)}</b></div>`}
+  if(barCol&&total>0){const v=Number(r[barCol.key])||0;h+=`<div class="dl"><span>Share of the ${sec.rows.length} listed</span><b class="mono">${(v/total*100).toFixed(1)}%</b></div>`}
+  const gc=cols.find(c=>c.fmt==='growth'),g=gc&&r[gc.key];
+  if(barCol&&typeof g==='number'&&g>-100){const v=Number(r[barCol.key])||0,prev=v/(1+g/100);h+=diffLine('Was '+(curData()&&curData().compareText?'in '+curData().compareText:'before'),v,prev,barCol.fmt)}
+  return h;
+}
 function anTable(sec){
   if(!sec.rows.length)return `<p class="muted">${esc(sec.empty||'No data for this period.')}</p>`;
   const cols=sec.columns,nameCol=cols[0],barCol=cols.find(c=>c.bar);
   if(barCol){
     const maxv=Math.max(1e-9,...sec.rows.map(r=>Number(r[barCol.key])||0));
     const rest=cols.filter(c=>c!==nameCol&&c!==barCol&&!(nameCol.fmt==='str'&&cols[1]&&cols[1].fmt==='str'&&c===cols[1]&&false));
+    const total=sec.rows.reduce((a,r)=>a+(Number(r[barCol.key])||0),0);
     return `<div class="rkl">${sec.rows.map((r,i)=>{const v=Number(r[barCol.key])||0,w=barCol.barReverse?(1-Math.min(1,v/maxv)):v/maxv;
-      return `<div class="rkr"><span class="rkn">${i+1}</span><div class="rkmain"><div class="rkt"><b title="${esc(String(r[nameCol.key]&&r[nameCol.key].text||r[nameCol.key]||''))}">${cellText(r[nameCol.key],nameCol.fmt)}</b><span class="rkv mono">${cellText(r[barCol.key],barCol.fmt)}</span></div><span class="rkbar"><i style="width:${Math.max(2,w*100)}%"></i></span>${rest.length?`<div class="rkchips">${rest.map(c=>rkChip(c,r[c.key])).join('')}</div>`:''}</div></div>`}).join('')}</div>`;
+      return `<div class="rkr" data-detail tabindex="0" role="button" aria-expanded="false"><span class="rkn">${i+1}</span><div class="rkmain"><div class="rkt"><b title="${esc(String(r[nameCol.key]&&r[nameCol.key].text||r[nameCol.key]||''))}">${cellText(r[nameCol.key],nameCol.fmt)}</b><span class="rkv mono">${cellText(r[barCol.key],barCol.fmt)}</span></div><span class="rkbar"><i style="width:${Math.max(2,w*100)}%"></i></span>${rest.length?`<div class="rkchips">${rest.map(c=>rkChip(c,r[c.key])).join('')}</div>`:''}<div class="rkdetail">${rowDetail(sec,r,i,barCol,total)}</div></div></div>`}).join('')}</div>`;
   }
   if(cols.some(c=>c.rate)){
     return `<div class="mgrid">${sec.rows.map(r=>`<div class="mtile"><div class="rkt"><b>${cellText(r[nameCol.key],nameCol.fmt)}</b></div><div class="rkchips">${cols.slice(1).map(c=>rkChip(c,r[c.key])).join('')}</div></div>`).join('')}</div>`;
   }
-  return `<div class="tablewrap"><table class="dt"><thead><tr>${cols.map(c=>`<th class="${c.fmt==='str'||c.fmt==='link'?'':'num'}">${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${sec.rows.map(r=>`<tr>${cols.map(c=>{const v=r[c.key],isText=c.fmt==='str'||c.fmt==='link';return `<td class="${isText?'':'num mono'}">${cellText(v,c.fmt)}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>`;
+  return `<div class="tablewrap"><table class="dt"><thead><tr>${cols.map(c=>`<th class="${c.fmt==='str'||c.fmt==='link'?'':'num'}">${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${sec.rows.map((r,i)=>`<tr data-detail tabindex="0">${cols.map(c=>{const v=r[c.key],isText=c.fmt==='str'||c.fmt==='link';return `<td class="${isText?'':'num mono'}">${cellText(v,c.fmt)}</td>`}).join('')}</tr><tr class="drow"><td colspan="${cols.length}"><div class="rkdetail">${rowDetail(sec,r,i,null,0)}</div></td></tr>`).join('')}</tbody></table></div>`;
 }
 function heroSpec(tab,secs){
   const by=id=>secs.find(s=>s.id===id&&!s.error);
@@ -850,6 +870,9 @@ function renderMeta(){
 /* ---------- events ---------- */
 function arm(btn){if(btn.dataset.armed)return true;btn.dataset.armed='1';btn.classList.add('armed');const t=btn.textContent;btn.textContent='Click again to confirm';setTimeout(()=>{if(btn.isConnected){delete btn.dataset.armed;btn.classList.remove('armed');btn.textContent=t}},4000);return false}
 
+function toggleDetail(r){const o=!r.classList.contains('open');r.classList.toggle('open',o);r.setAttribute('aria-expanded',String(o))}
+document.addEventListener('click',e=>{const r=e.target.closest('[data-detail]');if(!r||e.target.closest('a,button,input,select,textarea,[data-act]'))return;toggleDetail(r)});
+document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches&&e.target.matches('[data-detail]')){e.preventDefault();toggleDetail(e.target)}});
 document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
   if(a==='go'){e.preventDefault();go(b.dataset.route,b.dataset.param)}
