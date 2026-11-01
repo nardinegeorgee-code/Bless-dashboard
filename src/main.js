@@ -911,7 +911,7 @@ function renderAnalytics(L){
 
 
 /* ---------- Odoo ---------- */
-const OD_TABS=[['inventory','Inventory'],['sales','Sales & invoices'],['accounting','Accounting'],['hr','Employees']];
+const OD_TABS=[['inventory','Inventory'],['sales','Sales & invoices'],['profit','Profit'],['accounting','Accounting'],['hr','Employees']];
 S.od={tab:'inventory',month:'',cache:{},loading:false,err:'',data:null};
 async function loadOdoo(_m,refresh){
   const od=S.od;
@@ -934,7 +934,7 @@ function renderOdoo(){
   const od=S.od,d=od.data,tabs=`<div class="subtabs" role="tablist">${OD_TABS.map(([k,l])=>`<button role="tab" class="subtab${od.tab===k?' on':''}" aria-selected="${od.tab===k}" data-act="od-tab" data-tab="${k}">${l}</button>`).join('')}</div>`;
   if(!d||d.tab!==od.tab){L.innerHTML=tabs+(od.err?`<div class="empty"><b>Could not reach Odoo</b><span>${esc(od.err)}</span><button class="btn" data-act="od-refresh">Try again</button></div>`:empty('Loading…','Asking Odoo for the numbers. This can take a few seconds.'));return}
   if(d.configured===false){L.innerHTML=tabs+odooSetup(d.missing);return}
-  const info={inventory:'Stock and purchasing',sales:'Orders and invoices',accounting:'Money in and out',hr:'People and attendance'}[d.tab];
+  const info={inventory:'Stock and purchasing',sales:'Orders and invoices',profit:'Revenue, product cost and ad spend',accounting:'Money in and out',hr:'People and attendance'}[d.tab];
   const y=window.scrollY;
   L.innerHTML=tabs+dateBar(d)+`<section class="hero"><div class="hero-top"><div><span class="eyebrow">Odoo${d.company?' · '+esc(d.company):''} · ${esc(d.monthLabel)}</span><div class="hero-n sm">${esc(info)}</div>${d.version?`<div><span class="hero-vs">Odoo ${esc(d.version)}</span></div>`:''}</div>
     <div class="hero-actions"><button class="btn light" data-act="od-refresh" ${od.loading?'disabled':''}>${od.loading?'Loading…':'Refresh numbers'}</button></div></div></section>`

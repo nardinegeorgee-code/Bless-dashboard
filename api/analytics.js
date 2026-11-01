@@ -3,7 +3,7 @@ import { route, allow, db, HttpError, requireAdmin } from './_lib.js';
 import { ensureShopSchema, shopConfig, shopifyql, fetchProducts, fetchProductImages, fetchVariantCodes, gql, resetToken } from './_shopify.js';
 import { parsePeriod, monthPeriod, dayList } from './_period.js';
 import { odooConfig, sr as odooSearch } from './_odoo.js';
-import { metaConfig, graph, graphAll, cached as metaCached } from './_meta.js';
+import { adSpend } from './_profit.js';
 
 const DAY = 86400000;
 const TABS = ['sales', 'profit', 'funnel', 'products', 'experience', 'retention'];
@@ -91,25 +91,6 @@ const section = (id, title, kind, fn, note) => async () => {
   }
   catch (e) { return { id, title, kind, note, error: String(e.message || e).slice(0, 400) }; }
 };
-
-/**
- * Ad spend from Meta for the profit tab. Returns { sum(from,to), monthly(from,to) } or { off: 'why not' }.
- * Ad spend is left out (with a reason) when Meta is not connected or bills in another currency than the store.
- */
-async function adSpend(ctx, shopCurrency) {
-  const cfg = metaConfig();
-  if (cfg.missing.length) return { off: 'Meta Ads is not connected yet, so ad spend is not counted. Connect it on the Meta Ads page.' };
-  try {
-    const acct = await metaCached(cfg, 'acct-currency', ctx.refresh, () => graph(cfg, 'GET', 'act_' + cfg.account, { fields: 'currency' }));
-    if (shopCurrency && acct.currency && acct.currency !== shopCurrency) return { off: `Your store sells in ${shopCurrency} but the Meta ad account bills in ${acct.currency}, so ad spend cannot be mixed in without a conversion.` };
-    const rows = (a, b, extra) => metaCached(cfg, `spend|${a}|${b}|${extra ? 'm' : 't'}`, ctx.refresh, () => graphAll(cfg, 'act_' + cfg.account + '/insights', { fields: 'spend', level: 'account', time_range: { since: a, until: b }, ...(extra ? { time_increment: 'monthly' } : {}), limit: 100 }, 2));
-    return {
-      sum: async (a, b) => (await rows(a, b, false)).reduce((x, r) => x + (Number(r.spend) || 0), 0),
-      byCampaign: async (a, b) => (await metaCached(cfg, `spend|${a}|${b}|c`, ctx.refresh, () => graphAll(cfg, 'act_' + cfg.account + '/insights', { fields: 'spend,campaign_name', level: 'campaign', time_range: { since: a, until: b }, limit: 200 }, 3))).map((r) => ({ name: r.campaign_name || 'Unnamed campaign', spend: Number(r.spend) || 0 })).filter((r) => r.spend > 0).sort((x, y) => y.spend - x.spend),
-      monthly: async (a, b) => new Map((await rows(a, b, true)).map((r) => [String(r.date_start).slice(0, 7), Number(r.spend) || 0])),
-    };
-  } catch (e) { return { off: 'Could not read ad spend from Meta: ' + String(e.message || e).slice(0, 200) }; }
-}
 
 /**
  * Product costs from Odoo (the Cost field). A Shopify product is matched to an Odoo product by SKU = Internal Reference,

@@ -1,10 +1,11 @@
 import { route, allow, requireAdmin } from './_lib.js';
 import { odooConfig, odooVersion, call, sr, nm, nid, fieldsOf, needModel } from './_odoo.js';
 import { parsePeriod, monthPeriod } from './_period.js';
+import { adSpend, profitTiles } from './_profit.js';
 
 const TZ = process.env.DASHBOARD_TZ || 'Africa/Cairo';
 
-const TABS = ['inventory', 'sales', 'accounting', 'hr'];
+const TABS = ['inventory', 'sales', 'profit', 'accounting', 'hr'];
 const pad = (n) => String(n).padStart(2, '0');
 const n0 = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const pct = (a, b) => (b ? (a / b) * 100 : 0);
@@ -123,6 +124,67 @@ function build(tab, cfg, ctx) {
     const data = {}; for (const [id, fetch, val] of series) data[id] = await fetch(start);
     return { rows: m12.map((k) => ({ key: k, label: label(k), values: Object.fromEntries(series.map(([id, , val]) => [id, sum(data[id].filter((r) => mkey(r._d) === k), val)])) })), selectable: true };
   };
+
+  if (tab === 'profit') {
+    const pn = (v) => (typeof v === 'number' ? v : 0);
+    let adsMemo; const ads = () => (adsMemo ||= adSpend({ refresh: false }, ctx.currency));
+    let costMemo;
+    // Sold lines for any dates, with each product's Odoo cost. Orders confirmed in Odoo, amounts before tax.
+    const lines = async (a, b) => {
+      const list = await sr(cfg, 'sale.order.line', [['order_id.state', 'in', ['sale', 'done']], ['order_id.date_order', '>=', dt(a)], ['order_id.date_order', '<=', dtEnd(b)]], ['product_id', 'product_uom_qty', 'price_subtotal'], { app: 'Sales', limit: 20000 });
+      const m = new Map();
+      for (const l of list) { const pid = nid(l.product_id) || 0, g = m.get(pid) || { pid, name: nm(l.product_id) || 'Other', units: 0, rev: 0 }; g.units += n0(l.product_uom_qty); g.rev += n0(l.price_subtotal); m.set(pid, g); }
+      const costs = await costInfo([...m.keys()]);
+      return [...m.values()].map((g) => { const c = costs.get(g.pid) || {}; const u = c.cost > 0 ? c.cost : null; return { pid: g.pid, name: String(g.name).replace(/^\s*\[[^\]]*\]\s*/, ''), title: String(g.name).replace(/^\s*\[[^\]]*\]\s*/, ''), sku: c.code || '', units: g.units, rev: g.rev, unit: u, cost: u !== null ? u * g.units : null }; }).sort((x, y) => y.rev - x.rev);
+    };
+    const costInfo = async (ids) => {
+      const out = new Map(); const list = ids.filter(Boolean); if (!list.length) return out;
+      try { const got = await call(cfg, 'product.product', 'read', [list, ['standard_price', 'default_code']], { context: { lang: 'en_US' } }); for (const g of got) out.set(g.id, { cost: g.standard_price, code: g.default_code || '' }); } catch (err) { /* costs stay unknown */ }
+      return out;
+    };
+    const figures = async (a, b) => {
+      const L = await lines(a, b); let rev = 0, cost = 0, known = 0;
+      for (const l of L) { rev += l.rev; if (l.cost !== null) { cost += l.cost; known += l.rev; } }
+      return { rev, cost, cover: rev ? (known / rev) * 100 : null, lines: L };
+    };
+    // 12 months of figures for the chart and the table
+    const monthRows = async () => {
+      const m12 = monthsBack(12), start = m12[0] + '-01';
+      const list = await sr(cfg, 'sale.order.line', [['order_id.state', 'in', ['sale', 'done']], ['order_id.date_order', '>=', dt(start)]], ['product_id', 'product_uom_qty', 'price_subtotal', 'order_id'], { app: 'Sales', limit: 40000 });
+      const ords = await sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(start)]], ['date_order'], { app: 'Sales', limit: 20000 });
+      const when = new Map(ords.map((o) => [o.id, mkey(o.date_order)]));
+      const costs = await costInfo([...new Set(list.map((l) => nid(l.product_id)).filter(Boolean))]);
+      const a = await ads(); const spend = a.monthly ? await a.monthly(start, today) : new Map();
+      const by = new Map(m12.map((k) => [k, { revenue: 0, cost: 0 }]));
+      for (const l of list) { const k = when.get(nid(l.order_id)); const row = by.get(k); if (!row) continue; row.revenue += n0(l.price_subtotal); const c = (costs.get(nid(l.product_id)) || {}).cost; if (c > 0) row.cost += c * n0(l.product_uom_qty); }
+      return { rows: m12.map((k) => { const r = by.get(k), ad = spend.get(k) || 0, gross = r.revenue - r.cost; return { key: k, label: label(k), revenue: r.revenue, cost: r.cost, gross, ads: ad, profit: gross - ad }; }), hasAds: !!a.monthly };
+    };
+    return [
+      section('kpi', `Profit after ads (${ctx.monthLabel})`, 'kpi', async () => {
+        const [c, p, a] = await Promise.all([figures(s, e), figures(ps, pe), ads()]);
+        let s1 = 0, s0 = 0, camps = [];
+        if (a.sum) { [s1, s0, camps] = await Promise.all([a.sum(s, e), a.sum(ps, pe), a.byCampaign(s, e).catch(() => [])]); }
+        const tiles = profitTiles(c, p, a, s1, s0, camps);
+        return { tiles, note: ['Revenue is confirmed sales orders before tax. Product cost is the Cost of each product in Odoo times the units sold; products with no cost set are not counted.', a.off].filter(Boolean).join(' ') };
+      }),
+      section('trend', 'Last 12 months', 'trend', async () => {
+        const { rows, hasAds } = await monthRows();
+        return { rows: rows.map((x) => ({ key: x.key, label: x.label, values: { profit: x.profit, revenue: x.revenue, cost: x.cost, gross: x.gross, ads: x.ads } })), selectable: true,
+          metrics: [{ key: 'profit', label: hasAds ? 'Profit after ads' : 'Gross profit', fmt: 'money' }, { key: 'revenue', label: 'Net revenue', fmt: 'money' }, { key: 'cost', label: 'Product cost', fmt: 'money' }, ...(hasAds ? [{ key: 'ads', label: 'Ad spend (Meta)', fmt: 'money' }] : [])] };
+      }),
+      section('months', 'The numbers, month by month', 'table', async () => {
+        const { rows, hasAds } = await monthRows();
+        const cols = [{ key: 'month', label: 'Month', fmt: 'str' }, { key: 'revenue', label: 'Net revenue', fmt: 'money' }, { key: 'cost', label: 'Product cost', fmt: 'money' }, { key: 'gross', label: 'Gross profit', fmt: 'money' }];
+        if (hasAds) cols.push({ key: 'ads', label: 'Ad spend', fmt: 'money' }, { key: 'profit', label: 'Profit after ads', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' });
+        return { columns: cols, rows: rows.slice().reverse().map((x) => ({ key: x.key, month: x.label, revenue: x.revenue, cost: x.cost, gross: x.gross, ads: x.ads, profit: x.profit, margin: x.revenue ? pct(x.profit, x.revenue) : null })), empty: 'No sales in these months.' };
+      }),
+      section('cost', `Cost per product (${ctx.monthLabel})`, 'table', async () => {
+        const L = (await lines(s, e)).slice(0, 25);
+        const rows = L.map((l) => ({ pid: l.pid, name: l.name, net_sales: l.rev, units: l.units, unitCost: l.unit, cost: l.cost, profit: l.cost !== null ? l.rev - l.cost : null, margin: l.cost !== null && l.rev ? pct(l.rev - l.cost, l.rev) : null }));
+        return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'net_sales', label: 'Net revenue', fmt: 'money', bar: true }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'unitCost', label: 'Cost per unit', fmt: 'money2' }, { key: 'cost', label: 'Total cost', fmt: 'money' }, { key: 'profit', label: 'Profit', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' }], rows: await addPictures(cfg, rows), empty: 'No sales in this period.' };
+      }, 'A product with no cost figure has no Cost set in Odoo, so its profit is left blank instead of looking like 100%.'),
+    ];
+  }
 
   if (tab === 'sales') return [
     section('kpi', `Sales in ${ctx.monthLabel}`, 'kpi', async () => {
@@ -270,6 +332,7 @@ export default route(async (req, res) => {
   const company = await call(cfg, 'res.company', 'search_read', [[]], { fields: ['name', 'currency_id'], limit: 1 });
   info.company = company[0] ? company[0].name : '';
   info.currency = company[0] && Array.isArray(company[0].currency_id) ? String(company[0].currency_id[1]).slice(0, 3) : '';
+  ctx.currency = info.currency;
   const sections = await pool(build(tab, cfg, ctx), 3);
   res.json({ configured: true, tab, month, monthLabel: ctx.monthLabel, period: { from: per.from, to: per.to, days: per.days, label: per.label, kind: per.kind, clamped: per.clamped }, compare: { from: per.compare.from, to: per.compare.to, days: per.compare.days, label: per.compare.label, custom: per.compare.custom }, compareText: per.compareText, months: months.map((k) => ({ key: k, label: label(k) })), currency: info.currency, company: info.company, version: info.version, sections });
 });
