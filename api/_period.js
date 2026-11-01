@@ -49,7 +49,7 @@ function shape(from, to, today, hint) {
 export function labelOf(from, to, today, hint) {
   const sh = shape(from, to, today, hint);
   if (sh.kind === 'day') return fmt(from);
-  if (sh.kind === 'month') return sh.full ? monthName(from) : `${new Date(from + 'T12:00:00Z').getUTCDate()}–${fmt(to)}`;
+  if (sh.kind === 'month') return sh.full ? monthName(from) : from === to ? fmt(from) : `${new Date(from + 'T12:00:00Z').getUTCDate()}–${fmt(to)}`;
   if (sh.kind === 'quarter') {
     const q = Math.floor((ymOf(from)[1] - 1) / 3) + 1;
     return `Q${q} ${from.slice(0, 4)}` + (sh.full ? '' : ` (to ${fmt(to, false)})`);

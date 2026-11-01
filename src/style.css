@@ -476,3 +476,15 @@ tr.drow{display:none}tr.drow .rkdetail{display:block;margin:4px 0 8px}tr.open+tr
 .pcell{display:flex;align-items:center;gap:10px;min-width:0}.pcell .pimg{width:40px;height:40px;border-radius:8px;flex:none}
 .pbig{display:block;margin-bottom:8px}.pbig img{display:block;width:100%;max-width:320px;max-height:320px;object-fit:contain;border-radius:12px;background:#fff;border:1px solid var(--paper-line)}
 @media(max-width:560px){.an .rkr.hp{grid-template-columns:18px 44px minmax(0,1fr)}.an .rkr.hp .pimg{width:44px;height:44px}}
+
+/* breakdown inside an opened card */
+.mx.open{grid-column:1/-1}
+.mx.open .rkdetail{cursor:auto}
+.bk-sum{display:flex;flex-wrap:wrap;gap:6px 22px;margin:2px 0 10px}
+.bk-s{display:grid;gap:0}.bk-s em{font-style:normal;font-size:.74rem;color:var(--muted)}.bk-s b{font-family:var(--f-display);font-size:1.15rem;font-variant-numeric:tabular-nums}
+.bk-wrap{max-height:340px;overflow:auto;border:1px solid var(--paper-line);border-radius:10px;background:#fff}
+.bk-t{width:100%;border-collapse:collapse;font-size:.82rem}
+.bk-t th{position:sticky;top:0;background:var(--paper);text-align:left;font-weight:600;color:var(--muted);padding:7px 10px;white-space:nowrap;border-bottom:1px solid var(--paper-line)}
+.bk-t td{padding:6px 10px;border-bottom:1px solid color-mix(in srgb,var(--paper-line) 50%,transparent);font-variant-numeric:tabular-nums}
+.bk-t .num{text-align:right;white-space:nowrap}
+.bk-t tr:last-child td{border-bottom:0}
