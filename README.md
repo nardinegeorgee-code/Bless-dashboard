@@ -44,7 +44,7 @@ If Areas and Customers stay empty, request **protected customer data** access fo
 
 Shopify > Sales, Funnel, Products, Customer experience, Retention. Each tab loads its own numbers from Shopify reports (cached 30 minutes; "Refresh numbers" re-fetches). Retention uses your synced orders, so press **Sync now** once after this update to re-import orders with product categories. Service scores (CSAT, NPS, response time and so on) are typed in under Customer experience and saved per month.
 
-**Profit tab**: net revenue, product cost, gross profit and Meta ad spend for the chosen period, a 12-month chart and table (profit after ads per month), and cost per product with margin. Product cost is revenue minus profit as Shopify reports it, so it needs *Cost per item* set on your Shopify products. Ad spend comes from the Meta Ads connection and is left out (with a note) if Meta is not connected or bills in a different currency than the store.
+**Profit tab**: net revenue, product cost, gross profit and Meta ad spend for the chosen period, a 12-month chart and table (profit after ads per month), and cost per product with margin. Product cost comes from the Cost field of the matching product in Odoo (matched by SKU = Internal Reference, then barcode, then name); if Odoo is not connected it falls back to Shopify's Cost per item. Ad spend comes from the Meta Ads connection and is left out (with a note) if Meta is not connected or bills in a different currency than the store.
 
 ## Date ranges and comparing periods (Shopify, Odoo, Meta Ads)
 

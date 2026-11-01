@@ -169,6 +169,26 @@ export async function fetchProductImages(cfg, max = 500) {
   return out;
 }
 
+/** Each variant's SKU and barcode from Shopify, used to match store products with Odoo products. Returns { bySku, byName } (lower-case keys). */
+export async function fetchVariantCodes(cfg, max = 3000) {
+  const bySku = {}, byName = {};
+  let cursor = null, n = 0;
+  while (n < max) {
+    const j = await gql(cfg, `query($cursor:String){productVariants(first:250,after:$cursor){pageInfo{hasNextPage endCursor} nodes{sku barcode title product{title}}}}`, { cursor });
+    if (j.errors || !j.data) throw new Error(errText(j) || 'no data');
+    for (const v of j.data.productVariants.nodes) {
+      if (!v.barcode) continue;
+      if (v.sku) bySku[String(v.sku).trim().toLowerCase()] = String(v.barcode).trim();
+      const nm = (String(v.product?.title || '').trim() + (v.title && !/^default title$/i.test(v.title) ? ' – ' + String(v.title).trim() : '')).toLowerCase();
+      byName[nm] = String(v.barcode).trim();
+    }
+    n += j.data.productVariants.nodes.length;
+    if (!j.data.productVariants.pageInfo.hasNextPage) break;
+    cursor = j.data.productVariants.pageInfo.endCursor;
+  }
+  return { bySku, byName };
+}
+
 /* ---------- orders ---------- */
 const ORDER_BASE = `id name createdAt updatedAt cancelledAt
   totalPriceSet{shopMoney{amount currencyCode}} totalRefundedSet{shopMoney{amount}}

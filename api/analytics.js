@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { route, allow, db, HttpError, requireAdmin } from './_lib.js';
-import { ensureShopSchema, shopConfig, shopifyql, fetchProducts, fetchProductImages, gql, resetToken } from './_shopify.js';
+import { ensureShopSchema, shopConfig, shopifyql, fetchProducts, fetchProductImages, fetchVariantCodes, gql, resetToken } from './_shopify.js';
 import { parsePeriod, monthPeriod, dayList } from './_period.js';
+import { odooConfig, sr as odooSearch } from './_odoo.js';
 import { metaConfig, graph, graphAll, cached as metaCached } from './_meta.js';
 
 const DAY = 86400000;
@@ -109,6 +110,39 @@ async function adSpend(ctx, shopCurrency) {
   } catch (e) { return { off: 'Could not read ad spend from Meta: ' + String(e.message || e).slice(0, 200) }; }
 }
 
+/**
+ * Product costs from Odoo (the Cost field). A Shopify product is matched to an Odoo product by SKU = Internal Reference,
+ * then by barcode, then by name. Returns { unit(row) } where unit gives the cost per unit or null, or { off: 'why not' }.
+ */
+async function odooCosts() {
+  const cfg = odooConfig();
+  if (cfg.missing.length) return { off: 'Odoo is not connected, so the cost comes from Shopify (Cost per item).' };
+  try {
+    const list = await odooSearch(cfg, 'product.product', [['active', 'in', [true, false]]], ['default_code', 'barcode', 'display_name', 'standard_price'], { app: 'Inventory', limit: 8000 });
+    const byCode = new Map(), byBarcode = new Map(), byName = new Map();
+    const clean = (t) => String(t || '').replace(/^\s*\[[^\]]*\]\s*/, '').trim().toLowerCase();
+    for (const p of list) {
+      const c = Number(p.standard_price);
+      if (!(c > 0)) continue;                                       // a cost of 0 means "not set" in Odoo
+      if (p.default_code) byCode.set(String(p.default_code).trim().toLowerCase(), c);
+      if (p.barcode) byBarcode.set(String(p.barcode).trim(), c);
+      byName.set(clean(p.display_name), c);
+    }
+    let codes = { bySku: {}, byName: {} };
+    try { codes = await fetchVariantCodes(shopConfigCacheRef()); } catch (e) { /* matching by SKU and name still works */ }
+    const unit = (r) => {
+      const sku = String(r.product_variant_sku || '').trim().toLowerCase(), title = String(r.product_title || '').trim(), v = String(r.product_variant_title || '').trim();
+      const hasV = v && !/^default title$/i.test(v), full = (title + (hasV ? ' – ' + v : '')).toLowerCase();
+      if (sku && byCode.has(sku)) return byCode.get(sku);
+      const bc = (sku && codes.bySku[sku]) || codes.byName[full];
+      if (bc && byBarcode.has(bc)) return byBarcode.get(bc);
+      for (const k of hasV ? [`${title} (${v})`, `${title} - ${v}`, `${title} – ${v}`, `${title} ${v}`] : [title]) if (byName.has(k.toLowerCase())) return byName.get(k.toLowerCase());
+      return null;
+    };
+    return { unit };
+  } catch (e) { return { off: 'Could not read costs from Odoo (' + String(e.message || e).slice(0, 120) + '), so the cost comes from Shopify (Cost per item).' }; }
+}
+
 /* ---------- Shopify-analytics tabs ---------- */
 function buildShopifyTabs(tab, ctx, run) {
   const { s, e, ps, pe, trendStart, today, monthLabel } = ctx;
@@ -125,59 +159,87 @@ function buildShopifyTabs(tab, ctx, run) {
   const change = (map, name, now) => (map.has(name) ? growth(now, map.get(name)) : null);
 
   if (tab === 'profit') {
-    let curMemo;
+    let curMemo, adsMemo, odooMemo;
     const shopCurrency = () => (curMemo ||= gql(shopConfigCacheRef(), '{shop{currencyCode}}').then((j) => j.data?.shop?.currencyCode || '').catch(() => ''));
-    let adsMemo;
     const ads = async () => (adsMemo ||= adSpend(ctx, await shopCurrency()));
-    const costNote = 'Product cost is revenue minus profit as Shopify reports it, so it only knows products that have a Cost per item set in Shopify.';
+    const book = () => (odooMemo ||= odooCosts());
+    const GROUP = 'product_title, product_variant_title, product_variant_sku';
+    // Revenue, cost of goods and how much of the revenue had a known cost, for any dates.
+    const figures = async (a, b) => {
+      const bk = await book();
+      const tot = (await run(`FROM sales SHOW net_sales, gross_profit SINCE ${a} UNTIL ${b}`)).rows[0] || {};
+      const rev = n0(tot.net_sales);
+      if (!bk.unit) return { rev, cost: Math.max(0, rev - n0(tot.gross_profit)), cover: null };
+      const g = (await run(`FROM sales SHOW net_sales, net_items_sold ${'GROUP BY ' + GROUP} SINCE ${a} UNTIL ${b} ORDER BY net_sales DESC LIMIT 1000`)).rows;
+      let cost = 0, known = 0, all = 0;
+      for (const r of g) { const u = bk.unit(r), v = n0(r.net_sales); all += v; if (u !== null) { cost += u * n0(r.net_items_sold); known += v; } }
+      return { rev, cost, cover: all ? (known / all) * 100 : null };
+    };
+    const sourceNote = async () => { const bk = await book(); return bk.off || 'Product cost is the Cost field of the matching product in Odoo (matched by SKU, then barcode, then name). Products with no Odoo cost set are not counted.'; };
     return [
       section('kpi', `Profit after ads (${monthLabel})`, 'kpi', async () => {
-        const [c0, p0, a] = await Promise.all([run(`FROM sales SHOW net_sales, gross_profit ${per}`), run(`FROM sales SHOW net_sales, gross_profit SINCE ${ps} UNTIL ${pe}`), ads()]);
-        const c = c0.rows[0] || {}, p = p0.rows[0] || {};
-        const rev = n0(c.net_sales), gp = n0(c.gross_profit), cost = Math.max(0, rev - gp);
-        const rev0 = n0(p.net_sales), gp0 = n0(p.gross_profit), cost0 = Math.max(0, rev0 - gp0);
-        const dz = await dailyFn(run, ctx, 'sales', 'net_sales, gross_profit');
-        const D = (fn) => (dz ? { daily: dz(fn) } : {});
+        const [c, p, a, bk] = await Promise.all([figures(s, e), figures(ps, pe), ads(), book()]);
+        const gp = c.rev - c.cost, gp0 = p.rev - p.cost;
+        const dz = await dailyFn(run, ctx, 'sales', 'net_sales');
         const tiles = [
-          { label: 'Net revenue', value: rev, prev: rev0, fmt: 'money', ...D((x) => n0(x.net_sales)) },
-          { label: 'Product cost', value: cost, prev: cost0, fmt: 'money', goodDown: true, sub: pct(cost, rev).toFixed(1) + '% of revenue', ...D((x) => Math.max(0, n0(x.net_sales) - n0(x.gross_profit))) },
-          { label: 'Gross profit', value: gp, prev: gp0, fmt: 'money', sub: (rev ? pct(gp, rev) : 0).toFixed(1) + '% margin', ...D((x) => n0(x.gross_profit)) },
+          { label: 'Net revenue', value: c.rev, prev: p.rev, fmt: 'money', ...(dz ? { daily: dz((x) => n0(x.net_sales)) } : {}) },
+          { label: 'Product cost', value: c.cost, prev: p.cost, fmt: 'money', goodDown: true, sub: (c.rev ? pct(c.cost, c.rev) : 0).toFixed(1) + '% of revenue' },
+          { label: 'Gross profit', value: gp, prev: gp0, fmt: 'money', sub: (c.rev ? pct(gp, c.rev) : 0).toFixed(1) + '% margin' },
         ];
+        if (c.cover !== null) tiles.push({ label: 'Revenue with a known cost', value: c.cover, prev: p.cover === null ? undefined : p.cover, fmt: 'pct', sub: 'sales of products found in Odoo with a cost' });
         if (a.sum) {
           const [s1, s0] = await Promise.all([a.sum(s, e), a.sum(ps, pe)]);
-          tiles.push({ label: 'Ad spend (Meta)', value: s1, prev: s0, fmt: 'money', goodDown: true, sub: pct(s1, rev).toFixed(1) + '% of revenue' });
-          tiles.push({ label: 'Profit after ads', value: gp - s1, prev: gp0 - s0, fmt: 'money', sub: (rev ? pct(gp - s1, rev) : 0).toFixed(1) + '% of revenue' });
-          tiles.push({ label: 'Revenue per 1 spent on ads', value: s1 ? rev / s1 : 0, prev: s0 ? rev0 / s0 : 0, fmt: 'x', sub: 'net revenue ÷ ad spend, all sales' });
+          tiles.push({ label: 'Ad spend (Meta)', value: s1, prev: s0, fmt: 'money', goodDown: true, sub: (c.rev ? pct(s1, c.rev) : 0).toFixed(1) + '% of revenue' });
+          tiles.push({ label: 'Profit after ads', value: gp - s1, prev: gp0 - s0, fmt: 'money', sub: (c.rev ? pct(gp - s1, c.rev) : 0).toFixed(1) + '% of revenue' });
+          tiles.push({ label: 'Revenue per 1 spent on ads', value: s1 ? c.rev / s1 : 0, prev: s0 ? p.rev / s0 : 0, fmt: 'x', sub: 'net revenue ÷ ad spend, all sales' });
         }
-        return { tiles, note: a.off ? a.off + ' ' + costNote : costNote };
+        return { tiles, note: [await sourceNote(), a.off].filter(Boolean).join(' ') };
       }),
       section('trend', 'Month by month', 'trend', async () => {
-        const [r, a] = await Promise.all([run(`FROM sales SHOW net_sales, gross_profit TIMESERIES month SINCE ${trendStart} UNTIL ${today}`), ads()]);
-        const spend = a.monthly ? await a.monthly(trendStart, today) : new Map();
-        const rows = r.rows.map((x) => { const k = String(x.month).slice(0, 7), rev = n0(x.net_sales), gp = n0(x.gross_profit), ad = spend.get(k) || 0; return { key: k, label: label(k), values: { revenue: rev, cost: Math.max(0, rev - gp), gross: gp, ads: ad, profit: gp - ad } }; });
-        const metrics = [{ key: 'profit', label: a.monthly ? 'Profit after ads' : 'Gross profit', fmt: 'money' }, { key: 'revenue', label: 'Net revenue', fmt: 'money' }, { key: 'cost', label: 'Product cost', fmt: 'money' }, { key: 'gross', label: 'Gross profit', fmt: 'money' }, ...(a.monthly ? [{ key: 'ads', label: 'Ad spend (Meta)', fmt: 'money' }] : [])].filter((m, i, arr) => arr.findIndex((y) => y.key === m.key) === i);
-        if (!a.monthly) rows.forEach((x) => { x.values.profit = x.values.gross; });
-        return { rows, metrics, selectable: true };
+        const { rows, hasAds } = await monthRows();
+        const metrics = [{ key: 'profit', label: hasAds ? 'Profit after ads' : 'Gross profit', fmt: 'money' }, { key: 'revenue', label: 'Net revenue', fmt: 'money' }, { key: 'cost', label: 'Product cost', fmt: 'money' }, ...(hasAds ? [{ key: 'gross', label: 'Gross profit', fmt: 'money' }, { key: 'ads', label: 'Ad spend (Meta)', fmt: 'money' }] : [])];
+        return { rows: rows.map((x) => ({ key: x.key, label: x.label, values: { revenue: x.revenue, cost: x.cost, gross: x.gross, ads: x.ads, profit: x.profit } })), metrics, selectable: true };
       }, 'Click a month to look at it in detail.'),
       section('months', 'The numbers, month by month', 'table', async () => {
-        const [r, a] = await Promise.all([run(`FROM sales SHOW net_sales, gross_profit TIMESERIES month SINCE ${trendStart} UNTIL ${today}`), ads()]);
-        const spend = a.monthly ? await a.monthly(trendStart, today) : new Map();
-        const rows = r.rows.map((x) => { const k = String(x.month).slice(0, 7), rev = n0(x.net_sales), gp = n0(x.gross_profit), ad = spend.get(k) || 0, cost = Math.max(0, rev - gp); return { month: label(k), revenue: rev, cost, gross: gp, ads: ad, profit: gp - ad, margin: rev ? pct(gp - ad, rev) : null }; }).reverse();
+        const { rows, hasAds } = await monthRows();
         const cols = [{ key: 'month', label: 'Month', fmt: 'str' }, { key: 'revenue', label: 'Net revenue', fmt: 'money' }, { key: 'cost', label: 'Product cost', fmt: 'money' }, { key: 'gross', label: 'Gross profit', fmt: 'money' }];
-        if (a.monthly) cols.push({ key: 'ads', label: 'Ad spend', fmt: 'money' }, { key: 'profit', label: 'Profit after ads', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' });
-        return { columns: cols, rows, empty: 'No sales in these months.' };
+        if (hasAds) cols.push({ key: 'ads', label: 'Ad spend', fmt: 'money' }, { key: 'profit', label: 'Profit after ads', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' });
+        return { columns: cols, rows: rows.slice().reverse().map((x) => ({ month: x.label, revenue: x.revenue, cost: x.cost, gross: x.gross, ads: x.ads, profit: x.profit, margin: x.revenue ? pct(x.profit, x.revenue) : null })), empty: 'No sales in these months.' };
       }),
       section('cost', `Cost per product (${monthLabel})`, 'table', async () => {
-        const K = ['net_sales', 'net_items_sold', 'gross_profit'];
-        const r0 = await run(`FROM sales SHOW net_sales, net_items_sold, gross_profit GROUP BY product_title, product_variant_title ${per} ORDER BY net_sales DESC LIMIT 250`);
-        const list = foldBy(r0.rows, salesName, K).sort((a, b) => b.net_sales - a.net_sales).slice(0, 25);
-        const rows = list.map((x) => {
-          const cost = Math.max(0, x.net_sales - x.gross_profit), hasCost = cost > 0;
-          return { name: x._n, net_sales: x.net_sales, units: x.net_items_sold, unitCost: hasCost && x.net_items_sold ? cost / x.net_items_sold : null, cost: hasCost ? cost : null, profit: hasCost ? x.gross_profit : null, margin: hasCost && x.net_sales ? pct(x.gross_profit, x.net_sales) : null };
-        });
+        const bk = await book();
+        const r0 = await run(`FROM sales SHOW net_sales, net_items_sold, gross_profit GROUP BY ${GROUP} ${per} ORDER BY net_sales DESC LIMIT 500`);
+        const m = new Map();
+        for (const r of r0.rows) {
+          const n = salesName(r), g = m.get(n) || { name: n, net_sales: 0, units: 0, cost: 0, known: false, gp: 0 };
+          const u = bk.unit ? bk.unit(r) : null;
+          g.net_sales += n0(r.net_sales); g.units += n0(r.net_items_sold); g.gp += n0(r.gross_profit);
+          if (bk.unit) { if (u !== null) { g.cost += u * n0(r.net_items_sold); g.known = true; } } else if (n0(r.net_sales) > n0(r.gross_profit)) { g.cost += n0(r.net_sales) - n0(r.gross_profit); g.known = true; }
+          m.set(n, g);
+        }
+        const rows = [...m.values()].sort((a, b) => b.net_sales - a.net_sales).slice(0, 25).map((g) => ({
+          name: g.name, net_sales: g.net_sales, units: g.units,
+          unitCost: g.known && g.units ? g.cost / g.units : null, cost: g.known ? g.cost : null, profit: g.known ? g.net_sales - g.cost : null, margin: g.known && g.net_sales ? pct(g.net_sales - g.cost, g.net_sales) : null,
+        }));
         return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'net_sales', label: 'Net revenue', fmt: 'money', bar: true }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'unitCost', label: 'Cost per unit', fmt: 'money2' }, { key: 'cost', label: 'Total cost', fmt: 'money' }, { key: 'profit', label: 'Profit', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' }], rows, empty: 'No sales in this period.' };
-      }, 'A product with no cost figure has no Cost per item set in Shopify, so its profit is left blank instead of looking like 100%.'),
+      }, 'A product with no cost figure was not found in Odoo (or has no Cost set there), so its profit is left blank instead of looking like 100%.'),
     ];
+    // month-by-month figures, shared by the chart and the table
+    async function monthRows() {
+      const [bk, a] = [await book(), await ads()];
+      const rev = await run(`FROM sales SHOW net_sales, gross_profit TIMESERIES month SINCE ${trendStart} UNTIL ${today}`);
+      const spend = a.monthly ? await a.monthly(trendStart, today) : new Map();
+      const costBy = new Map();
+      if (bk.unit) {
+        const g = await run(`FROM sales SHOW net_items_sold GROUP BY ${GROUP} TIMESERIES month SINCE ${trendStart} UNTIL ${today}`);
+        for (const r of g.rows) { const u = bk.unit(r); if (u !== null) { const k = String(r.month).slice(0, 7); costBy.set(k, (costBy.get(k) || 0) + u * n0(r.net_items_sold)); } }
+      }
+      const rows = rev.rows.map((x) => {
+        const k = String(x.month).slice(0, 7), revenue = n0(x.net_sales), cost = bk.unit ? costBy.get(k) || 0 : Math.max(0, revenue - n0(x.gross_profit)), ad = spend.get(k) || 0, gross = revenue - cost;
+        return { key: k, label: label(k), revenue, cost, gross, ads: ad, profit: gross - ad };
+      });
+      return { rows, hasAds: !!a.monthly };
+    }
   }
 
   if (tab === 'sales') return [
