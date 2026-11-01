@@ -518,3 +518,5 @@ tr.drow{display:none}tr.drow .rkdetail{display:block;margin:4px 0 8px}tr.open+tr
 .repbox>summary::before{content:'▸';margin-right:8px;color:var(--accent)}
 .repbox[open]>summary::before{content:'▾'}
 .repin{padding:0 16px 16px}
+
+.bk-h{margin:16px 0 6px;font-size:.9rem;font-weight:700}
