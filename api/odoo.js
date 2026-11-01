@@ -1,6 +1,6 @@
 import { route, allow, requireAdmin } from './_lib.js';
 import { odooConfig, odooVersion, call, sr, nm, nid, fieldsOf, needModel } from './_odoo.js';
-import { parsePeriod, monthPeriod } from './_period.js';
+import { parsePeriod, monthPeriod, dayList } from './_period.js';
 import { adSpend, profitTiles } from './_profit.js';
 
 const TZ = process.env.DASHBOARD_TZ || 'Africa/Cairo';
@@ -50,6 +50,16 @@ async function costsOf(cfg, ids) {
 }
 const tile = (label, value, fmt, extra = {}) => ({ label, value, fmt, ...extra });
 const rows = (r, limit) => r.slice(0, limit);
+/** Day-by-day series for a card: this period and the comparison, one value per day. */
+const daily = (ctx, cur, prev, dateOf, valOf) => {
+  const da = dayList(ctx.s, ctx.e), db = dayList(ctx.ps, ctx.pe);
+  const fill = (list, days) => { const m = new Map(days.map((d) => [d, 0])); for (const r of list) { const k = String(dateOf(r) || '').slice(0, 10); if (m.has(k)) m.set(k, m.get(k) + valOf(r)); } return days.map((d) => m.get(d)); };
+  return { dates: da, cur: fill(cur, da), cmpDates: db, prev: fill(prev, db) };
+};
+/** What is behind a card: a few totals and the lines that make it up. */
+const bd = (summary, columns, list, note) => ({ summary, columns, rows: list.slice(0, 60), more: Math.max(0, list.length - 60), note });
+const groupBy = (list, keyOf, init, add) => { const m = new Map(); for (const r of list) { const k = keyOf(r); const g = m.get(k) || { name: k, ...init() }; add(g, r); m.set(k, g); } return [...m.values()]; };
+const COL = { name: (l) => ({ key: 'name', label: l, fmt: 'str' }), money: (k, l) => ({ key: k, label: l, fmt: 'money' }), int: (k, l) => ({ key: k, label: l, fmt: 'int' }), pct: (k, l) => ({ key: k, label: l, fmt: 'pct' }), str: (k, l) => ({ key: k, label: l, fmt: 'str' }) };
 
 /* ---------- tabs ---------- */
 function build(tab, cfg, ctx) {
@@ -76,12 +86,16 @@ function build(tab, cfg, ctx) {
       const out = storable.filter((p) => n0(p.qty_available) <= 0);
       const low = storable.filter((p) => n0(p.qty_available) > 0 && n0(p.qty_available) <= (mins.get(p.id) ?? 5));
       const po = await sr(cfg, 'purchase.order', [['state', 'in', ['purchase', 'done']], ['date_order', '>=', dt(s)], ['date_order', '<=', dtEnd(e)]], ['amount_total'], { app: 'Purchase', limit: 5000 }).catch(() => null);
+      const totalCost = sum(storable, cost), totalSale = sum(storable, (p) => Math.max(0, n0(p.qty_available)) * n0(p.list_price));
+      const byCat = groupBy(storable, (p) => nm(p.categ_id) || 'No category', () => ({ products: 0, units: 0, value: 0 }), (g, p) => { g.products++; g.units += Math.max(0, n0(p.qty_available)); g.value += cost(p); }).sort((a, b) => b.value - a.value).map((g) => ({ ...g, share: totalCost ? pct(g.value, totalCost) : null }));
+      const topValue = storable.map((p) => ({ name: p.display_name, units: Math.max(0, n0(p.qty_available)), unit: n0(p.standard_price), value: cost(p), share: totalCost ? pct(cost(p), totalCost) : null })).filter((x) => x.value > 0).sort((a, b) => b.value - a.value);
+      const bSale = storable.map((p) => ({ name: p.display_name, units: Math.max(0, n0(p.qty_available)), price: n0(p.list_price), value: Math.max(0, n0(p.qty_available)) * n0(p.list_price), cost: cost(p) })).filter((x) => x.value > 0).sort((a, b) => b.value - a.value);
       return { tiles: [
-        tile('Stocked products', storable.length, 'int'),
-        tile('Stock value (at cost)', sum(storable, cost), 'money'),
-        tile('Stock value (at sale price)', sum(storable, (p) => Math.max(0, n0(p.qty_available)) * n0(p.list_price)), 'money'),
-        tile('Out of stock', out.length, 'int', { goodDown: true, sub: pct(out.length, storable.length).toFixed(0) + '% of stocked products' }),
-        tile('Running low', low.length, 'int', { goodDown: true, sub: mins.size ? 'at or under the reorder minimum' : 'at 5 units or fewer' }),
+        tile('Stocked products', storable.length, 'int', { breakdown: bd([{ l: 'Categories', v: byCat.length, f: 'int' }, { l: 'Units on hand', v: sum(storable, (p) => Math.max(0, n0(p.qty_available))), f: 'int' }], [COL.name('Category'), COL.int('products', 'Products'), COL.int('units', 'Units'), COL.money('value', 'Stock value'), COL.pct('share', 'Share of value')], byCat) }),
+        tile('Stock value (at cost)', totalCost, 'money', { breakdown: bd([{ l: 'Products with value', v: topValue.length, f: 'int' }], [COL.name('Product'), COL.int('units', 'On hand'), { key: 'unit', label: 'Unit cost', fmt: 'money2' }, COL.money('value', 'Stock value'), COL.pct('share', 'Share of value')], topValue) }),
+        tile('Stock value (at sale price)', totalSale, 'money', { sub: totalSale ? 'potential margin ' + pct(totalSale - totalCost, totalSale).toFixed(0) + '%' : undefined, breakdown: bd([{ l: 'At sale price', v: totalSale, f: 'money' }, { l: 'At cost', v: totalCost, f: 'money' }, { l: 'Potential gross profit', v: totalSale - totalCost, f: 'money' }], [COL.name('Product'), COL.int('units', 'On hand'), { key: 'price', label: 'Sale price', fmt: 'money2' }, COL.money('value', 'Value at sale price'), COL.money('cost', 'Value at cost')], bSale) }),
+        tile('Out of stock', out.length, 'int', { goodDown: true, sub: pct(out.length, storable.length).toFixed(0) + '% of stocked products', breakdown: bd([{ l: 'Out of stock', v: out.length, f: 'int' }, { l: 'Share of stocked products', v: pct(out.length, storable.length), f: 'pct' }], [COL.name('Product'), COL.str('code', 'Reference'), COL.int('min', 'Minimum')], out.map((p) => ({ name: p.display_name, code: p.default_code || '–', min: mins.get(p.id) ?? 5 })), 'Products with nothing on hand.') }),
+        tile('Running low', low.length, 'int', { goodDown: true, sub: mins.size ? 'at or under the reorder minimum' : 'at 5 units or fewer', breakdown: bd([{ l: 'Running low', v: low.length, f: 'int' }], [COL.name('Product'), COL.int('qty', 'On hand'), COL.int('min', 'Minimum')], low.sort((a, b) => n0(a.qty_available) - n0(b.qty_available)).map((p) => ({ name: p.display_name, qty: n0(p.qty_available), min: mins.get(p.id) ?? 5 }))) }),
         ...(po ? [tile('Purchased in this period', sum(po, 'amount_total'), 'money', { sub: po.length + ' purchase orders' })] : []),
       ] };
     }),
@@ -188,20 +202,28 @@ function build(tab, cfg, ctx) {
 
   if (tab === 'sales') return [
     section('kpi', `Sales in ${ctx.monthLabel}`, 'kpi', async () => {
-      const so = (a, b, st) => sr(cfg, 'sale.order', [['state', 'in', st], ['date_order', '>=', dt(a)], ['date_order', '<=', dtEnd(b)]], ['amount_total'], { app: 'Sales', limit: 20000 });
+      const so = (a, b, st) => sr(cfg, 'sale.order', [['state', 'in', st], ['date_order', '>=', dt(a)], ['date_order', '<=', dtEnd(b)]], ['name', 'partner_id', 'amount_total', 'date_order'], { app: 'Sales', limit: 20000 });
       const [cur, prev, quotes, inv, pinv, open] = await Promise.all([
         so(s, e, ['sale', 'done']), so(ps, pe, ['sale', 'done']), so(s, e, ['draft', 'sent']),
         invoices(['out_invoice', 'out_refund'], [['invoice_date', '>=', s], ['invoice_date', '<=', e]]), invoices(['out_invoice', 'out_refund'], [['invoice_date', '>=', ps], ['invoice_date', '<=', pe]]),
         invoices(['out_invoice'], [['payment_state', 'in', ['not_paid', 'partial']]]),
       ]);
       const overdue = open.filter((m) => m.invoice_date_due && m.invoice_date_due < today);
+      const total = sum(cur, 'amount_total'), days = (d) => Math.max(0, Math.round((Date.parse(today) - Date.parse(d)) / 86400000));
+      const byCust = groupBy(cur, (o) => nm(o.partner_id) || 'Unknown', () => ({ orders: 0, value: 0 }), (g, o) => { g.orders++; g.value += n0(o.amount_total); }).sort((a, b) => b.value - a.value).map((g) => ({ ...g, share: total ? pct(g.value, total) : null }));
+      const invLine = (m) => ({ name: m.name, customer: nm(m.partner_id) || 'Unknown', date: m.invoice_date || '–', amount: amt(m) });
+      const owedLine = (m) => ({ name: m.name, customer: nm(m.partner_id) || 'Unknown', due: m.invoice_date_due || '–', owed: resid(m), late: m.invoice_date_due ? days(m.invoice_date_due) : 0 });
+      const owedCols = [COL.name('Invoice'), COL.str('customer', 'Customer'), COL.str('due', 'Due'), COL.money('owed', 'Still owed'), { key: 'late', label: 'Days late', fmt: 'days' }];
       return { tiles: [
-        tile('Confirmed orders', cur.length, 'int', { prev: (await so(ps, pe, ['sale', 'done'])).length }),
-        tile('Order value', sum(cur, 'amount_total'), 'money', { prev: sum(prev, 'amount_total') }),
-        tile('Open quotations', quotes.length, 'int', { sub: 'worth ' + Math.round(sum(quotes, 'amount_total')).toLocaleString() }),
-        tile('Invoiced', sum(inv, amt), 'money', { prev: sum(pinv, amt) }),
-        tile('Waiting to be paid', sum(open, resid), 'money', { goodDown: true, sub: open.length + ' invoices' }),
-        tile('Overdue', sum(overdue, resid), 'money', { goodDown: true, sub: overdue.length + ' invoices past their due date' }),
+        tile('Confirmed orders', cur.length, 'int', { prev: (await so(ps, pe, ['sale', 'done'])).length, daily: daily(ctx, cur, prev, (o) => o.date_order, () => 1),
+          breakdown: bd([{ l: 'Customers', v: byCust.length, f: 'int' }, { l: 'Average order', v: cur.length ? total / cur.length : 0, f: 'money' }], [COL.name('Order'), COL.str('customer', 'Customer'), COL.str('date', 'Date'), COL.money('value', 'Value')], cur.slice().sort((a, b) => n0(b.amount_total) - n0(a.amount_total)).map((o) => ({ name: o.name, customer: nm(o.partner_id) || 'Unknown', date: String(o.date_order).slice(0, 10), value: n0(o.amount_total) }))) }),
+        tile('Order value', total, 'money', { prev: sum(prev, 'amount_total'), daily: daily(ctx, cur, prev, (o) => o.date_order, (o) => n0(o.amount_total)),
+          breakdown: bd([{ l: 'Customers', v: byCust.length, f: 'int' }, { l: 'Orders', v: cur.length, f: 'int' }, { l: 'Average order', v: cur.length ? total / cur.length : 0, f: 'money' }], [COL.name('Customer'), COL.int('orders', 'Orders'), COL.money('value', 'Order value'), COL.pct('share', 'Share')], byCust) }),
+        tile('Open quotations', quotes.length, 'int', { sub: 'worth ' + Math.round(sum(quotes, 'amount_total')).toLocaleString(), breakdown: bd([{ l: 'Total value', v: sum(quotes, 'amount_total'), f: 'money' }], [COL.name('Quotation'), COL.str('customer', 'Customer'), COL.str('date', 'Date'), COL.money('value', 'Value')], quotes.slice().sort((a, b) => n0(b.amount_total) - n0(a.amount_total)).map((o) => ({ name: o.name, customer: nm(o.partner_id) || 'Unknown', date: String(o.date_order).slice(0, 10), value: n0(o.amount_total) }))) }),
+        tile('Invoiced', sum(inv, amt), 'money', { prev: sum(pinv, amt), daily: daily(ctx, inv, pinv, (m) => m.invoice_date, amt),
+          breakdown: bd([{ l: 'Invoices', v: inv.length, f: 'int' }], [COL.name('Invoice'), COL.str('customer', 'Customer'), COL.str('date', 'Date'), COL.money('amount', 'Amount')], inv.map(invLine).sort((a, b) => b.amount - a.amount)) }),
+        tile('Waiting to be paid', sum(open, resid), 'money', { goodDown: true, sub: open.length + ' invoices', breakdown: bd([{ l: 'Open invoices', v: open.length, f: 'int' }], owedCols, open.map(owedLine).sort((a, b) => b.owed - a.owed)) }),
+        tile('Overdue', sum(overdue, resid), 'money', { goodDown: true, sub: overdue.length + ' invoices past their due date', breakdown: bd([{ l: 'Overdue invoices', v: overdue.length, f: 'int' }], owedCols, overdue.map(owedLine).sort((a, b) => b.owed - a.owed)) }),
       ] };
     }),
     section('trend', 'Last 12 months', 'trend', async () => {
@@ -238,12 +260,18 @@ function build(tab, cfg, ctx) {
       const [recv, pay] = await Promise.all([invoices(['out_invoice'], [['payment_state', 'in', ['not_paid', 'partial']]]), invoices(['in_invoice'], [['payment_state', 'in', ['not_paid', 'partial']]])]);
       const money = (a, b, dir) => sr(cfg, 'account.payment', [['payment_type', '=', dir], ['state', 'in', ['posted', 'paid']], ['date', '>=', a], ['date', '<=', b]], ['amount'], { app: 'Accounting', limit: 20000 }).then((r) => sum(r, 'amount')).catch(() => null);
       const [pr, ps2] = await Promise.all([money(s, e, 'inbound'), money(s, e, 'outbound')]);
+      const who = (list, val) => { const t = sum(list, val); return groupBy(list, (m) => nm(m.partner_id) || 'Unknown', () => ({ count: 0, amount: 0 }), (g, m) => { g.count++; g.amount += val(m); }).sort((a, b) => b.amount - a.amount).map((g) => ({ ...g, share: t ? pct(g.amount, t) : null })); };
+      const whoCols = (first, c) => [COL.name(first), COL.int('count', c), COL.money('amount', 'Amount'), COL.pct('share', 'Share')];
+      const owed = (list) => list.map((m) => ({ name: m.name, who: nm(m.partner_id) || 'Unknown', due: m.invoice_date_due || '–', owed: resid(m) })).sort((a, b) => b.owed - a.owed);
+      const owedCols = (w) => [COL.name('Document'), COL.str('who', w), COL.str('due', 'Due'), COL.money('owed', 'Still open')];
+      const dIn = daily(ctx, inn, pin, (m) => m.invoice_date, amt), dOut = daily(ctx, out, pout, (m) => m.invoice_date, amt);
       return { tiles: [
-        tile('Invoiced to customers', sum(inn, amt), 'money', { prev: sum(pin, amt) }),
-        tile('Bills from suppliers', sum(out, amt), 'money', { prev: sum(pout, amt), goodDown: true }),
-        tile('Difference', sum(inn, amt) - sum(out, amt), 'money', { prev: sum(pin, amt) - sum(pout, amt), sub: 'invoiced minus bills' }),
-        tile('Customers owe you', sum(recv, resid), 'money', { sub: recv.length + ' open invoices' }),
-        tile('You owe suppliers', sum(pay, resid), 'money', { goodDown: true, sub: pay.length + ' open bills' }),
+        tile('Invoiced to customers', sum(inn, amt), 'money', { prev: sum(pin, amt), daily: dIn, breakdown: bd([{ l: 'Invoices', v: inn.length, f: 'int' }, { l: 'Customers', v: who(inn, amt).length, f: 'int' }], whoCols('Customer', 'Invoices'), who(inn, amt)) }),
+        tile('Bills from suppliers', sum(out, amt), 'money', { prev: sum(pout, amt), goodDown: true, daily: dOut, breakdown: bd([{ l: 'Bills', v: out.length, f: 'int' }, { l: 'Suppliers', v: who(out, amt).length, f: 'int' }], whoCols('Supplier', 'Bills'), who(out, amt)) }),
+        tile('Difference', sum(inn, amt) - sum(out, amt), 'money', { prev: sum(pin, amt) - sum(pout, amt), sub: 'invoiced minus bills', daily: { ...dIn, cur: dIn.cur.map((v, i) => v - dOut.cur[i]), prev: dIn.prev.map((v, i) => v - dOut.prev[i]) },
+          breakdown: { summary: [{ l: 'Invoiced', v: sum(inn, amt), f: 'money' }, { l: 'Bills', v: sum(out, amt), f: 'money' }], columns: [{ key: 'step', label: 'Step', fmt: 'str' }, { key: 'amount', label: 'Amount', fmt: 'money' }], rows: [{ step: 'Invoiced to customers', amount: sum(inn, amt) }, { step: 'Bills from suppliers', amount: -sum(out, amt) }, { step: 'Difference', amount: sum(inn, amt) - sum(out, amt) }], more: 0 } }),
+        tile('Customers owe you', sum(recv, resid), 'money', { sub: recv.length + ' open invoices', breakdown: bd([{ l: 'Open invoices', v: recv.length, f: 'int' }], owedCols('Customer'), owed(recv)) }),
+        tile('You owe suppliers', sum(pay, resid), 'money', { goodDown: true, sub: pay.length + ' open bills', breakdown: bd([{ l: 'Open bills', v: pay.length, f: 'int' }], owedCols('Supplier'), owed(pay)) }),
         ...(pr !== null ? [tile('Payments received', pr, 'money'), tile('Payments sent', ps2, 'money')] : []),
       ] };
     }, 'These are invoices and bills posted in Odoo. A full profit and loss needs your chart of accounts; ask and I will add it.'),

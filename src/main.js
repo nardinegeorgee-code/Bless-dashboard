@@ -910,6 +910,24 @@ function renderAnalytics(L){
 }
 
 
+function odHeroSpec(tab,secs){
+  if(tab==='profit')return heroSpec('profit',secs);
+  const by=id=>secs.find(x=>x.id===id&&!x.error),k=by('kpi'),tr=by('trend');if(!k)return {};
+  const T=k.tiles,g=l=>T.find(t=>t.label===l),mini=(l,t)=>t?{l,v:fv(t.value,t.fmt)}:null;
+  const main={inventory:'Stock value (at cost)',sales:'Order value',accounting:'Difference',hr:'Employees'}[tab],m=g(main);if(!m)return {};
+  const minis={inventory:[['Stocked products'],['Out of stock'],['Running low']],sales:[['Confirmed orders'],['Invoiced'],['Overdue']],accounting:[['Invoiced to customers'],['Bills from suppliers'],['Customers owe you']],hr:[['Departments'],['Hours worked'],['Approved time off']]}[tab].map(([l])=>mini(l,g(l))).filter(Boolean);
+  const key={sales:'orders',accounting:'net'}[tab],rows=tr&&key?tr.rows:null;
+  return {label:main,value:fv(m.value,m.fmt),chip:m.prev!==undefined&&m.prev?chip(Math.round((m.value-m.prev)/m.prev*1000)/10,m.goodDown):'',minis,spark:rows?rows.map(r=>r.values[key]):null,sel:rows?rows.findIndex(r=>r.key===perMonthSel()):-1,rows};
+}
+function odooHero(d){
+  const sp=odHeroSpec(d.tab,d.sections),info={inventory:'Stock and purchasing',sales:'Orders and invoices',profit:'Revenue, product cost and ad spend',accounting:'Money in and out',hr:'People and attendance'}[d.tab];
+  const rows=sp.rows||(()=>{const t=d.sections.find(x=>x.id==='trend'&&!x.error);return t?t.rows:null})();
+  return `<section class="hero"><div class="hero-top"><div><span class="eyebrow">Odoo${d.company?' · '+esc(d.company):''} · ${esc(d.monthLabel)}</span>${sp.value?`<div class="hero-n${sp.small?' sm':''}">${sp.value}</div><div><span class="hero-vs">${esc(sp.label)}</span> ${sp.chip||''}</div>`:`<div class="hero-n sm">${esc(info)}</div>`}${d.version?`<div><span class="hero-vs">Odoo ${esc(d.version)}</span></div>`:''}</div>
+    <div style="display:grid;gap:10px;justify-items:end"><div class="hero-actions"><button class="btn light" data-act="od-refresh" ${S.od.loading?'disabled':''}>${S.od.loading?'Loading…':'Refresh numbers'}</button></div>
+      ${sp.minis&&sp.minis.length?`<div class="minis">${sp.minis.map(m=>`<div class="mini"><span class="eyebrow">${esc(m.l)}</span><b>${m.v}</b></div>`).join('')}</div>`:''}</div></div>
+    ${sp.spark&&sp.spark.length>1?areaSpark(sp.spark,sp.sel):''}${sp.spark&&sp.spark.length>1&&rows?`<div class="hero-foot"><span>${esc(rows[0].label)}</span><span>12 months of ${esc((sp.label||'').toLowerCase())}</span><span>${esc(rows[rows.length-1].label)}</span></div>`:''}</section>`;
+}
+
 /* ---------- Odoo ---------- */
 const OD_TABS=[['inventory','Inventory'],['sales','Sales & invoices'],['profit','Profit'],['accounting','Accounting'],['hr','Employees']];
 S.od={tab:'inventory',month:'',cache:{},loading:false,err:'',data:null};
@@ -934,10 +952,8 @@ function renderOdoo(){
   const od=S.od,d=od.data,tabs=`<div class="subtabs" role="tablist">${OD_TABS.map(([k,l])=>`<button role="tab" class="subtab${od.tab===k?' on':''}" aria-selected="${od.tab===k}" data-act="od-tab" data-tab="${k}">${l}</button>`).join('')}</div>`;
   if(!d||d.tab!==od.tab){L.innerHTML=tabs+(od.err?`<div class="empty"><b>Could not reach Odoo</b><span>${esc(od.err)}</span><button class="btn" data-act="od-refresh">Try again</button></div>`:empty('Loading…','Asking Odoo for the numbers. This can take a few seconds.'));return}
   if(d.configured===false){L.innerHTML=tabs+odooSetup(d.missing);return}
-  const info={inventory:'Stock and purchasing',sales:'Orders and invoices',profit:'Revenue, product cost and ad spend',accounting:'Money in and out',hr:'People and attendance'}[d.tab];
   const y=window.scrollY;
-  L.innerHTML=tabs+dateBar(d)+`<section class="hero"><div class="hero-top"><div><span class="eyebrow">Odoo${d.company?' · '+esc(d.company):''} · ${esc(d.monthLabel)}</span><div class="hero-n sm">${esc(info)}</div>${d.version?`<div><span class="hero-vs">Odoo ${esc(d.version)}</span></div>`:''}</div>
-    <div class="hero-actions"><button class="btn light" data-act="od-refresh" ${od.loading?'disabled':''}>${od.loading?'Loading…':'Refresh numbers'}</button></div></div></section>`
+  L.innerHTML=tabs+dateBar(d)+odooHero(d)
     +(od.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(od.err)}</p></div>`:'')+highlights(d.sections)+d.sections.map(anSection).join('');
   window.scrollTo(0,y);
 }
