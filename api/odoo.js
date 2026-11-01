@@ -361,7 +361,7 @@ function build(tab, cfg, ctx) {
         const filled = Object.fromEntries(repFields.map((f) => [f, orders.filter((o) => val(o, f)).length])), order = [...repFields].sort((a, b) => (a === 'user_id') - (b === 'user_id') || filled[b] - filled[a]);
         const who = (o) => { for (const f of order) if (val(o, f)) return val(o, f); return 'No salesperson'; }, inR = (d, a, b) => d >= a && d <= b;
         const byName = new Map(orders.map((o) => [o.name, who(o)])), info = new Map(orders.map((o) => [o.id, { rep: who(o), day: String(o.date_order).slice(0, 10), customer: nm(o.partner_id) || 'Unknown', city: city.get(addr(o)) || city.get(nid(o.partner_id)) || 'Unknown' }]));
-        const reps = new Map(); const R = (name) => { if (!reps.has(name)) reps.set(name, { name, cur: { sales: 0, orders: 0, units: 0, invoiced: 0, invoices: 0 }, prev: { sales: 0, orders: 0, units: 0, invoiced: 0, invoices: 0 }, months: new Map(m12.map((k) => [k, { key: k, label: label(k), sales: 0, orders: 0, units: 0, invoiced: 0 }])), cities: new Map(), customers: new Map(), prods: new Map(), prodDist: new Map(), custProd: new Map(), cityDist: new Map(), invoiceList: [] }); return reps.get(name); };
+        const reps = new Map(); const R = (name) => { if (!reps.has(name)) reps.set(name, { name, cur: { sales: 0, orders: 0, units: 0, invoiced: 0, invoices: 0 }, prev: { sales: 0, orders: 0, units: 0, invoiced: 0, invoices: 0 }, months: new Map(m12.map((k) => [k, { key: k, label: label(k), sales: 0, orders: 0, units: 0, invoiced: 0 }])), cities: new Map(), customers: new Map(), prods: new Map(), prodDist: new Map(), custCity: new Map(), custProd: new Map(), cityDist: new Map(), invoiceList: [] }); return reps.get(name); };
         const nest = (m, a, b, init) => { if (!m.has(a)) m.set(a, new Map()); const x = m.get(a); if (!x.has(b)) x.set(b, init()); return x.get(b); };
         const bump = (map, key, f) => { const g = map.get(key) || { name: key, orders: 0, units: 0, sales: 0, ids: new Set() }; f(g); map.set(key, g); };
         for (const o of orders) {
@@ -369,7 +369,7 @@ function build(tab, cfg, ctx) {
           if (mo) { mo.sales += v; mo.orders++; }
           const w = inR(i.day, s, e) ? r.cur : inR(i.day, ps, pe) ? r.prev : null;
           if (w) { w.sales += v; w.orders++; }
-          if (w === r.cur) { for (const [map, key] of [[r.cities, i.city], [r.customers, i.customer]]) bump(map, key, (g) => { g.orders++; g.sales += v; }); }
+          if (w === r.cur) { for (const [map, key] of [[r.cities, i.city], [r.customers, i.customer]]) bump(map, key, (g) => { g.orders++; g.sales += v; }); nest(r.custCity, i.customer, i.city, () => ({ n: 0 })).n++; }
         }
         for (const l of lines) {
           const i = info.get(nid(l.order_id)); if (!i) continue; const r = R(i.rep), q = n0(l.product_uom_qty), v = n0(l.price_subtotal), mo = r.months.get(i.day.slice(0, 7));
@@ -398,18 +398,19 @@ function build(tab, cfg, ctx) {
             const invoices = r.invoiceList.sort((a, b) => b.amount - a.amount);
             const invOf = (cust) => invoices.filter((x) => x.customer === cust);
             const prodRows = (m) => [...(m || new Map()).entries()].map(([name, g]) => ({ name, units: g.units, sales: g.sales })).sort((a, b) => b.units - a.units);
-            const custs = list(r.customers).map((g) => { const inv = invOf(g.name); return { ...g, invoices: inv.length, invoiced: inv.reduce((a, x) => a + x.amount, 0),
-              breakdown: { summary: [{ l: 'Invoices', v: inv.length, f: 'int' }, { l: 'Invoiced', v: inv.reduce((a, x) => a + x.amount, 0), f: 'money' }, { l: 'Products bought', v: (r.custProd.get(g.name) || new Map()).size, f: 'int' }, { l: 'Units', v: g.units, f: 'int' }],
+            const cityOf = (c) => [...(r.custCity.get(c) || new Map()).entries()].sort((a, b) => b[1].n - a[1].n)[0]?.[0] || 'Unknown';
+            const custs = list(r.customers).map((g) => { const inv = invOf(g.name); return { ...g, city: cityOf(g.name), invoices: inv.length, invoiced: inv.reduce((a, x) => a + x.amount, 0),
+              breakdown: { plain: true, summary: [{ l: 'Invoices', v: inv.length, f: 'int' }, { l: 'Invoiced', v: inv.reduce((a, x) => a + x.amount, 0), f: 'money' }, { l: 'Products bought', v: (r.custProd.get(g.name) || new Map()).size, f: 'int' }, { l: 'Units', v: g.units, f: 'int' }],
                 columns: [{ key: 'name', label: 'Invoice', fmt: 'str' }, { key: 'date', label: 'Date', fmt: 'str' }, { key: 'amount', label: 'Amount', fmt: 'money' }, { key: 'status', label: 'Payment', fmt: 'str' }], rows: inv.slice(0, 60), more: Math.max(0, inv.length - 60), note: inv.length ? undefined : 'No invoices for this distributor in this period.',
                 extra: [{ title: 'Units per product', columns: PCOL, rows: prodRows(r.custProd.get(g.name)).slice(0, 60) }] } }; });
-            const prods = list(r.prods).map((g) => { const d = distRows(r.prodDist.get(g.name)); return { ...g, distributors: d.length, breakdown: { summary: [{ l: 'Distributors', v: d.length, f: 'int' }, { l: 'Units', v: g.units, f: 'int' }, { l: 'Orders', v: g.orders, f: 'int' }], columns: DCOL, rows: d.slice(0, 60), more: Math.max(0, d.length - 60) } }; });
-            const cities = list(r.cities).map((g) => { const d = distRows(r.cityDist.get(g.name)); return { ...g, distributors: d.length, breakdown: { summary: [{ l: 'Distributors', v: d.length, f: 'int' }, { l: 'Units', v: g.units, f: 'int' }], columns: DCOL, rows: d.slice(0, 60), more: Math.max(0, d.length - 60) } }; });
+            const prods = list(r.prods).map((g) => { const d = distRows(r.prodDist.get(g.name)); return { ...g, distributors: d.length, breakdown: { plain: true, summary: [{ l: 'Distributors', v: d.length, f: 'int' }, { l: 'Units', v: g.units, f: 'int' }, { l: 'Orders', v: g.orders, f: 'int' }], columns: DCOL, rows: d.slice(0, 60), more: Math.max(0, d.length - 60) } }; });
+            const cities = list(r.cities).map((g) => { const d = distRows(r.cityDist.get(g.name)); return { ...g, distributors: d.length, breakdown: { plain: true, summary: [{ l: 'Distributors', v: d.length, f: 'int' }, { l: 'Units', v: g.units, f: 'int' }], columns: DCOL, rows: d.slice(0, 60), more: Math.max(0, d.length - 60) } }; });
             const allProd = [...r.prods.values()].sort((a, b) => b.units - a.units).map((g) => ({ name: g.name, units: g.units, sales: g.sales, distributors: (r.prodDist.get(g.name) || new Map()).size }));
             const allCust = [...r.customers.values()].sort((a, b) => b.sales - a.sales).map((g) => { const inv = invOf(g.name); return { name: g.name, orders: g.ids && g.ids.size ? g.ids.size : g.orders, units: g.units, sales: g.sales, invoices: inv.length, invoiced: inv.reduce((a, x) => a + x.amount, 0) }; });
-            const breakdown = { summary: [{ l: 'Distributors', v: allCust.length, f: 'int' }, { l: 'Invoices', v: r.cur.invoices, f: 'int' }, { l: 'Products', v: allProd.length, f: 'int' }, { l: 'Units', v: r.cur.units, f: 'int' }],
+            const breakdown = { plain: true, summary: [{ l: 'Distributors', v: allCust.length, f: 'int' }, { l: 'Invoices', v: r.cur.invoices, f: 'int' }, { l: 'Products', v: allProd.length, f: 'int' }, { l: 'Units', v: r.cur.units, f: 'int' }],
               columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'distributors', label: 'Distributors', fmt: 'int' }, { key: 'sales', label: 'Sales', fmt: 'money' }], rows: allProd.slice(0, 60), more: Math.max(0, allProd.length - 60),
               extra: [{ title: 'Distributors and their invoices', columns: [{ key: 'name', label: 'Distributor', fmt: 'str' }, { key: 'invoices', label: 'Invoices', fmt: 'int' }, { key: 'invoiced', label: 'Invoiced', fmt: 'money' }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'sales', label: 'Sales', fmt: 'money' }], rows: allCust.slice(0, 60) }] };
-            return { name: r.name, cur: r.cur, prev: r.prev, months: [...r.months.values()], cities, customers: custs, products: prods, invoices: invoices.slice(0, 60), breakdown };
+            return { name: r.name, distributors: allCust.length, productsCount: allProd.length, cur: r.cur, prev: r.prev, months: [...r.months.values()], cities, customers: custs, products: prods, invoices: invoices.slice(0, 60), breakdown };
           })
           .sort((a, b) => b.cur.sales - a.cur.sales).slice(0, 40);
         const used = order.filter((f) => filled[f]).map((f) => `${metaF[f] ? metaF[f].string : f} (${filled[f]} of ${orders.length} orders)`);

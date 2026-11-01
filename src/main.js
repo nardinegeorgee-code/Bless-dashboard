@@ -817,7 +817,7 @@ function breakdownHtml(b){
   const sum=(b.summary||[]).map(x=>`<span class="bk-s"><em>${esc(x.l)}</em><b>${esc(fv(x.v,x.f))}</b></span>`).join('');
   const head=b.columns.map(c=>`<th class="${c.fmt==='str'?'':'num'}">${esc(c.label)}</th>`).join('');
   const body=b.rows.map(r=>`<tr>${b.columns.map(c=>{const v=r[c.key];return `<td class="${c.fmt==='str'?'':'num'}">${v===null||v===undefined?'–':esc(c.fmt==='str'?String(v):fv(v,c.fmt))}</td>`}).join('')}</tr>`).join('');
-  const chart=b.columns[0].key==='step'?waterfall(b):bkBars(b);
+  const chart=b.plain?'':b.columns[0].key==='step'?waterfall(b):bkBars(b);
   const tbl=b.rows.length?`<div><div class="bk-wrap"><table class="bk-t"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>${b.more?`<p class="muted dn">Showing the first ${b.rows.length}. ${b.more} more are not listed.</p>`:''}</div>`:'';
   const more=(b.extra||[]).map(x=>`<h4 class="bk-h">${esc(x.title)}</h4><div class="bk-wrap"><table class="bk-t"><thead><tr>${x.columns.map(c=>`<th class="${c.fmt==='str'?'':'num'}">${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${x.rows.map(r=>`<tr>${x.columns.map(c=>{const v=r[c.key];return `<td class="${c.fmt==='str'?'':'num'}">${v===null||v===undefined?'–':esc(c.fmt==='str'?String(v):fv(v,c.fmt))}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>`).join('');
   return `<div class="bk">${sum?`<div class="bk-sum">${sum}</div>`:''}${b.note?`<p class="muted dn">${esc(b.note)}</p>`:''}<div class="${chart?'splitc':''}">${tbl}${chart}</div>${more}</div>`;
@@ -827,6 +827,7 @@ function tileDetail(t){
   return `<div class="dl"><span>${esc(per)}</span><b class="mono">${esc(fv(t.value,t.fmt))}</b></div>${t.prev!==undefined?diffLine(cmp?'Compared with '+cmp:'Before',t.value,t.prev,t.fmt):'<p class="muted dn">No earlier figure is available for this one.</p>'}${t.sub?`<p class="muted dn">${esc(t.sub)}</p>`:''}${t.breakdown?breakdownHtml(t.breakdown):''}${t.daily&&t.daily.cur&&t.daily.cur.length>1?dailyChart(t.daily,t.fmt):''}`;
 }
 function rowDetail(sec,r,i,barCol,total){
+  if(r.only&&r.breakdown)return breakdownHtml(r.breakdown);
   const cols=sec.columns,name=cols[0];let h=(r.img?`<a class="pbig"${/^https?:/.test(r.img)?` href="${esc(r.img)}" target="_blank" rel="noopener"`:''}><img src="${esc(picUrl(r.img,640))}" ${/^https:\/\/cdn\.shopify\.com\//.test(r.img)?`srcset="${esc(picUrl(r.img,640))} 1x, ${esc(picUrl(r.img,1280))} 2x"`:''} alt="${esc(String(r.name||''))}" loading="lazy" referrerpolicy="no-referrer"></a>`:'')+`<div class="dl"><span>Rank</span><b class="mono">#${i+1} of ${sec.rows.length}</b></div>`;
   for(const c of cols.slice(1)){const v=r[c.key];if(v===null||v===undefined||v==='')continue;h+=`<div class="dl"><span>${esc(c.label)}</span><b class="mono">${cellText(v,c.fmt)}</b></div>`}
   if(barCol&&total>0){const v=Number(r[barCol.key])||0;h+=`<div class="dl"><span>Share of the ${sec.rows.length} listed</span><b class="mono">${(v/total*100).toFixed(1)}%</b></div>`}
@@ -930,26 +931,24 @@ function odooHero(d){
     ${sp.spark&&sp.spark.length>1?areaSpark(sp.spark,sp.sel):''}${sp.spark&&sp.spark.length>1&&rows?`<div class="hero-foot"><span>${esc(rows[0].label)}</span><span>12 months of ${esc((sp.label||'').toLowerCase())}</span><span>${esc(rows[rows.length-1].label)}</span></div>`:''}</section>`;
 }
 
-/* Every salesperson gets their own block: totals, month by month, and what they sold by city, distributor, product and invoice. */
+/* Sales by salesperson: plain tables only. Click a line to see what is behind it. */
 function anReps(sec){
   if(!sec.people.length)return `<p class="muted">${esc(sec.empty)}</p>`;
-  const T=(cols,rows,empty)=>anTable({columns:cols,rows,empty});
-  const lst=(first,extra)=>[{key:'name',label:first,fmt:'str'},{key:'sales',label:'Sales',fmt:'money',bar:true},{key:'orders',label:'Orders',fmt:'int'},{key:'units',label:'Units',fmt:'int'},...(extra||[])];
-  const team=T([{key:'name',label:'Salesperson',fmt:'str'},{key:'sales',label:'Sales (before tax)',fmt:'money',bar:true},{key:'orders',label:'Orders',fmt:'int'},{key:'units',label:'Units',fmt:'int'},{key:'invoiced',label:'Invoiced',fmt:'money'}],sec.people.map(x=>({name:x.name,sales:x.cur.sales,orders:x.cur.orders,units:x.cur.units,invoiced:x.cur.invoiced,breakdown:x.breakdown})));
+  const plain=(cols,rows,empty)=>anTable({columns:cols,rows:rows.map(r=>r.breakdown?{...r,only:true}:r),empty});
+  const col=(key,label,fmt)=>({key,label,fmt});
+  const team=plain([col('name','Salesperson','str'),col('sales','Sales (before tax)','money'),col('orders','Orders','int'),col('units','Units','int'),col('distributors','Distributors','int'),col('invoices','Invoices','int'),col('invoiced','Invoiced','money')],
+    sec.people.map(x=>({name:x.name,sales:x.cur.sales,orders:x.cur.orders,units:x.cur.units,distributors:x.distributors,invoices:x.cur.invoices,invoiced:x.cur.invoiced,breakdown:x.breakdown})));
   const one=(p,n)=>{
-    const c=p.cur,q=p.prev;
-    const tiles=[{label:'Sales',value:c.sales,prev:q.sales,fmt:'money'},{label:'Orders',value:c.orders,prev:q.orders,fmt:'int'},{label:'Units sold',value:c.units,prev:q.units,fmt:'int'},{label:'Invoiced',value:c.invoiced,prev:q.invoiced,fmt:'money',sub:c.invoices+' invoices'},{label:'Average order',value:c.orders?c.sales/c.orders:0,prev:q.orders?q.sales/q.orders:0,fmt:'money'}];
-    const tr={id:'rep'+n,rows:p.months.map(m=>({key:m.key,label:m.label,values:{sales:m.sales,invoiced:m.invoiced,units:m.units}})),metrics:[{key:'sales',label:'Sales',fmt:'money'},{key:'invoiced',label:'Invoiced',fmt:'money'},{key:'units',label:'Units',fmt:'int'}]};
+    const c=p.cur,stat=(l,v)=>`<span class="rs"><em>${esc(l)}</em><b>${esc(v)}</b></span>`;
     return `<details class="repbox"${n===0?' open':''}><summary><b>${esc(p.name)}</b><span class="muted">${esc(fv(c.sales,'money'))} · ${fmtNum(c.orders)} orders · ${fmtNum(c.units)} units</span></summary>
-    <div class="repin">${anKpi({tiles})}
-    <h3 class="sub">Month by month</h3>${anTrend(tr)}
-    ${T([{key:'label',label:'Month',fmt:'str'},{key:'sales',label:'Sales',fmt:'money'},{key:'orders',label:'Orders',fmt:'int'},{key:'units',label:'Units',fmt:'int'},{key:'invoiced',label:'Invoiced',fmt:'money'}],p.months.slice().reverse(),'No sales.')}
-    <p class="muted" style="font-size:.85rem">Click any line to see the detail behind it.</p><h3 class="sub">By city</h3>${T(lst('City',[{key:'distributors',label:'Distributors',fmt:'int'}]),p.cities,'No sales in this period.')}
-    <h3 class="sub">By distributor</h3>${T(lst('Distributor',[{key:'invoices',label:'Invoices',fmt:'int'},{key:'invoiced',label:'Invoiced',fmt:'money'}]),p.customers,'No sales in this period.')}
-    <h3 class="sub">By product and quantity</h3>${T(lst('Product',[{key:'distributors',label:'Distributors',fmt:'int'}]),p.products,'No sales in this period.')}
-    <h3 class="sub">Invoices</h3>${T([{key:'name',label:'Invoice',fmt:'str'},{key:'customer',label:'Distributor',fmt:'str'},{key:'date',label:'Date',fmt:'str'},{key:'amount',label:'Amount',fmt:'money'},{key:'status',label:'Payment',fmt:'str'}],p.invoices,'No invoices in this period.')}</div></details>`;
+    <div class="repin"><div class="repsum">${stat('Sales',fv(c.sales,'money'))}${stat('Orders',fmtNum(c.orders))}${stat('Units',fmtNum(c.units))}${stat('Distributors',fmtNum(p.distributors))}${stat('Invoices',fmtNum(c.invoices))}${stat('Invoiced',fv(c.invoiced,'money'))}</div>
+    <h3 class="sub">Products</h3>${plain([col('name','Product','str'),col('units','Units','int'),col('distributors','Distributors','int'),col('orders','Orders','int'),col('sales','Sales','money')],p.products,'No sales in this period.')}
+    <h3 class="sub">Distributors</h3>${plain([col('name','Distributor','str'),col('city','City','str'),col('invoices','Invoices','int'),col('invoiced','Invoiced','money'),col('units','Units','int'),col('orders','Orders','int'),col('sales','Sales','money')],p.customers,'No sales in this period.')}
+    <h3 class="sub">Cities</h3>${plain([col('name','City','str'),col('distributors','Distributors','int'),col('units','Units','int'),col('orders','Orders','int'),col('sales','Sales','money')],p.cities,'No sales in this period.')}
+    <h3 class="sub">Month by month</h3>${plain([col('label','Month','str'),col('sales','Sales','money'),col('orders','Orders','int'),col('units','Units','int'),col('invoiced','Invoiced','money')],p.months.slice().reverse(),'No sales.')}
+    <h3 class="sub">Invoices</h3>${plain([col('name','Invoice','str'),col('customer','Distributor','str'),col('date','Date','str'),col('amount','Amount','money'),col('status','Payment','str')],p.invoices,'No invoices in this period.')}</div></details>`;
   };
-  return `${sec.source?`<p class="muted" style="font-size:.85rem">${esc(sec.source)}</p>`:''}<h3 class="sub">Everyone, this period</h3>${team}<h3 class="sub" style="margin-top:20px">Each salesperson</h3>${sec.people.map(one).join('')}`;
+  return `${sec.source?`<p class="muted" style="font-size:.85rem">${esc(sec.source)}</p>`:''}<h3 class="sub">Everyone</h3>${team}<h3 class="sub" style="margin-top:22px">Each salesperson</h3><p class="muted" style="font-size:.85rem">Click any line to see the detail behind it.</p>${sec.people.map(one).join('')}`;
 }
 /* ---------- Odoo ---------- */
 const OD_TABS=[['inventory','Inventory'],['sales','Sales & invoices'],['profit','Profit'],['accounting','Accounting'],['hr','Employees']];
