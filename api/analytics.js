@@ -229,7 +229,7 @@ function buildShopifyTabs(tab, ctx, run) {
         const { rows, hasAds } = await monthRows();
         const cols = [{ key: 'month', label: 'Month', fmt: 'str' }, { key: 'revenue', label: 'Net revenue', fmt: 'money' }, { key: 'cost', label: 'Product cost', fmt: 'money' }, { key: 'gross', label: 'Gross profit', fmt: 'money' }];
         if (hasAds) cols.push({ key: 'ads', label: 'Ad spend', fmt: 'money' }, { key: 'profit', label: 'Profit after ads', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' });
-        return { columns: cols, rows: rows.slice().reverse().map((x) => ({ month: x.label, revenue: x.revenue, cost: x.cost, gross: x.gross, ads: x.ads, profit: x.profit, margin: x.revenue ? pct(x.profit, x.revenue) : null })), empty: 'No sales in these months.' };
+        return { columns: cols, rows: rows.slice().reverse().map((x) => ({ key: x.key, month: x.label, revenue: x.revenue, cost: x.cost, gross: x.gross, ads: x.ads, profit: x.profit, margin: x.revenue ? pct(x.profit, x.revenue) : null })), empty: 'No sales in these months.' };
       }),
       section('cost', `Cost per product (${monthLabel})`, 'table', async () => {
         const bk = await book();

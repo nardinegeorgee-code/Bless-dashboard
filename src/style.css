@@ -504,3 +504,8 @@ tr.drow{display:none}tr.drow .rkdetail{display:block;margin:4px 0 8px}tr.open+tr
 .wf{width:100%;height:auto;display:block}.wv{font-size:9px;font-weight:700;fill:var(--ink);font-family:var(--f-body)}.wl{font-size:9px;fill:var(--muted);font-family:var(--f-body)}
 .mc2{width:100%;height:auto;display:block}
 .dleg3{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:4px 16px;font-size:.78rem;color:var(--muted)}.dleg3 i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px}.dleg3 i.ln{height:3px;border-radius:2px;width:14px;vertical-align:middle}
+
+.viz-h{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.viz-h .select{width:auto;padding:6px 9px}
+.viz-h .viz-t{font-family:var(--f-display);font-size:1.15rem;color:var(--ink)}
+.tipbox{position:fixed;z-index:60;display:none;max-width:280px;background:var(--ink);color:#fff;font-size:.8rem;line-height:1.35;padding:7px 10px;border-radius:8px;pointer-events:none;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+.mc2 g[data-tip]{cursor:default}.mc2 g[data-tip]:hover rect:nth-child(2){filter:brightness(1.08)}
