@@ -127,6 +127,9 @@ export function monthPeriod(key, tz) {
   return parsePeriod({ from: `${key}-01`, to: end > today ? today : end }, tz);
 }
 
+/** Every day from `from` to `to`, both included. */
+export const dayList = (from, to) => Array.from({ length: diffDays(from, to) + 1 }, (_, i) => addDays(from, i));
+
 /** Month keys (YYYY-MM) a period touches, oldest first. */
 export function monthsIn(from, to) {
   const out = [];

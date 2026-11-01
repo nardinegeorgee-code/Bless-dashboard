@@ -698,9 +698,18 @@ function diffLine(label,cur,prev,fmt){
   const d=cur-prev,g=prev?Math.round((cur-prev)/Math.abs(prev)*1000)/10:null,up=d>=0,f=fmt==='pct'?(x=>x.toFixed(1)+' pts'):(x=>fv(x,fmt));
   return `<div class="dl"><span>${esc(label)}</span><b class="mono">${esc(fv(prev,fmt))}</b></div><div class="dl"><span>Difference</span><b class="mono ${up?'up':'down'}">${up?'+':'−'}${esc(f(Math.abs(d)))}${g!==null?' ('+(up?'+':'−')+Math.abs(g)+'%)':''}</b></div>`;
 }
+function dailyChart(dl,fmt){
+  const W=300,H=96,pl=4,pr=4,pt=8,pb=16,all=[...dl.cur,...(dl.prev||[])].filter(v=>typeof v==='number'&&isFinite(v)),mx=Math.max(1e-9,...all),mn=Math.min(0,...all);
+  const X=(i,n)=>pl+(n>1?i/(n-1):0.5)*(W-pl-pr),Y=v=>pt+(1-(v-mn)/(mx-mn||1))*(H-pt-pb);
+  const line=a=>a.map((v,i)=>(i?'L':'M')+X(i,a.length).toFixed(1)+' '+Y(v).toFixed(1)).join('');
+  const dots=dl.cur.length<=62?dl.cur.map((v,i)=>`<circle cx="${X(i,dl.cur.length).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="5" fill="transparent" stroke="none"><title>${esc(dl.dates[i])}: ${esc(fv(v,fmt))}</title></circle>`).join(''):'';
+  const lo=dl.dates[0],hi=dl.dates[dl.dates.length-1];
+  return `<div class="dchart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Day by day chart" preserveAspectRatio="none"><path d="${line(dl.prev||[])}" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 3" opacity=".8"/><path d="${line(dl.cur)}" fill="none" stroke="var(--accent-text)" stroke-width="2"/>${dots}<text x="${pl}" y="${H-3}" class="dax">${esc(lo.slice(5))}</text><text x="${W-pr}" y="${H-3}" text-anchor="end" class="dax">${esc(hi.slice(5))}</text></svg>
+  <div class="dleg"><span><i style="background:var(--accent-text)"></i>This period</span><span><i style="background:var(--muted)"></i>Compared period</span><span class="muted">peak ${esc(fv(Math.max(...dl.cur),fmt))}</span></div></div>`;
+}
 function tileDetail(t){
   const d=curData(),per=d&&d.period?d.period.label:'this period',cmp=d&&d.compare?d.compare.label:'';
-  return `<div class="dl"><span>${esc(per)}</span><b class="mono">${esc(fv(t.value,t.fmt))}</b></div>${t.prev!==undefined?diffLine(cmp?'Compared with '+cmp:'Before',t.value,t.prev,t.fmt):'<p class="muted dn">No earlier figure is available for this one.</p>'}${t.sub?`<p class="muted dn">${esc(t.sub)}</p>`:''}`;
+  return `<div class="dl"><span>${esc(per)}</span><b class="mono">${esc(fv(t.value,t.fmt))}</b></div>${t.prev!==undefined?diffLine(cmp?'Compared with '+cmp:'Before',t.value,t.prev,t.fmt):'<p class="muted dn">No earlier figure is available for this one.</p>'}${t.sub?`<p class="muted dn">${esc(t.sub)}</p>`:''}${t.daily&&t.daily.cur&&t.daily.cur.length>1?dailyChart(t.daily,t.fmt):''}`;
 }
 function rowDetail(sec,r,i,barCol,total){
   const cols=sec.columns,name=cols[0];let h=`<div class="dl"><span>Rank</span><b class="mono">#${i+1} of ${sec.rows.length}</b></div>`;

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { route, allow, db, HttpError, requireAdmin } from './_lib.js';
 import { ensureShopSchema, shopConfig, shopifyql, fetchProducts, gql, resetToken } from './_shopify.js';
-import { parsePeriod, monthPeriod } from './_period.js';
+import { parsePeriod, monthPeriod, dayList } from './_period.js';
 
 const DAY = 86400000;
 const TABS = ['sales', 'funnel', 'products', 'experience', 'retention'];
@@ -38,6 +38,15 @@ const variantName = (title, variant) => { const t = title || 'Unknown'; const v 
 const salesName = (x) => (SPLIT.test(x.product_title || '') ? variantName(x.product_title, x.product_variant_title) : x.product_title || 'Unknown');
 /** Adds up rows that ended up with the same display name (the products that are not split). */
 const foldBy = (rows, nameOf, keys) => { const m = new Map(); for (const x of rows) { const n = nameOf(x); const t = m.get(n) || { _n: n }; for (const k of keys) t[k] = (t[k] || 0) + n0(x[k]); m.set(n, t); } return [...m.values()]; };
+/** Day-by-day figures for the chosen period and the comparison period, so a card can draw a small chart. Returns null when Shopify cannot supply them. */
+async function dailyFn(run, ctx, dataset, cols) {
+  try {
+    const q = (a, b) => run(`FROM ${dataset} SHOW ${cols} TIMESERIES day SINCE ${a} UNTIL ${b}`).then((r) => new Map(r.rows.map((x) => [String(x.day).slice(0, 10), x])));
+    const [c, p] = await Promise.all([q(ctx.s, ctx.e), q(ctx.ps, ctx.pe)]);
+    const da = dayList(ctx.s, ctx.e), db = dayList(ctx.ps, ctx.pe);
+    return (fn) => ({ dates: da, cur: da.map((d) => fn(c.get(d) || {})), cmpDates: db, prev: db.map((d) => fn(p.get(d) || {})) });
+  } catch (err) { return null; }
+}
 const growth = (cur, prev) => (prev ? Math.round(((cur - prev) / prev) * 1000) / 10 : null);
 const median = (arr) => { if (!arr.length) return 0; const a = [...arr].sort((x, y) => x - y); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
 const sumBy = (rows, k) => rows.reduce((a, r) => a + n0(r[k]), 0);
@@ -93,7 +102,8 @@ function buildShopifyTabs(tab, ctx, run) {
         run(`FROM sales SHOW ${metrics} SINCE ${ps} UNTIL ${pe}`),
       ]);
       const c = cur.rows[0] || {}, p = prev.rows[0] || {};
-      const t = (lb, k, fmt, extra = {}) => ({ label: lb, value: Math.abs(n0(c[k])), prev: Math.abs(n0(p[k])), fmt, ...extra });
+      const dz = await dailyFn(run, ctx, 'sales', metrics);
+      const t = (lb, k, fmt, extra = {}) => ({ label: lb, value: Math.abs(n0(c[k])), prev: Math.abs(n0(p[k])), fmt, ...(dz ? { daily: dz((x) => Math.abs(n0(x[k]))) } : {}), ...extra });
       return { tiles: [
         t('Net revenue', 'net_sales', 'money', { sub: 'after discounts and returns' }),
         t('Gross sales', 'gross_sales', 'money'),
@@ -104,7 +114,7 @@ function buildShopifyTabs(tab, ctx, run) {
         t('Average order value', 'average_order_value', 'money'),
         t('New customers', 'new_customers', 'int'),
         t('Returning customers', 'returning_customers', 'int'),
-        { label: 'Gross profit', value: n0(c.gross_profit), prev: n0(p.gross_profit), fmt: 'money', sub: margin(c) === null ? '' : margin(c).toFixed(1) + '% margin' },
+        { label: 'Gross profit', value: n0(c.gross_profit), prev: n0(p.gross_profit), fmt: 'money', ...(dz ? { daily: dz((x) => n0(x.gross_profit)) } : {}), sub: margin(c) === null ? '' : margin(c).toFixed(1) + '% margin' },
       ] };
     }, 'Profit only counts products that have a cost price (Cost per item) set in Shopify.'),
 
@@ -179,20 +189,22 @@ function buildShopifyTabs(tab, ctx, run) {
         const x = r.rows[0] || {};
         const had = r0.rows.length > 0, y = r0.rows[0] || {};
         const P = (v) => (had ? v : undefined);
+        const dz = await dailyFn(run, ctx, 'sessions', 'sessions, online_store_visitors, pageviews, products_viewed, products_added_to_cart, sessions_with_cart_additions, sessions_that_reached_checkout, sessions_that_completed_checkout, searches_submitted, bounces');
+        const Z = (fn) => (dz ? { daily: dz(fn) } : {});
         const S0 = n0(y.sessions), C0 = n0(y.sessions_with_cart_additions), K0 = n0(y.sessions_that_reached_checkout), D0 = n0(y.sessions_that_completed_checkout);
         const S = n0(x.sessions), C = n0(x.sessions_with_cart_additions), K = n0(x.sessions_that_reached_checkout), D = n0(x.sessions_that_completed_checkout);
         return {
           steps: [{ label: 'Sessions', value: S }, { label: 'Added to cart', value: C }, { label: 'Started checkout', value: K }, { label: 'Purchased', value: D }],
           tiles: [
-            { label: 'Visitors', value: n0(x.online_store_visitors), prev: P(n0(y.online_store_visitors)), fmt: 'int' },
-            { label: 'Page views', value: n0(x.pageviews), prev: P(n0(y.pageviews)), fmt: 'int' },
-            { label: 'Product page views', value: n0(x.products_viewed), prev: P(n0(y.products_viewed)), fmt: 'int' },
-            { label: 'Product to cart rate', value: pct(n0(x.products_added_to_cart), n0(x.products_viewed)), prev: P(pct(n0(y.products_added_to_cart), n0(y.products_viewed))), fmt: 'pct', sub: 'products added / products viewed' },
-            { label: 'Conversion rate', value: pct(D, S), prev: P(pct(D0, S0)), fmt: 'pct' },
-            { label: 'Cart abandonment', value: pct(C - D, C), prev: P(pct(C0 - D0, C0)), goodDown: true, fmt: 'pct', sub: 'carts that never purchased' },
-            { label: 'Checkout abandonment', value: pct(K - D, K), prev: P(pct(K0 - D0, K0)), goodDown: true, fmt: 'pct', sub: 'started checkout, did not buy' },
-            { label: 'Bounce rate', value: pct(n0(x.bounces), S), prev: P(pct(n0(y.bounces), S0)), goodDown: true, fmt: 'pct' },
-            { label: 'Searches', value: n0(x.searches_submitted), prev: P(n0(y.searches_submitted)), fmt: 'int' },
+            { label: 'Visitors', value: n0(x.online_store_visitors), prev: P(n0(y.online_store_visitors)), ...Z((x) => n0(x.online_store_visitors)), fmt: 'int' },
+            { label: 'Page views', value: n0(x.pageviews), prev: P(n0(y.pageviews)), ...Z((x) => n0(x.pageviews)), fmt: 'int' },
+            { label: 'Product page views', value: n0(x.products_viewed), prev: P(n0(y.products_viewed)), ...Z((x) => n0(x.products_viewed)), fmt: 'int' },
+            { label: 'Product to cart rate', value: pct(n0(x.products_added_to_cart), n0(x.products_viewed)), prev: P(pct(n0(y.products_added_to_cart), n0(y.products_viewed))), ...Z((x) => pct(n0(x.products_added_to_cart), n0(x.products_viewed))), fmt: 'pct', sub: 'products added / products viewed' },
+            { label: 'Conversion rate', value: pct(D, S), prev: P(pct(D0, S0)), ...Z((x) => pct(n0(x.sessions_that_completed_checkout), n0(x.sessions))), fmt: 'pct' },
+            { label: 'Cart abandonment', value: pct(C - D, C), prev: P(pct(C0 - D0, C0)), goodDown: true, ...Z((x) => pct(n0(x.sessions_with_cart_additions) - n0(x.sessions_that_completed_checkout), n0(x.sessions_with_cart_additions))), fmt: 'pct', sub: 'carts that never purchased' },
+            { label: 'Checkout abandonment', value: pct(K - D, K), prev: P(pct(K0 - D0, K0)), goodDown: true, ...Z((x) => pct(n0(x.sessions_that_reached_checkout) - n0(x.sessions_that_completed_checkout), n0(x.sessions_that_reached_checkout))), fmt: 'pct', sub: 'started checkout, did not buy' },
+            { label: 'Bounce rate', value: pct(n0(x.bounces), S), prev: P(pct(n0(y.bounces), S0)), goodDown: true, ...Z((x) => pct(n0(x.bounces), n0(x.sessions))), fmt: 'pct' },
+            { label: 'Searches', value: n0(x.searches_submitted), prev: P(n0(y.searches_submitted)), ...Z((x) => n0(x.searches_submitted)), fmt: 'int' },
           ] };
       }),
       section('trend', 'Conversion by month', 'trend', async () => {

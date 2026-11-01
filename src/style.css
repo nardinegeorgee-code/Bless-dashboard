@@ -384,3 +384,5 @@ tr.drow{display:none}tr.drow .rkdetail{display:block;margin:4px 0 8px}tr.open+tr
 .rkdetail .dn{margin:6px 0 0;font-size:.8rem}
 .rkdetail .up{color:#1d7a46}.rkdetail .down{color:#b3261e}
 .rkr[data-detail]:hover,.kcard[data-detail]:hover{background:rgba(255,255,255,.35)}
+.dchart{margin-top:8px}.dchart svg{width:100%;height:96px;display:block}.dchart .dax{font-size:9px;fill:var(--muted);font-family:var(--f-mono)}
+.dleg{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:.74rem;color:var(--muted);margin-top:2px}.dleg i{display:inline-block;width:10px;height:3px;margin-right:5px;vertical-align:middle;border-radius:2px}

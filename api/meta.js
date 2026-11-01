@@ -1,6 +1,6 @@
 import { route, allow, db, HttpError, requireAdmin } from './_lib.js';
 import { ensureShopSchema } from './_shopify.js';
-import { parsePeriod, monthPeriod, startMs, endMs } from './_period.js';
+import { parsePeriod, monthPeriod, startMs, endMs, dayList } from './_period.js';
 import { metaConfig, graph, graphAll, cached, clearMetaCache, audit, recentAudit, accountInfo, metrics, INSIGHT_FIELDS, ACCOUNT_STATUS, budgetOffset } from './_meta.js';
 
 const DAY = 86400000;
@@ -47,6 +47,16 @@ const totals = (cfg, ctx, a, b) => ctx.once('tot|' + a + '|' + b, async () => {
   return metrics(rows[0] || null);
 });
 
+/** Account figures day by day, for the small chart inside a card. Null if Meta cannot supply them. */
+const dailyFor = (cfg, ctx) => ctx.once('daily', async () => {
+  try {
+    const q = async (a, b) => new Map((await insights(cfg, `day|${a}|${b}`, ctx.refresh, { level: 'account', time_increment: 1, time_range: timeRange(a, b) })).map((r) => [String(r.date_start).slice(0, 10), metrics(r)]));
+    const [c, p] = await Promise.all([q(ctx.s, ctx.until), q(ctx.cs, ctx.cu)]);
+    const da = dayList(ctx.s, ctx.until), db = dayList(ctx.cs, ctx.cu), zero = metrics(null);
+    return (k) => ({ dates: da, cur: da.map((d) => (c.get(d) || zero)[k]), cmpDates: db, prev: db.map((d) => (p.get(d) || zero)[k]) });
+  } catch (err) { return null; }
+});
+
 /** Shopify revenue for the month, from the orders already synced into the database. Null when those orders do not cover the month. */
 async function shopifyRevenue(cfg, ctx, a, b) {
   await ensureShopSchema();
@@ -64,7 +74,8 @@ function build(tab, cfg, ctx, info) {
   if (tab === 'overview') return [
     section('kpi', `Meta ads, ${ctx.periodLabel}`, 'kpi', async () => {
       const [cur, prv] = await Promise.all([totals(cfg, ctx, ctx.s, ctx.until), totals(cfg, ctx, ctx.cs, ctx.cu)]);
-      const p = (k) => ({ prev: prv[k] });
+      const dz = await dailyFor(cfg, ctx);
+      const p = (k) => ({ prev: prv[k], ...(dz ? { daily: dz(k) } : {}) });
       const tiles = [
         tile('Amount spent', cur.spend, 'money', p('spend')),
         tile('Purchases', cur.purchases, 'int', p('purchases')),
