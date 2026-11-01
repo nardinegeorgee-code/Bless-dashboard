@@ -342,17 +342,23 @@ function build(tab, cfg, ctx) {
       }),
       section('reps', 'Sales by salesperson', 'reps', async () => {
         const m12 = monthsBack(12), start = [ps, s, m12[0] + '-01'].sort()[0];
+        // Which field holds the salesperson? Odoo's own "Salesperson" is user_id, but shops often add their own, so look at every
+        // "who sold it" field on the order and use the ones that are actually filled in.
+        let metaF = {}; try { metaF = await call(cfg, 'sale.order', 'fields_get', [], { attributes: ['string', 'type', 'relation'] }); } catch (err) { /* user_id below */ }
+        const repFields = Object.entries(metaF).filter(([k, f]) => f.type === 'many2one' && (k === 'user_id' || /sales\s*-?\s*(person|rep|man|agent)/i.test(String(f.string)))).map(([k]) => k);
+        if (!repFields.length) repFields.push('user_id');
         const [orders, lines, invs] = await Promise.all([
-          sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(start)]], ['name', 'partner_id', 'partner_shipping_id', 'user_id', 'amount_untaxed', 'date_order'], { app: 'Sales', limit: 30000 }).catch(() => sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(start)]], ['name', 'partner_id', 'user_id', 'amount_untaxed', 'date_order'], { app: 'Sales', limit: 30000 })),
+          sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(start)]], ['name', 'partner_id', 'partner_shipping_id', ...repFields, 'amount_untaxed', 'date_order'], { app: 'Sales', limit: 30000 }).catch(() => sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(start)]], ['name', 'partner_id', ...repFields, 'amount_untaxed', 'date_order'], { app: 'Sales', limit: 30000 })),
           sr(cfg, 'sale.order.line', [['order_id.state', 'in', ['sale', 'done']], ['order_id.date_order', '>=', dt(start)]], ['order_id', 'product_id', 'product_uom_qty', 'price_subtotal'], { app: 'Sales', limit: 60000 }),
-          sr(cfg, 'account.move', [['move_type', 'in', ['out_invoice', 'out_refund']], ['state', '=', 'posted'], ['invoice_date', '>=', start]], ['name', 'partner_id', 'invoice_user_id', 'move_type', 'invoice_date', 'amount_untaxed_signed', 'payment_state'], { app: 'Accounting', limit: 30000 }),
+          sr(cfg, 'account.move', [['move_type', 'in', ['out_invoice', 'out_refund']], ['state', '=', 'posted'], ['invoice_date', '>=', start]], ['name', 'partner_id', 'invoice_user_id', 'invoice_origin', 'move_type', 'invoice_date', 'amount_untaxed_signed', 'payment_state'], { app: 'Accounting', limit: 30000 }),
         ]);
         const addr = (o) => nid(o.partner_shipping_id) || nid(o.partner_id), pids = [...new Set(orders.flatMap((o) => [addr(o), nid(o.partner_id)]).filter(Boolean))], city = new Map();
         for (let i = 0; i < pids.length; i += 500) {
           try { for (const g of await call(cfg, 'res.partner', 'read', [pids.slice(i, i + 500), ['city', 'state_id']])) city.set(g.id, (g.city || '').trim() || nm(g.state_id) || 'Unknown'); } catch (err) { break; }
         }
-        const who = (o) => nm(o.user_id) || 'No salesperson', inR = (d, a, b) => d >= a && d <= b;
-        const info = new Map(orders.map((o) => [o.id, { rep: who(o), day: String(o.date_order).slice(0, 10), customer: nm(o.partner_id) || 'Unknown', city: city.get(addr(o)) || city.get(nid(o.partner_id)) || 'Unknown' }]));
+        const filled = Object.fromEntries(repFields.map((f) => [f, orders.filter((o) => nm(o[f])).length])), order = [...repFields].sort((a, b) => filled[b] - filled[a]);
+        const who = (o) => { for (const f of order) if (nm(o[f])) return nm(o[f]); return 'No salesperson'; }, inR = (d, a, b) => d >= a && d <= b;
+        const byName = new Map(orders.map((o) => [o.name, who(o)])), info = new Map(orders.map((o) => [o.id, { rep: who(o), day: String(o.date_order).slice(0, 10), customer: nm(o.partner_id) || 'Unknown', city: city.get(addr(o)) || city.get(nid(o.partner_id)) || 'Unknown' }]));
         const reps = new Map(); const R = (name) => { if (!reps.has(name)) reps.set(name, { name, cur: { sales: 0, orders: 0, units: 0, invoiced: 0, invoices: 0 }, prev: { sales: 0, orders: 0, units: 0, invoiced: 0, invoices: 0 }, months: new Map(m12.map((k) => [k, { key: k, label: label(k), sales: 0, orders: 0, units: 0, invoiced: 0 }])), cities: new Map(), customers: new Map(), prods: new Map(), invoiceList: [] }); return reps.get(name); };
         const bump = (map, key, f) => { const g = map.get(key) || { name: key, orders: 0, units: 0, sales: 0, ids: new Set() }; f(g); map.set(key, g); };
         for (const o of orders) {
@@ -370,7 +376,7 @@ function build(tab, cfg, ctx) {
           if (w === r.cur) { bump(r.cities, i.city, (g) => { g.units += q; }); bump(r.customers, i.customer, (g) => { g.units += q; }); bump(r.prods, nm(l.product_id) || 'Other', (g) => { g.units += q; g.sales += v; g.ids.add(i.rep + '|' + nid(l.order_id)); }); }
         }
         for (const m of invs) {
-          const r = R(nm(m.invoice_user_id) || 'No salesperson'), d = String(m.invoice_date), v = (m.move_type === 'out_refund' ? -1 : 1) * Math.abs(n0(m.amount_untaxed_signed)), mo = r.months.get(d.slice(0, 7));
+          const fromOrder = String(m.invoice_origin || '').split(/[,\s]+/).map((x) => byName.get(x)).find(Boolean), r = R(fromOrder || nm(m.invoice_user_id) || 'No salesperson'), d = String(m.invoice_date), v = (m.move_type === 'out_refund' ? -1 : 1) * Math.abs(n0(m.amount_untaxed_signed)), mo = r.months.get(d.slice(0, 7));
           if (mo) mo.invoiced += v;
           const w = inR(d, s, e) ? r.cur : inR(d, ps, pe) ? r.prev : null;
           if (w) { w.invoiced += v; w.invoices++; }
@@ -380,7 +386,8 @@ function build(tab, cfg, ctx) {
         const people = [...reps.values()].filter((r) => r.cur.sales || r.cur.invoiced || r.prev.sales || r.months.size && [...r.months.values()].some((x) => x.sales || x.invoiced))
           .map((r) => ({ name: r.name, cur: r.cur, prev: r.prev, months: [...r.months.values()], cities: list(r.cities), customers: list(r.customers), products: list(r.prods), invoices: r.invoiceList.sort((a, b) => b.amount - a.amount).slice(0, 60) }))
           .sort((a, b) => b.cur.sales - a.cur.sales).slice(0, 40);
-        return { people, empty: 'No confirmed orders in the last 12 months.' };
+        const used = order.filter((f) => filled[f]).map((f) => `${metaF[f] ? metaF[f].string : f} (${filled[f]} of ${orders.length} orders)`);
+        return { people, empty: 'No confirmed orders in the last 12 months.', source: used.length ? 'Salesperson read from: ' + used.join(', ') + '.' : 'No salesperson is filled in on the orders of the last 12 months.' };
       }, 'Salesperson is the one on the sales order (and on the invoice). Amounts are before tax. City is taken from the delivery address on the order (the customer address when there is none), and the distributor is the customer on the order. The lists follow the dates you picked; the month chart always shows the last 12 months.'),
       section('dept', 'People by department', 'table', async () => {
         const m = new Map(); (await emps()).forEach((x) => { const k = nm(x.department_id) || 'No department'; m.set(k, (m.get(k) || 0) + 1); });

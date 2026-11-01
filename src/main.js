@@ -947,7 +947,7 @@ function anReps(sec){
     <h3 class="sub">By product and quantity</h3>${T(lst('Product'),p.products,'No sales in this period.')}
     <h3 class="sub">Invoices</h3>${T([{key:'name',label:'Invoice',fmt:'str'},{key:'customer',label:'Distributor',fmt:'str'},{key:'date',label:'Date',fmt:'str'},{key:'amount',label:'Amount',fmt:'money'},{key:'status',label:'Payment',fmt:'str'}],p.invoices,'No invoices in this period.')}</div></details>`;
   };
-  return `<h3 class="sub">Everyone, this period</h3>${team}<h3 class="sub" style="margin-top:20px">Each salesperson</h3>${sec.people.map(one).join('')}`;
+  return `${sec.source?`<p class="muted" style="font-size:.85rem">${esc(sec.source)}</p>`:''}<h3 class="sub">Everyone, this period</h3>${team}<h3 class="sub" style="margin-top:20px">Each salesperson</h3>${sec.people.map(one).join('')}`;
 }
 /* ---------- Odoo ---------- */
 const OD_TABS=[['inventory','Inventory'],['sales','Sales & invoices'],['profit','Profit'],['accounting','Accounting'],['hr','Employees']];
