@@ -54,6 +54,13 @@ export default route(async (req, res) => {
     return res.json({ submission: mapSubmission(out[0]) });
   }
 
+  // Mark notifications as read (only the caller's own read-marks).
+  if (req.body?.action === 'read') {
+    const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).map(String).slice(0, 500);
+    for (const id of ids) await q`INSERT INTO notif_reads (user_id, comment_id) VALUES (${me.id}, ${id}) ON CONFLICT DO NOTHING`;
+    return res.json({ ok: true });
+  }
+
   // Conversation: the Super Admin and the task's owner can write on it.
   if (req.body?.action === 'comment') {
     const rows = await q`SELECT user_id FROM submissions WHERE id = ${String(req.body?.submissionId ?? '')}`;

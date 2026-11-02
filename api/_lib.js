@@ -76,6 +76,7 @@ export function ensureSchema() {
         files JSONB NOT NULL DEFAULT '[]', saved_at BIGINT NOT NULL
       )`;
       await q`CREATE INDEX IF NOT EXISTS sub_revisions_sub ON sub_revisions (submission_id)`;
+      await q`CREATE TABLE IF NOT EXISTS notif_reads (user_id TEXT NOT NULL, comment_id TEXT NOT NULL, PRIMARY KEY (user_id, comment_id))`;
       await q`CREATE TABLE IF NOT EXISTS eval_settings (key TEXT PRIMARY KEY, value JSONB NOT NULL)`;
     })();
     ready.catch(() => { ready = null; });

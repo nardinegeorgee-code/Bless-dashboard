@@ -14,7 +14,7 @@ const ROLES=[
 const ROLE=Object.fromEntries(ROLES.map(r=>[r.key,r]));
 const TYPES={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml',mp4:'video/mp4',webm:'video/webm',pdf:'application/pdf',txt:'text/plain',csv:'text/csv',md:'text/markdown',json:'application/json'};
 
-const S={comments:[],revs:[],thr:{},draft:{},amend:null,amendFiles:[],shop:{month:'',metric:'revenue',best:'units',geo:'countries',data:null,loading:false,err:'',syncing:false,syncMsg:''},sel:new Set(),assets:true,lastJson:'',users:[],instructions:[],subs:[],usersReady:false,screen:null,me:null,route:'home',param:null,
+const S={reads:new Set(),seenUnread:null,comments:[],revs:[],thr:{},draft:{},amend:null,amendFiles:[],shop:{month:'',metric:'revenue',best:'units',geo:'countries',data:null,loading:false,err:'',syncing:false,syncMsg:''},sel:new Set(),assets:true,lastJson:'',users:[],instructions:[],subs:[],usersReady:false,screen:null,me:null,route:'home',param:null,
   sendRoles:new Set(),sendUsers:new Set(),fRole:'',fUser:'',fKind:'',pwOpen:null,picked:{}};
 
 /* ---------- helpers ---------- */
@@ -45,7 +45,7 @@ async function refresh(){
   if(j.setup){S.users=[];S.me=null;S.instructions=[];S.subs=[];S.usersReady=true;S.mode='setup';return onData()}
   if(!j.me){S.me=null;S.users=[];S.mode='login';S.usersReady=true;return onData()}
   S.mode='app';
-  S.users=j.users;S.instructions=j.instructions;S.subs=j.submissions;S.speeds=j.speeds||[];S.comments=j.comments||[];S.revs=j.revisions||[];S.usersReady=true;
+  S.users=j.users;S.instructions=j.instructions;S.subs=j.submissions;S.speeds=j.speeds||[];S.comments=j.comments||[];S.revs=j.revisions||[];S.reads=new Set(j.reads||[]);S.usersReady=true;
   const roleChanged=!S.me||S.me.role!==j.me.role||S.me.id!==j.me.id;
   const wasNull=!S.me;S.me=j.me;
   if(wasNull||roleChanged){if(roleChanged&&!wasNull){S.route='home';S.param=null}showApp()}
@@ -96,9 +96,10 @@ const validName=u=>u.length>=2&&u.length<=40;
 
 /* ---------- app shell ---------- */
 function navItems(){
-  if(isAdmin())return [['home','Overview'],['send','Send instruction'],['content','All content'],['eval','Evaluation'],['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads'],['team','Team by role'],['users','Users']];
+  const nu=unreadNotes().length;
+  if(isAdmin())return [['home','Overview'],['send','Send instruction'],['content','All content'],['eval','Evaluation'],['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads'],['team','Team by role'],['notes','Notifications',nu],['users','Users']];
   const pending=myInstructions().filter(i=>!responded(i.id)).length;
-  return [['home','Instructions',pending],['uploads','My uploads'],['team','Team by role']];
+  return [['home','Instructions',pending],['uploads','My uploads'],['notes','Notifications',nu],['team','Team by role']];
 }
 function showApp(){
   S.screen='app';
@@ -130,6 +131,7 @@ function mount(){
     :`<div class="head"><div><h1>Instructions</h1><p>Briefs from your Super Admin. Open one to send back your files.</p></div><button class="btn" data-act="go" data-route="uploads">Upload without an instruction</button></div><div id="live"></div>`;
   else if(S.route==='ins')v.innerHTML=`<button class="btn ghost back" data-act="go" data-route="${isAdmin()?'send':'home'}">← Back</button><div id="live"></div>${isAdmin()?'':`<div class="panel"><div><h2>Respond</h2><p class="muted">Attach your files and add a note if needed.</p></div>${uploadForm('resp')}</div>`}<div id="live2"></div>`;
   else if(S.route==='uploads')v.innerHTML=`<div class="head"><div><h1>My uploads</h1><p>Everything you have sent. Add files here even when there is no instruction.</p></div></div><div class="panel"><h2>Upload files</h2>${uploadForm('free')}</div><div id="live"></div>`;
+  else if(S.route==='notes')v.innerHTML=`<div class="head"><div><h1>Notifications</h1><p>Comments on tasks. Click one to open the conversation.</p></div></div><div id="live"></div>`;
   else if(S.route==='team')v.innerHTML=`<div class="head"><div><h1>Team by role</h1><p>Every username, grouped by role.</p></div></div><div id="live"></div>`;
   else if(S.route==='send')v.innerHTML=`<div class="head"><div><h1>Send instruction</h1><p>Write the brief, then choose whole roles, specific people, or both.</p></div></div>
     <form class="panel" data-form="send">
@@ -158,12 +160,13 @@ function mount(){
 }
 
 function update(){
-  if(S.screen!=='app')return;renderNav();
+  if(S.screen!=='app')return;renderNav();notifyNew();
   const L=$('#live');if(!L)return;const r=S.route;
   if(r==='home'&&isAdmin())L.innerHTML=overviewHTML();
   else if(r==='home')L.innerHTML=inboxHTML();
   else if(r==='ins')updateIns();
   else if(r==='uploads')L.innerHTML=listOrEmpty(S.subs.filter(s=>s.userId===S.me.id),'Nothing uploaded yet','Files you upload, with or without an instruction, appear here.');
+  else if(r==='notes')L.innerHTML=notesHTML();
   else if(r==='team')L.innerHTML=teamHTML();
   else if(r==='send')updateSend();
   else if(r==='content')updateContent();
@@ -209,6 +212,25 @@ function inboxHTML(){
   const list=myInstructions();
   if(!list.length)return empty('No instructions yet','When the Super Admin sends you a brief, it shows up here.');
   return `<div class="list">${list.map(i=>{const d=responded(i.id);return `<button class="item" data-act="go" data-route="ins" data-param="${i.id}"><div class="item-top"><h3>${esc(i.title)}</h3><span class="pill ${d?'done':'new'}">${d?'Responded':'New'}</span></div><p class="snippet">${esc(i.body)}</p><span class="mono muted">${fmtDate(i.createdAt)}</span></button>`}).join('')}</div>`;
+}
+function allNotes(){return S.comments.filter(c=>c.userId!==S.me.id).sort((a,b)=>b.createdAt-a.createdAt)}
+function unreadNotes(){return allNotes().filter(c=>!S.reads.has(c.id))}
+function notesHTML(){
+  const l=allNotes(),u=unreadNotes().length;
+  if(!l.length)return empty('No notifications yet',isAdmin()?'When a team member replies to a comment, it shows here.':'When the Super Admin comments on your tasks, it shows here.');
+  return `<div class="row" style="justify-content:space-between"><span class="muted">${u?u+' unread':'All read'}</span>${u?'<button class="btn sm" data-act="note-all">Mark all as read</button>':''}</div><div class="list">${l.map(c=>{
+    const sub=S.subs.find(x=>x.id===c.submissionId);const ins=sub&&sub.instructionId&&S.instructions.find(i=>i.id===sub.instructionId);
+    const on=!S.reads.has(c.id);
+    const where=!sub?'a deleted task':sub.instructionId?`"${esc(ins?ins.title:'deleted instruction')}"`:'an upload';
+    const who=isAdmin()&&sub?` · task by ${esc(sub.username)}`:'';
+    return `<button class="item note${on?' unread':''}" data-act="open-note" data-id="${c.id}"><div class="item-top"><span><b>${esc(c.username)}</b> commented on ${where}${who}</span><span class="mono muted">${fmtDate(c.createdAt)}</span></div><p class="body-text note-snip">${esc(c.body.length>160?c.body.slice(0,160)+'…':c.body)}</p><span class="muted" style="font-size:.85rem">${on?'New · ':''}Click to open the conversation</span></button>`}).join('')}</div>`;
+}
+async function markRead(ids){ids=ids.filter(i=>!S.reads.has(i));if(!ids.length)return;ids.forEach(i=>S.reads.add(i));S.lastJson='';try{await api('POST','/api/submissions',{action:'read',ids})}catch(e){}}
+function notifyNew(){
+  const n=unreadNotes().length;
+  document.title=(n?'('+n+') ':'')+document.title.replace(/^\(\d+\) /,'');
+  if(S.seenUnread!==null&&n>S.seenUnread)toast('New comment — open Notifications');
+  S.seenUnread=n;
 }
 function updateIns(){
   const i=S.instructions.find(x=>x.id===S.param);
@@ -261,7 +283,7 @@ function subHTML(s,hideIns){
   const ins=s.instructionId&&S.instructions.find(i=>i.id===s.instructionId);
   const canDel=isAdmin()||s.userId===S.me.id;
   const ctx=hideIns?'':s.instructionId?`<button class="btn sm ghost" style="padding:0;justify-content:flex-start" data-act="go" data-route="ins" data-param="${s.instructionId}">Re: ${esc(ins?ins.title:'deleted instruction')}</button>`:'<span class="muted" style="font-size:.85rem">Upload without instruction</span>';
-  return `<article class="item"><div class="item-top"><div class="row" style="gap:8px"><span class="mono">${esc(s.username)}</span>${roleChip(s.role)}</div><div class="row" style="gap:8px"><span class="mono muted">${fmtDate(s.createdAt)}</span>${(s.files||[]).length>1?`<button class="btn sm" data-act="sel-sub" data-id="${s.id}">Select all files</button>`:''}${canDel?`<button class="btn sm danger" data-act="del-sub" data-id="${s.id}">Delete</button>`:''}</div></div>
+  return `<article class="item" id="sub-${s.id}"><div class="item-top"><div class="row" style="gap:8px"><span class="mono">${esc(s.username)}</span>${roleChip(s.role)}</div><div class="row" style="gap:8px"><span class="mono muted">${fmtDate(s.createdAt)}</span>${(s.files||[]).length>1?`<button class="btn sm" data-act="sel-sub" data-id="${s.id}">Select all files</button>`:''}${canDel?`<button class="btn sm danger" data-act="del-sub" data-id="${s.id}">Delete</button>`:''}</div></div>
     ${ctx}${s.note?`<p class="body-text">${esc(s.note)}</p>`:''}
     ${isAdmin()&&s.instructionId?`<div class="rate"><span class="eyebrow">Speed</span><input class="input ev-speed" type="number" min="0" max="100" placeholder="–" data-ins="${s.instructionId}" data-user="${s.userId}" value="${(()=>{const x=(S.speeds||[]).find(z=>z.instructionId===s.instructionId&&z.userId===s.userId);return x&&x.score!==null?x.score:''})()}" aria-label="Speed percentage"><span class="muted">%</span><button class="btn sm primary" data-act="ev-save-speed">Save</button></div>`:''}
     ${isAdmin()&&s.instructionId?`<div class="rate"><span class="eyebrow">Accuracy</span><input class="input ev-rate" type="number" min="0" max="100" placeholder="–" data-id="${s.id}" value="${s.rating===null||s.rating===undefined?'':s.rating}" aria-label="Accuracy percentage"><span class="muted">%</span>${[100,75,50,0].map(v=>`<button type="button" class="btn sm" data-act="ev-quick" data-v="${v}">${v}</button>`).join('')}<button class="btn sm primary" data-act="ev-save-rate">Save</button></div>`:''}
@@ -1075,6 +1097,13 @@ document.addEventListener('click',async e=>{
   else if(a==='per-mode'){const md=b.dataset.mode,P=S.per,t=todayStr(),e=P.to||t,y=+e.slice(0,4),m=+e.slice(5,7);
     if(md==='day')perSet('day',e,e);else if(md==='month')perMonth(y,m);else if(md==='quarter')perQuarter(y,Math.floor((m-1)/3)+1);else{P.mode='custom'}
     perReload()}
+  else if(a==='note-all'){await markRead(unreadNotes().map(c=>c.id));update()}
+  else if(a==='open-note'){
+    const c=S.comments.find(x=>x.id===b.dataset.id);if(!c)return;const sub=S.subs.find(x=>x.id===c.submissionId);
+    markRead([c.id]);if(!sub){toast('That task was deleted');update();return}
+    S.thr[sub.id]=true;if(sub.instructionId)go('ins',sub.instructionId);else go(isAdmin()?'content':'uploads');update();
+    setTimeout(()=>{const el=document.getElementById('sub-'+sub.id);if(el){el.scrollIntoView({behavior:'smooth',block:'center'});el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),2500)}},80);
+  }
   else if(a==='thr'){S.thr[b.dataset.id]=!S.thr[b.dataset.id];update()}
   else if(a==='am-open'){S.amend=b.dataset.id;update()}
   else if(a==='am-cancel'){delete S.draft['am-'+S.amend];S.amend=null;update()}
@@ -1189,5 +1218,5 @@ document.addEventListener('submit',async e=>{
   else if(k==='up-free')submitUpload('free');
 });
 
-(function(){try{const h=location.hash.slice(1);if(h.startsWith('ins-')){S.route='ins';S.param=h.slice(4)}else if(['home','uploads','team','send','content','users','shop','eval','odoo','meta'].includes(h))S.route=h}catch(e){}})();
+(function(){try{const h=location.hash.slice(1);if(h.startsWith('ins-')){S.route='ins';S.param=h.slice(4)}else if(['home','uploads','notes','team','send','content','users','shop','eval','odoo','meta'].includes(h))S.route=h}catch(e){}})();
 boot();

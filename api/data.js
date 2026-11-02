@@ -34,9 +34,10 @@ export default route(async (req, res) => {
   // Conversation and edit history travel with the tasks this person is allowed to see.
   const ids = submissions.map((x) => x.id);
   let comments = [], revisions = [];
+  const reads = (await q`SELECT comment_id FROM notif_reads WHERE user_id = ${me.id}`).map((r) => r.comment_id);
   if (ids.length) {
     comments = (await q`SELECT * FROM sub_comments WHERE submission_id = ANY(${ids}) ORDER BY created_at`).map(mapComment);
     revisions = (await q`SELECT * FROM sub_revisions WHERE submission_id = ANY(${ids}) ORDER BY saved_at`).map(mapRevision);
   }
-  res.json({ me: mapUser(me), users, instructions, submissions, speeds, comments, revisions });
+  res.json({ me: mapUser(me), users, instructions, submissions, speeds, comments, revisions, reads });
 });
