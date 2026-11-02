@@ -528,3 +528,13 @@ tr.drow{display:none}tr.drow .rkdetail{display:block;margin:4px 0 8px}tr.open+tr
 
 .dseg{cursor:pointer;transition:stroke-width .12s}.dseg:hover{stroke-width:27}
 .dleg2 li{cursor:default;border-radius:8px;transition:background .12s}.dleg2 li:hover,.hb:hover{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+
+.thr-btn{justify-self:start}
+.thread{display:grid;gap:10px;border-top:1px solid var(--line);padding-top:10px}
+.cmts{display:grid;gap:8px}
+.cmt{background:var(--bg,#f6f4f1);border:1px solid var(--line);border-radius:10px;padding:8px 12px;display:grid;gap:4px;max-width:70ch}
+.cmt.me{border-color:var(--accent)}
+.cmt-h{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.cmt-form,.amend{display:grid;gap:8px}
+.hist summary{cursor:pointer;font-weight:600}
+.rev{border-left:3px solid var(--line);padding:6px 0 6px 12px;margin-top:8px;display:grid;gap:6px}

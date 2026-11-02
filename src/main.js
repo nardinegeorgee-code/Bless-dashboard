@@ -14,7 +14,7 @@ const ROLES=[
 const ROLE=Object.fromEntries(ROLES.map(r=>[r.key,r]));
 const TYPES={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml',mp4:'video/mp4',webm:'video/webm',pdf:'application/pdf',txt:'text/plain',csv:'text/csv',md:'text/markdown',json:'application/json'};
 
-const S={shop:{month:'',metric:'revenue',best:'units',geo:'countries',data:null,loading:false,err:'',syncing:false,syncMsg:''},sel:new Set(),assets:true,lastJson:'',users:[],instructions:[],subs:[],usersReady:false,screen:null,me:null,route:'home',param:null,
+const S={comments:[],revs:[],thr:{},draft:{},amend:null,amendFiles:[],shop:{month:'',metric:'revenue',best:'units',geo:'countries',data:null,loading:false,err:'',syncing:false,syncMsg:''},sel:new Set(),assets:true,lastJson:'',users:[],instructions:[],subs:[],usersReady:false,screen:null,me:null,route:'home',param:null,
   sendRoles:new Set(),sendUsers:new Set(),fRole:'',fUser:'',fKind:'',pwOpen:null,picked:{}};
 
 /* ---------- helpers ---------- */
@@ -45,7 +45,7 @@ async function refresh(){
   if(j.setup){S.users=[];S.me=null;S.instructions=[];S.subs=[];S.usersReady=true;S.mode='setup';return onData()}
   if(!j.me){S.me=null;S.users=[];S.mode='login';S.usersReady=true;return onData()}
   S.mode='app';
-  S.users=j.users;S.instructions=j.instructions;S.subs=j.submissions;S.speeds=j.speeds||[];S.usersReady=true;
+  S.users=j.users;S.instructions=j.instructions;S.subs=j.submissions;S.speeds=j.speeds||[];S.comments=j.comments||[];S.revs=j.revisions||[];S.usersReady=true;
   const roleChanged=!S.me||S.me.role!==j.me.role||S.me.id!==j.me.id;
   const wasNull=!S.me;S.me=j.me;
   if(wasNull||roleChanged){if(roleChanged&&!wasNull){S.route='home';S.param=null}showApp()}
@@ -265,7 +265,23 @@ function subHTML(s,hideIns){
     ${ctx}${s.note?`<p class="body-text">${esc(s.note)}</p>`:''}
     ${isAdmin()&&s.instructionId?`<div class="rate"><span class="eyebrow">Speed</span><input class="input ev-speed" type="number" min="0" max="100" placeholder="–" data-ins="${s.instructionId}" data-user="${s.userId}" value="${(()=>{const x=(S.speeds||[]).find(z=>z.instructionId===s.instructionId&&z.userId===s.userId);return x&&x.score!==null?x.score:''})()}" aria-label="Speed percentage"><span class="muted">%</span><button class="btn sm primary" data-act="ev-save-speed">Save</button></div>`:''}
     ${isAdmin()&&s.instructionId?`<div class="rate"><span class="eyebrow">Accuracy</span><input class="input ev-rate" type="number" min="0" max="100" placeholder="–" data-id="${s.id}" value="${s.rating===null||s.rating===undefined?'':s.rating}" aria-label="Accuracy percentage"><span class="muted">%</span>${[100,75,50,0].map(v=>`<button type="button" class="btn sm" data-act="ev-quick" data-v="${v}">${v}</button>`).join('')}<button class="btn sm primary" data-act="ev-save-rate">Save</button></div>`:''}
-    ${(s.files||[]).length?`<div class="files">${s.files.map(fileHTML).join('')}</div>`:''}</article>`;
+    ${(s.files||[]).length?`<div class="files">${s.files.map(fileHTML).join('')}</div>`:''}${threadHTML(s)}</article>`;
+}
+function threadHTML(s){
+  const cs=S.comments.filter(c=>c.submissionId===s.id),rv=S.revs.filter(r=>r.submissionId===s.id).sort((a,b)=>b.savedAt-a.savedAt);
+  const open=!!S.thr[s.id],mine=s.userId===S.me.id;
+  const label=`Conversation${cs.length?' ('+cs.length+')':''}${rv.length?' · edited '+rv.length+'×':''}`;
+  let h=`<button type="button" class="btn sm thr-btn" data-act="thr" data-id="${s.id}" aria-expanded="${open}">${open?'Hide':'Open'} ${label}</button>`;
+  if(!open)return h;
+  const msgs=cs.length?cs.map(c=>`<div class="cmt${c.userId===S.me.id?' me':''}"><div class="cmt-h"><b>${esc(c.username)}</b>${roleChip(c.role)}<span class="mono muted">${fmtDate(c.createdAt)}</span></div><p class="body-text">${esc(c.body)}</p></div>`).join(''):'<p class="muted" style="font-size:.9rem">No comments yet.</p>';
+  const hist=rv.length?`<details class="hist"><summary>Earlier versions (${rv.length})</summary>${rv.map(r=>`<div class="rev"><span class="mono muted">Saved ${fmtDate(r.savedAt)}</span>${r.note?`<p class="body-text">${esc(r.note)}</p>`:'<p class="muted">(no note)</p>'}${(r.files||[]).length?`<div class="files">${r.files.map(fileHTML).join('')}</div>`:''}</div>`).join('')}</details>`:'';
+  const amend=mine?(S.amend===s.id?`<div class="amend"><label class="eyebrow" for="am-n-${s.id}">Amend your task</label><textarea class="textarea" id="am-n-${s.id}" data-draft="am-${s.id}" style="min-height:70px">${esc(S.draft['am-'+s.id]!==undefined?S.draft['am-'+s.id]:s.note)}</textarea>
+      <input type="file" multiple data-amfile="${s.id}" aria-label="Add files"><div class="err" id="am-e-${s.id}"></div>
+      <div class="row"><button type="button" class="btn sm primary" data-act="am-save" data-id="${s.id}">Save changes</button><button type="button" class="btn sm ghost" data-act="am-cancel">Cancel</button><span class="muted" style="font-size:.85rem">The previous version stays in the history.</span></div></div>`
+    :`<button type="button" class="btn sm" data-act="am-open" data-id="${s.id}">Amend this task</button>`):'';
+  return h+`<div class="thread"><div class="cmts">${msgs}</div>
+    <form class="cmt-form" data-form="cmt" data-id="${s.id}"><textarea class="textarea" data-draft="cm-${s.id}" style="min-height:56px" placeholder="${isAdmin()?'Comment on this task…':'Reply…'}" aria-label="Comment">${esc(S.draft['cm-'+s.id]||'')}</textarea><div class="row" style="justify-content:flex-end"><button class="btn sm primary" type="submit">Send comment</button></div></form>
+    ${amend}${s.editedAt?`<span class="mono muted">Last edited ${fmtDate(s.editedAt)}</span>`:''}${hist}</div>`;
 }
 function fileHTML(f){
   const url=f.url;const ext=(f.name.split('.').pop()||'file').slice(0,5);
@@ -1059,6 +1075,20 @@ document.addEventListener('click',async e=>{
   else if(a==='per-mode'){const md=b.dataset.mode,P=S.per,t=todayStr(),e=P.to||t,y=+e.slice(0,4),m=+e.slice(5,7);
     if(md==='day')perSet('day',e,e);else if(md==='month')perMonth(y,m);else if(md==='quarter')perQuarter(y,Math.floor((m-1)/3)+1);else{P.mode='custom'}
     perReload()}
+  else if(a==='thr'){S.thr[b.dataset.id]=!S.thr[b.dataset.id];update()}
+  else if(a==='am-open'){S.amend=b.dataset.id;update()}
+  else if(a==='am-cancel'){delete S.draft['am-'+S.amend];S.amend=null;update()}
+  else if(a==='am-save'){
+    const id=b.dataset.id,err=$('#am-e-'+id),note=$('#am-n-'+id).value.trim(),inp=document.querySelector('[data-amfile="'+id+'"]'),files=[...(inp.files||[])];
+    const bad=files.filter(f=>{const t=TYPES[(f.name.split('.').pop()||'').toLowerCase()];return !t||f.size>(t==='image/svg+xml'?2:20)*1048576});
+    if(bad.length){err.textContent='Not supported or too large: '+bad.map(f=>f.name).join(', ');return}
+    b.disabled=true;const done=[];
+    try{
+      for(let i=0;i<files.length;i++){b.textContent=`Uploading ${i+1} of ${files.length}…`;const f=files[i],type=TYPES[(f.name.split('.').pop()||'').toLowerCase()];const r=await upload(f.name,f,{access:'public',handleUploadUrl:'/api/upload',contentType:type});done.push({url:r.url,name:f.name,type,size:f.size})}
+      await api('PUT','/api/submissions',{id,note,addFiles:done});
+      delete S.draft['am-'+id];S.amend=null;S.lastJson='';await sync();update();toast('Task amended. The old version is kept in the history.');
+    }catch(x){err.textContent=x.message||'Could not save. Try again.';b.disabled=false;b.textContent='Save changes'}
+  }
   else if(a==='see-more'){S.more[b.dataset.id]=!S.more[b.dataset.id];S.route==='meta'?renderMeta():S.route==='odoo'?renderOdoo():renderShop()}
   else if(a==='od-tab'){S.od.tab=b.dataset.tab;S.od.err='';loadOdoo()}
   else if(a==='od-refresh')loadOdoo(undefined,true);
@@ -1113,6 +1143,7 @@ document.addEventListener('change',async e=>{
   if(ev==='drop'&&S.assets)addFiles(d.id.replace('drop-',''),[...e.dataTransfer.files])}));
 document.addEventListener('error',e=>{if(e.target.tagName==='IMG')e.target.closest('.thumb')?.classList.add('broken')},true);
 
+document.addEventListener('input',e=>{const t=e.target;if(t.dataset&&t.dataset.draft)S.draft[t.dataset.draft]=t.value});
 document.addEventListener('submit',async e=>{
   const f=e.target.closest('[data-form]');if(!f)return;e.preventDefault();const k=f.dataset.form;
   if(k==='setup'){
@@ -1127,6 +1158,11 @@ document.addEventListener('submit',async e=>{
     const u=$('#li-u').value.trim().replace(/\s+/g,' '),p=$('#li-p').value,err=$('#li-err');
     err.textContent='';
     try{await api('POST','/api/auth?action=login',{username:u,password:p});S.lastJson='';S.route='home';await sync()}catch(x){err.textContent=x.message}
+  }
+  else if(k==='cmt'){
+    const id=f.dataset.id,t=f.querySelector('textarea'),body=t.value.trim();if(!body)return;
+    try{await api('POST','/api/submissions',{action:'comment',submissionId:id,body});delete S.draft['cm-'+id];S.lastJson='';await sync();update()}
+    catch(x){toast(x.message||'Could not send')}
   }
   else if(k==='send'){
     const title=$('#in-t').value.trim(),body=$('#in-b').value.trim(),err=$('#in-err');

@@ -57,6 +57,7 @@ export function ensureSchema() {
       )`;
       await q`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS rating INTEGER`;
       await q`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS rated_at BIGINT`;
+      await q`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS edited_at BIGINT`;
       await q`CREATE TABLE IF NOT EXISTS eval_behaviour (
         month TEXT NOT NULL, user_id TEXT NOT NULL, score INTEGER, note TEXT NOT NULL DEFAULT '', updated_at BIGINT NOT NULL,
         PRIMARY KEY (month, user_id)
@@ -65,6 +66,16 @@ export function ensureSchema() {
         instruction_id TEXT NOT NULL, user_id TEXT NOT NULL, score INTEGER, updated_at BIGINT NOT NULL,
         PRIMARY KEY (instruction_id, user_id)
       )`;
+      await q`CREATE TABLE IF NOT EXISTS sub_comments (
+        id TEXT PRIMARY KEY, submission_id TEXT NOT NULL, user_id TEXT NOT NULL, username TEXT NOT NULL,
+        role TEXT NOT NULL, body TEXT NOT NULL, created_at BIGINT NOT NULL
+      )`;
+      await q`CREATE INDEX IF NOT EXISTS sub_comments_sub ON sub_comments (submission_id)`;
+      await q`CREATE TABLE IF NOT EXISTS sub_revisions (
+        id TEXT PRIMARY KEY, submission_id TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
+        files JSONB NOT NULL DEFAULT '[]', saved_at BIGINT NOT NULL
+      )`;
+      await q`CREATE INDEX IF NOT EXISTS sub_revisions_sub ON sub_revisions (submission_id)`;
       await q`CREATE TABLE IF NOT EXISTS eval_settings (key TEXT PRIMARY KEY, value JSONB NOT NULL)`;
     })();
     ready.catch(() => { ready = null; });
@@ -100,7 +111,16 @@ export const mapSubmission = (r) => ({
   note: r.note,
   files: r.files || [],
   createdAt: Number(r.created_at),
+  editedAt: r.edited_at === null || r.edited_at === undefined ? null : Number(r.edited_at),
   rating: r.rating === null || r.rating === undefined ? null : Number(r.rating),
+});
+
+export const mapComment = (r) => ({
+  id: r.id, submissionId: r.submission_id, userId: r.user_id, username: r.username, role: r.role,
+  body: r.body, createdAt: Number(r.created_at),
+});
+export const mapRevision = (r) => ({
+  id: r.id, submissionId: r.submission_id, note: r.note, files: r.files || [], savedAt: Number(r.saved_at),
 });
 
 /* ---------- auth ---------- */

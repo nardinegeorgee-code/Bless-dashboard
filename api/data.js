@@ -1,4 +1,4 @@
-import { route, allow, db, getUser, mapUser, mapInstruction, mapSubmission } from './_lib.js';
+import { route, allow, db, getUser, mapUser, mapInstruction, mapSubmission, mapComment, mapRevision } from './_lib.js';
 
 // One read endpoint. The server decides what each person may see:
 // the Super Admin gets everything; everyone else gets the team list,
@@ -31,5 +31,12 @@ export default route(async (req, res) => {
   if (me.role === 'super_admin') {
     speeds = (await q`SELECT instruction_id, user_id, score FROM eval_speed`).map((r) => ({ instructionId: r.instruction_id, userId: r.user_id, score: r.score === null ? null : Number(r.score) }));
   }
-  res.json({ me: mapUser(me), users, instructions, submissions, speeds });
+  // Conversation and edit history travel with the tasks this person is allowed to see.
+  const ids = submissions.map((x) => x.id);
+  let comments = [], revisions = [];
+  if (ids.length) {
+    comments = (await q`SELECT * FROM sub_comments WHERE submission_id = ANY(${ids}) ORDER BY created_at`).map(mapComment);
+    revisions = (await q`SELECT * FROM sub_revisions WHERE submission_id = ANY(${ids}) ORDER BY saved_at`).map(mapRevision);
+  }
+  res.json({ me: mapUser(me), users, instructions, submissions, speeds, comments, revisions });
 });
