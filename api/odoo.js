@@ -259,10 +259,26 @@ function build(tab, cfg, ctx) {
       return { ...t, metrics: [{ key: 'orders', label: 'Order value', fmt: 'money' }, { key: 'invoiced', label: 'Invoiced', fmt: 'money' }], monthBars: { keys: ['orders', 'invoiced'], base: 'orders' } };
     }),
     section('customers', `Top customers (${ctx.monthLabel})`, 'table', async () => {
-      const list = await sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(s)], ['date_order', '<=', dtEnd(e)]], ['partner_id', 'amount_total'], { app: 'Sales', limit: 20000 });
-      const m = new Map(); list.forEach((o) => { const k = nm(o.partner_id) || 'Unknown'; const g = m.get(k) || { name: k, value: 0, orders: 0 }; g.value += n0(o.amount_total); g.orders++; m.set(k, g); });
-      return { columns: [{ key: 'name', label: 'Customer', fmt: 'str' }, { key: 'value', label: 'Order value', fmt: 'money', bar: true }, { key: 'orders', label: 'Orders', fmt: 'int' }], rows: [...m.values()].sort((a, b) => b.value - a.value).slice(0, 10), empty: 'No confirmed orders this month.' };
-    }),
+      const [list, inv] = await Promise.all([
+        sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(s)], ['date_order', '<=', dtEnd(e)]], ['name', 'partner_id', 'amount_total', 'date_order'], { app: 'Sales', limit: 20000 }),
+        sr(cfg, 'account.move', [['move_type', 'in', ['out_invoice', 'out_refund']], ['state', '=', 'posted'], ['invoice_date', '>=', s], ['invoice_date', '<=', e]], ['name', 'partner_id', 'move_type', 'invoice_date', 'invoice_date_due', 'amount_total_signed', 'amount_residual', 'payment_state'], { app: 'Accounting', limit: 20000 }),
+      ]);
+      // Contacts of a company are counted under the company, so orders and invoices of the same customer meet.
+      const ids = [...new Set([...list, ...inv].map((x) => nid(x.partner_id)).filter(Boolean))], top = new Map();
+      for (let i = 0; i < ids.length; i += 500) { try { for (const g of await call(cfg, 'res.partner', 'read', [ids.slice(i, i + 500), ['commercial_partner_id']])) top.set(g.id, nm(g.commercial_partner_id)); } catch (err) { break; } }
+      const who = (x) => top.get(nid(x.partner_id)) || nm(x.partner_id) || 'Unknown';
+      const m = new Map();
+      const get = (k) => { if (!m.has(k)) m.set(k, { name: k, value: 0, orders: 0, invoices: 0, invoiced: 0, orderRows: [], invRows: [] }); return m.get(k); };
+      for (const o of list) { const g = get(who(o)); g.value += n0(o.amount_total); g.orders++; g.orderRows.push({ name: o.name, date: String(o.date_order).slice(0, 10), amount: n0(o.amount_total) }); }
+      const pay = { paid: 'Paid', not_paid: 'Not paid', partial: 'Partly paid', in_payment: 'In payment', reversed: 'Reversed' };
+      for (const x of inv) { const g = get(who(x)); const v = amt(x); g.invoices++; g.invoiced += v; g.invRows.push({ name: x.name, date: x.invoice_date, amount: v, owed: resid(x), status: pay[x.payment_state] || String(x.payment_state || '–').replace(/_/g, ' ') }); }
+      const rowsOut = [...m.values()].filter((g) => g.orders).sort((a, b) => b.value - a.value).slice(0, 300).map((g) => ({ name: g.name, value: g.value, orders: g.orders, invoices: g.invoices, invoiced: g.invoiced,
+        breakdown: { plain: true, summary: [{ l: 'Orders', v: g.orders, f: 'int' }, { l: 'Order value', v: g.value, f: 'money' }, { l: 'Invoices', v: g.invoices, f: 'int' }, { l: 'Invoiced', v: g.invoiced, f: 'money' }],
+          columns: [{ key: 'name', label: 'Invoice', fmt: 'str' }, { key: 'date', label: 'Date', fmt: 'str' }, { key: 'amount', label: 'Amount', fmt: 'money' }, { key: 'owed', label: 'Still owed', fmt: 'money' }, { key: 'status', label: 'Payment', fmt: 'str' }],
+          rows: g.invRows.sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 100), more: Math.max(0, g.invRows.length - 100), note: g.invRows.length ? undefined : 'No invoices were issued to this customer in this period.',
+          extra: [{ title: 'Orders', columns: [{ key: 'name', label: 'Order', fmt: 'str' }, { key: 'date', label: 'Date', fmt: 'str' }, { key: 'amount', label: 'Value', fmt: 'money' }], rows: g.orderRows.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 100) }] } }));
+      return { initial: 10, columns: [{ key: 'name', label: 'Customer', fmt: 'str' }, { key: 'value', label: 'Order value', fmt: 'money', bar: true }, { key: 'orders', label: 'Orders', fmt: 'int' }, { key: 'invoices', label: 'Invoices', fmt: 'int' }, { key: 'invoiced', label: 'Invoiced', fmt: 'money' }], rows: rowsOut.map((r) => ({ ...r, only: true })), empty: 'No confirmed orders in this period.' };
+    }, 'Click a customer to see each invoice and order. Orders and invoices of a company\'s contacts are counted together.'),
     section('products', `Top products sold (${ctx.monthLabel})`, 'table', async () => {
       const list = await sr(cfg, 'sale.order.line', [['order_id.state', 'in', ['sale', 'done']], ['order_id.date_order', '>=', dt(s)], ['order_id.date_order', '<=', dtEnd(e)]], ['product_id', 'product_uom_qty', 'price_subtotal'], { app: 'Sales', limit: 20000 });
       const m = new Map(); list.forEach((l) => { const k = nm(l.product_id) || 'Other'; const g = m.get(k) || { name: k, pid: nid(l.product_id), value: 0, units: 0 }; g.value += n0(l.price_subtotal); g.units += n0(l.product_uom_qty); m.set(k, g); });

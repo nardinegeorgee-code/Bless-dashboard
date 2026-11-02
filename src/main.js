@@ -772,7 +772,7 @@ function waterfall(b){
 }
 /* One month at a time: pick the month and year; each bar shows its percentage of a base figure; hover a bar for its exact figure.
    rows: [{key:'2026-10', month:'Oct 2026', v:{figureKey:number}}], bars: [[figureKey,label,color]], base: figureKey, baseLabel */
-S.mc={key:'',keys:[]};
+S.mc={key:'',keys:[]};S.more={};
 function monthBarsChart(rows,bars,base,baseLabel){
   const all=rows.filter(r=>r.key).sort((a,b)=>a.key<b.key?-1:1);if(!all.length)return '';
   S.mc.keys=all.map(r=>r.key);
@@ -848,8 +848,9 @@ function anTable(sec){
     const total=sec.rows.reduce((a,r)=>a+(Number(r[barCol.key])||0),0);
     const anyPic=sec.rows.some(r=>r.img);
     const donut=barCol.barReverse?'':shareDonut(sec,barCol);
-    const list=`<div class="rkl">${sec.rows.map((r,i)=>{const v=Number(r[barCol.key])||0,w=barCol.barReverse?(1-Math.min(1,v/maxv)):v/maxv;
-      return `<div class="rkr${anyPic?' hp':''}" data-detail tabindex="0" role="button" aria-expanded="false"><span class="rkn">${i+1}</span>${anyPic?(r.img?pic(r,52):'<span class="pimg ph" aria-hidden="true"></span>'):''}<div class="rkmain"><div class="rkt"><b title="${esc(String(r[nameCol.key]&&r[nameCol.key].text||r[nameCol.key]||''))}">${cellText(r[nameCol.key],nameCol.fmt)}</b><span class="rkv mono">${cellText(r[barCol.key],barCol.fmt)}</span></div><span class="rkbar"><i style="width:${Math.max(2,w*100)}%"></i></span>${rest.length?`<div class="rkchips">${rest.map(c=>rkChip(c,r[c.key])).join('')}</div>`:''}<div class="rkdetail">${rowDetail(sec,r,i,barCol,total)}</div></div></div>`}).join('')}</div>`;
+    const lim=sec.initial||0,open=!!S.more[sec.id],hide=lim&&!open&&sec.rows.length>lim?sec.rows.length-lim:0;
+    const list=`<div class="rkl">${sec.rows.map((r,i)=>{if(hide&&i>=lim)return '';const v=Number(r[barCol.key])||0,w=barCol.barReverse?(1-Math.min(1,v/maxv)):v/maxv;
+      return `<div class="rkr${anyPic?' hp':''}" data-detail tabindex="0" role="button" aria-expanded="false"><span class="rkn">${i+1}</span>${anyPic?(r.img?pic(r,52):'<span class="pimg ph" aria-hidden="true"></span>'):''}<div class="rkmain"><div class="rkt"><b title="${esc(String(r[nameCol.key]&&r[nameCol.key].text||r[nameCol.key]||''))}">${cellText(r[nameCol.key],nameCol.fmt)}</b><span class="rkv mono">${cellText(r[barCol.key],barCol.fmt)}</span></div><span class="rkbar"><i style="width:${Math.max(2,w*100)}%"></i></span>${rest.length?`<div class="rkchips">${rest.map(c=>rkChip(c,r[c.key])).join('')}</div>`:''}<div class="rkdetail">${rowDetail(sec,r,i,barCol,total)}</div></div></div>`}).join('')}${lim&&sec.rows.length>lim?`<button class="btn sm seemore" data-act="see-more" data-id="${esc(sec.id)}">${hide?'See '+hide+' more':'Show less'}</button>`:''}</div>`;
     return donut?`<div class="splitc">${list}${donut}</div>`:list;
   }
   if(cols.some(c=>c.rate)){
@@ -1058,6 +1059,7 @@ document.addEventListener('click',async e=>{
   else if(a==='per-mode'){const md=b.dataset.mode,P=S.per,t=todayStr(),e=P.to||t,y=+e.slice(0,4),m=+e.slice(5,7);
     if(md==='day')perSet('day',e,e);else if(md==='month')perMonth(y,m);else if(md==='quarter')perQuarter(y,Math.floor((m-1)/3)+1);else{P.mode='custom'}
     perReload()}
+  else if(a==='see-more'){S.more[b.dataset.id]=!S.more[b.dataset.id];S.route==='meta'?renderMeta():S.route==='odoo'?renderOdoo():renderShop()}
   else if(a==='od-tab'){S.od.tab=b.dataset.tab;S.od.err='';loadOdoo()}
   else if(a==='od-refresh')loadOdoo(undefined,true);
   else if(a==='meta-tab'){S.meta.tab=b.dataset.tab;S.meta.err='';loadMeta()}

@@ -523,3 +523,5 @@ tr.drow{display:none}tr.drow .rkdetail{display:block;margin:4px 0 8px}tr.open+tr
 
 .repsum{display:flex;flex-wrap:wrap;gap:6px 22px;padding:2px 0 8px;border-bottom:1px solid var(--line,#e4dcee)}
 .repsum .rs{display:flex;flex-direction:column;gap:2px}.repsum .rs em{font-style:normal;font-size:.75rem;color:var(--muted,#6b5b7a)}.repsum .rs b{font-size:1.05rem;font-variant-numeric:tabular-nums}
+
+.seemore{margin:12px 0 4px}
