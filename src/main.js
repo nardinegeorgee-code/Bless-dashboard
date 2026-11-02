@@ -192,7 +192,7 @@ function overviewHTML(){
     ${kpi('file','#0F766E','Files received',files,S.subs.length+' submissions')}</div>`;
   const maxR=Math.max(1,...ROLES.map(r=>S.users.filter(u=>u.role===r.key&&u.role!=='super_admin').length));
   const roles=ROLES.filter(r=>r.key!=='super_admin').map(r=>{const n=S.users.filter(u=>u.role===r.key).length;return `<div class="rolebar"><span class="rdot" style="background:var(${r.tok})"></span><span class="rl">${r.label}</span><span class="rbar"><i style="width:${Math.max(n?6:0,n/maxR*100)}%;background:var(${r.tok})"></i></span><b class="mono">${n}</b></div>`}).join('');
-  const side=`<div class="two"><section class="panel"><h2>Team response rate</h2>${total?`<div class="cust">${donut([{v:answered,c:'#F28D3A'},{v:open,c:'#CBB7D8'}],rate+'%','responded')}<div class="legend"><div><i style="background:#F28D3A"></i><b>${answered}</b> responses received</div><div><i style="background:#CBB7D8"></i><b>${open}</b> still waiting</div><p class="muted" style="font-size:.82rem;margin:6px 0 0">Counted across every person each instruction was sent to.</p></div></div>`:'<p class="muted">Send an instruction to start tracking responses.</p>'}</section>
+  const side=`<div class="two"><section class="panel"><h2>Team response rate</h2>${total?`<div class="cust">${donut([{v:answered,c:'#F28D3A',l:'Responded'},{v:open,c:'#CBB7D8',l:'Waiting'}],rate+'%','responded')}<div class="legend"><div><i style="background:#F28D3A"></i><b>${answered}</b> responses received</div><div><i style="background:#CBB7D8"></i><b>${open}</b> still waiting</div><p class="muted" style="font-size:.82rem;margin:6px 0 0">Counted across every person each instruction was sent to.</p></div></div>`:'<p class="muted">Send an instruction to start tracking responses.</p>'}</section>
     <section class="panel"><div class="item-top"><h2>Your team</h2><button class="btn sm" data-act="go" data-route="team">View all</button></div>${team.length?`<div class="rolebars">${roles}</div>`:'<p class="muted">Add team members on the Users page.</p>'}</section></div>`;
   const waiting=S.instructions.map(i=>({i,w:recipients(i).filter(u=>!responded(i.id,u.id))})).filter(x=>x.w.length).sort((x,y)=>y.w.length-x.w.length).slice(0,4);
   const attn=waiting.length?`<section class="panel"><div><h2>Needs a nudge</h2><p class="muted">Instructions with the most people still to respond.</p></div><div class="attn">${waiting.map(({i,w})=>`<button class="arow" data-act="go" data-route="ins" data-param="${i.id}"><b>${esc(i.title)}</b><span class="muted">${w.slice(0,4).map(u=>esc(u.username)).join(', ')}${w.length>4?' +'+(w.length-4)+' more':''}</span><span class="pill new">${w.length} waiting</span></button>`).join('')}</div></section>`:'';
@@ -466,7 +466,7 @@ function areaSpark(vals,selIdx){
 }
 function donut(parts,centerTop,centerSub){
   const total=parts.reduce((a,p)=>a+p.v,0)||1,R=52,C=2*Math.PI*R;let off=0;
-  const arcs=parts.map(p=>{const len=p.v/total*C,s=`<circle cx="70" cy="70" r="${R}" fill="none" stroke="${p.c}" stroke-width="16" stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-off}" transform="rotate(-90 70 70)"/>`;off+=len;return s}).join('');
+  const arcs=parts.map(p=>{const len=p.v/total*C,s=`<circle cx="70" cy="70" r="${R}" fill="none" stroke="${p.c}" class="dseg"${p.l?` data-tip="${esc(p.l)}: ${fmtNum(p.v)} (${(p.v/total*100).toFixed(1)}%)"`:''} stroke-width="16" stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-off}" transform="rotate(-90 70 70)"/>`;off+=len;return s}).join('');
   return `<svg class="donut" viewBox="0 0 140 140" role="img" aria-label="${esc(centerTop+' '+centerSub)}"><circle cx="70" cy="70" r="${R}" fill="none" stroke="var(--surface-2)" stroke-width="16"/>${arcs}<text x="70" y="68" text-anchor="middle" class="dn">${esc(centerTop)}</text><text x="70" y="86" text-anchor="middle" class="ds">${esc(centerSub)}</text></svg>`;
 }
 function ovBody(d){
@@ -494,7 +494,7 @@ function ovBody(d){
   const lists=`<div class="two">
     <section class="panel"><div class="item-top"><h2>Best sellers</h2>${seg('best',sh.best||'units',[['units','By units'],['revenue','By revenue']])}</div>${rankList(best,x=>sh.best==='revenue'?x.revenue:x.units,x=>sh.best==='revenue'?money(x.revenue):fmtNum(x.units)+' units')}</section>
     <section class="panel"><div class="item-top"><h2>Where orders go</h2>${seg('geo',sh.geo||'countries',[['countries','Countries'],['cities','Cities']])}</div>${rankList(geo,x=>x.revenue,x=>Math.round(x.revenue/geoTot*100)+'% · '+fmtNum(x.orders)+' orders')}</section></div>`;
-  const cust=`<section class="panel"><h2>Customers</h2>${c.distinct||c.guest?`<div class="cust">${donut([{v:c.fresh,c:'#F28D3A'},{v:c.repeat,c:'#7B4FA0'}],c.repeatRate.toFixed(0)+'%','returning')}
+  const cust=`<section class="panel"><h2>Customers</h2>${c.distinct||c.guest?`<div class="cust">${donut([{v:c.fresh,c:'#F28D3A',l:'First-time customers'},{v:c.repeat,c:'#7B4FA0',l:'Returning customers'}],c.repeatRate.toFixed(0)+'%','returning')}
     <div class="legend"><div><i style="background:#F28D3A"></i><b>${fmtNum(c.fresh)}</b> first-time customers</div><div><i style="background:#7B4FA0"></i><b>${fmtNum(c.repeat)}</b> returning customers</div>${c.guest?`<div class="muted"><i style="background:var(--line)"></i>${fmtNum(c.guest)} orders without a customer record</div>`:''}
     <p class="muted" style="font-size:.82rem;margin:6px 0 0">Returning means the customer has more than one order with you in total.</p></div></div>`:'<p class="muted">No customer data for this month.</p>'}</section>`;
   const cols=['#F8D9BC','#F4B982','#F28D3A','#B4540F'];
@@ -733,7 +733,7 @@ function dailyChart(dl,fmt){
   const W=300,H=96,pl=4,pr=4,pt=8,pb=16,all=[...dl.cur,...(dl.prev||[])].filter(v=>typeof v==='number'&&isFinite(v)),mx=Math.max(1e-9,...all),mn=Math.min(0,...all);
   const X=(i,n)=>pl+(n>1?i/(n-1):0.5)*(W-pl-pr),Y=v=>pt+(1-(v-mn)/(mx-mn||1))*(H-pt-pb);
   const line=a=>a.map((v,i)=>(i?'L':'M')+X(i,a.length).toFixed(1)+' '+Y(v).toFixed(1)).join('');
-  const dots=dl.cur.length<=62?dl.cur.map((v,i)=>`<circle cx="${X(i,dl.cur.length).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="5" fill="transparent" stroke="none"><title>${esc(dl.dates[i])}: ${esc(fv(v,fmt))}</title></circle>`).join(''):'';
+  const dots=dl.cur.length<=62?dl.cur.map((v,i)=>`<circle cx="${X(i,dl.cur.length).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="5" fill="transparent" stroke="none" data-tip="${esc(dl.dates[i])}: ${esc(fv(v,fmt))}"></circle>`).join(''):'';
   const lo=dl.dates[0],hi=dl.dates[dl.dates.length-1];
   return `<div class="dchart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Day by day chart" preserveAspectRatio="none"><path d="${line(dl.prev||[])}" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 3" opacity=".8"/><path d="${line(dl.cur)}" fill="none" stroke="var(--accent-text)" stroke-width="2"/>${dots}<text x="${pl}" y="${H-3}" class="dax">${esc(lo.slice(5))}</text><text x="${W-pr}" y="${H-3}" text-anchor="end" class="dax">${esc(hi.slice(5))}</text></svg>
   <div class="dleg"><span><i style="background:var(--accent-text)"></i>This period</span><span><i style="background:var(--muted)"></i>Compared period</span><span class="muted">peak ${esc(fv(Math.max(...dl.cur),fmt))}</span></div></div>`;
@@ -748,8 +748,8 @@ function shareDonut(sec,col){
   if(items.length<3)return '';
   items.sort((a,b)=>b.v-a.v);const top=items.slice(0,6),rest=items.slice(6).reduce((a,x)=>a+x.v,0);if(rest>0)top.push({n:'Other',v:rest});
   const total=top.reduce((a,x)=>a+x.v,0),R=52,C=2*Math.PI*R;let off=0;
-  const arcs=top.map((x,i)=>{const len=x.v/total*C,col2=x.n==='Other'&&i===top.length-1&&rest>0?CAT_OTHER:CAT[i%CAT.length],a=`<circle cx="70" cy="70" r="${R}" fill="none" stroke="${col2}" stroke-width="22" stroke-dasharray="${Math.max(0,len-1.5).toFixed(2)} ${(C-Math.max(0,len-1.5)).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 70 70)"><title>${esc(x.n)}: ${esc(fv(x.v,col.fmt))} (${(x.v/total*100).toFixed(1)}%)</title></circle>`;off+=len;return a}).join('');
-  const leg=top.map((x,i)=>`<li><i style="background:${x.n==='Other'&&rest>0&&i===top.length-1?CAT_OTHER:CAT[i%CAT.length]}"></i><span title="${esc(x.n)}">${esc(short(x.n,26))}</span><b>${(x.v/total*100).toFixed(x.v/total<0.1?1:0)}%</b></li>`).join('');
+  const arcs=top.map((x,i)=>{const len=x.v/total*C,col2=x.n==='Other'&&i===top.length-1&&rest>0?CAT_OTHER:CAT[i%CAT.length],a=`<circle cx="70" cy="70" r="${R}" fill="none" stroke="${col2}" class="dseg" data-tip="${esc(x.n)}: ${esc(fv(x.v,col.fmt))} (${(x.v/total*100).toFixed(1)}%)" stroke-width="22" stroke-dasharray="${Math.max(0,len-1.5).toFixed(2)} ${(C-Math.max(0,len-1.5)).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 70 70)"></circle>`;off+=len;return a}).join('');
+  const leg=top.map((x,i)=>`<li data-tip="${esc(x.n)}: ${esc(fv(x.v,col.fmt))} (${(x.v/total*100).toFixed(1)}%)"><i style="background:${x.n==='Other'&&rest>0&&i===top.length-1?CAT_OTHER:CAT[i%CAT.length]}"></i><span>${esc(short(x.n,26))}</span><b>${(x.v/total*100).toFixed(x.v/total<0.1?1:0)}%</b></li>`).join('');
   return `<aside class="viz" aria-label="Share chart"><div class="viz-t">Share of ${esc(col.label.toLowerCase())}</div><div class="donutw"><svg viewBox="0 0 140 140" role="img" aria-label="Share chart">${arcs}<text x="70" y="67" text-anchor="middle" class="dn1">${esc(fv(total,col.fmt==='int'?'int':'money'))}</text><text x="70" y="82" text-anchor="middle" class="dn2">listed</text></svg><ul class="dleg2">${leg}</ul></div></aside>`;
 }
 /* Horizontal bars for the biggest lines of a breakdown. */
@@ -757,7 +757,7 @@ function bkBars(b){
   const col=[...b.columns].reverse().find(c=>['money','int'].includes(c.fmt)&&c.key!=='units');if(!col||!b.rows.length)return '';
   const rows=b.rows.map(r=>({n:r[b.columns[0].key],v:Number(r[col.key])||0})).filter(x=>x.v>0).sort((a,c)=>c.v-a.v).slice(0,8);if(rows.length<2)return '';
   const mx=rows[0].v;
-  return `<aside class="viz"><div class="viz-t">Biggest by ${esc(col.label.toLowerCase())}</div>${rows.map(x=>`<div class="hb"><div class="hb-top"><span class="hb-n" title="${esc(x.n)}">${esc(short(x.n,28))}</span><b>${esc(fv(x.v,col.fmt))}</b></div><span class="hb-b"><i style="width:${Math.max(2,x.v/mx*100)}%"></i></span></div>`).join('')}</aside>`;
+  return `<aside class="viz"><div class="viz-t">Biggest by ${esc(col.label.toLowerCase())}</div>${rows.map(x=>`<div class="hb" data-tip="${esc(String(x.n))}: ${esc(fv(x.v,col.fmt))}"><div class="hb-top"><span class="hb-n" title="${esc(x.n)}">${esc(short(x.n,28))}</span><b>${esc(fv(x.v,col.fmt))}</b></div><span class="hb-b"><i style="width:${Math.max(2,x.v/mx*100)}%"></i></span></div>`).join('')}</aside>`;
 }
 /* Revenue down to profit after ads as steps: totals in orange, deductions in plum. */
 function waterfall(b){

@@ -525,3 +525,6 @@ tr.drow{display:none}tr.drow .rkdetail{display:block;margin:4px 0 8px}tr.open+tr
 .repsum .rs{display:flex;flex-direction:column;gap:2px}.repsum .rs em{font-style:normal;font-size:.75rem;color:var(--muted,#6b5b7a)}.repsum .rs b{font-size:1.05rem;font-variant-numeric:tabular-nums}
 
 .seemore{margin:12px 0 4px}
+
+.dseg{cursor:pointer;transition:stroke-width .12s}.dseg:hover{stroke-width:27}
+.dleg2 li{cursor:default;border-radius:8px;transition:background .12s}.dleg2 li:hover,.hb:hover{background:color-mix(in srgb,var(--accent) 10%,transparent)}
