@@ -956,7 +956,7 @@ function odHeroSpec(tab,secs){
   if(tab==='profit')return heroSpec('profit',secs);
   const by=id=>secs.find(x=>x.id===id&&!x.error),k=by('kpi'),tr=by('trend');if(!k)return {};
   const T=k.tiles,g=l=>T.find(t=>t.label===l),mini=(l,t)=>t?{l,v:fv(t.value,t.fmt)}:null;
-  const fixed={inventory:['Stock value (at cost)',['Stocked products','Out of stock','Running low']],sales:['Order value',['Confirmed orders','Invoiced','Overdue']],hr:['Employees',['Departments','Hours worked','Approved time off']]}[tab];
+  const fixed={inventory:['Stock value (at cost)',['Stocked products','Out of stock','Running low']],sales:['Order value',['Confirmed orders','Invoiced','Waiting to be paid']],hr:['Employees',['Departments','Hours worked','Approved time off']]}[tab];
   const main=fixed?fixed[0]:T[0].label,m=g(main);if(!m)return {};
   const minis=(fixed?fixed[1]:T.slice(1,4).map(t=>t.label)).map(l=>mini(l,g(l))).filter(Boolean);
   const key=tab==='sales'?'orders':tr&&tr.metrics&&tr.metrics.length?tr.metrics[0].key:null,rows=tr&&key?tr.rows:null;

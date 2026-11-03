@@ -554,7 +554,6 @@ function build(tab, cfg, ctx) {
         tile('Invoiced', sum(inv, amt), 'money', { prev: sum(pinv, amt), daily: daily(ctx, inv, pinv, (m) => m.invoice_date, amt),
           breakdown: bd([{ l: 'Invoices', v: inv.length, f: 'int' }], [COL.name('Invoice'), COL.str('customer', 'Customer'), COL.str('date', 'Date'), COL.money('amount', 'Amount')], inv.map(invLine).sort((a, b) => b.amount - a.amount)) }),
         tile('Waiting to be paid', sum(open, resid), 'money', { goodDown: true, sub: open.length + ' invoices · ' + (open.length - overdue.length) + ' not yet due (' + fmtN(sum(open, resid) - sum(overdue, resid)) + ')', breakdown: bd([{ l: 'Open invoices', v: open.length, f: 'int' }, { l: 'Overdue', v: sum(overdue, resid), f: 'money' }, { l: 'Not yet due', v: sum(open, resid) - sum(overdue, resid), f: 'money' }], owedCols, open.map(owedLine).sort((a, b) => b.owed - a.owed)) }),
-        tile('Overdue', sum(overdue, resid), 'money', { goodDown: true, sub: overdue.length + ' invoices past their due date · ' + pct(sum(overdue, resid), sum(open, resid)).toFixed(0) + '% of what is owed', breakdown: bd([{ l: 'Overdue invoices', v: overdue.length, f: 'int' }, { l: 'Share of all owed', v: pct(sum(overdue, resid), sum(open, resid)), f: 'pct' }], owedCols, overdue.map(owedLine).sort((a, b) => b.owed - a.owed)) }),
       ] };
     }),
     section('trend', 'Last 12 months', 'trend', async () => {
