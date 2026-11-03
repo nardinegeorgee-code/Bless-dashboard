@@ -556,13 +556,6 @@ function build(tab, cfg, ctx) {
         tile('Waiting to be paid', sum(open, resid), 'money', { goodDown: true, sub: open.length + ' invoices · ' + (open.length - overdue.length) + ' not yet due (' + fmtN(sum(open, resid) - sum(overdue, resid)) + ')', breakdown: bd([{ l: 'Open invoices', v: open.length, f: 'int' }, { l: 'Overdue', v: sum(overdue, resid), f: 'money' }, { l: 'Not yet due', v: sum(open, resid) - sum(overdue, resid), f: 'money' }], owedCols, open.map(owedLine).sort((a, b) => b.owed - a.owed)) }),
       ] };
     }),
-    section('trend', 'Last 12 months', 'trend', async () => {
-      const t = await trend12([
-        ['orders', async (start) => (await sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(start)]], ['date_order', 'amount_total'], { app: 'Sales', limit: 20000 })).map((r) => ({ ...r, _d: r.date_order })), 'amount_total'],
-        ['invoiced', async (start) => (await invoices(['out_invoice', 'out_refund'], [['invoice_date', '>=', start]])).map((r) => ({ ...r, _d: r.invoice_date })), amt],
-      ]);
-      return { ...t, metrics: [{ key: 'orders', label: 'Order value', fmt: 'money' }, { key: 'invoiced', label: 'Invoiced', fmt: 'money' }], monthBars: { keys: ['orders', 'invoiced'], base: 'orders' } };
-    }),
     section('products', `Top products sold (${ctx.monthLabel})`, 'table', async () => {
       const list = await sr(cfg, 'sale.order.line', [['order_id.state', 'in', ['sale', 'done']], ['order_id.date_order', '>=', dt(s)], ['order_id.date_order', '<=', dtEnd(e)]], ['product_id', 'product_uom_qty', 'price_subtotal'], { app: 'Sales', limit: 20000 });
       const m = new Map(); list.forEach((l) => { const k = nm(l.product_id) || 'Other'; const g = m.get(k) || { name: k, pid: nid(l.product_id), value: 0, units: 0 }; g.value += n0(l.price_subtotal); g.units += n0(l.product_uom_qty); m.set(k, g); });
