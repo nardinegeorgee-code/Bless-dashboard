@@ -161,9 +161,9 @@ function build(tab, cfg, ctx) {
   const poOrders = (a, b) => sr(cfg, 'purchase.order', [['state', 'in', ['purchase', 'done']], ['date_order', '>=', dt(a)], ['date_order', '<=', dtEnd(b)]], ['name', 'partner_id', 'amount_total', 'date_order'], { app: 'Purchase', limit: 20000 });
   const openPOs = () => once('openPOs', async () => {
     const f = await needModel(cfg, 'purchase.order', 'Purchase');
-    const list = await sr(cfg, 'purchase.order', [['state', 'in', ['purchase', 'done']]], ['name', 'partner_id', 'amount_total', 'date_planned', 'receipt_status'], { app: 'Purchase', order: 'date_planned asc', limit: 2000 });
+    const list = await sr(cfg, 'purchase.order', [['state', 'in', ['purchase', 'done']]], ['name', 'partner_id', 'amount_total', 'amount_untaxed', 'date_order', 'date_planned', 'receipt_status', 'invoice_status', 'user_id', 'currency_id'], { app: 'Purchase', order: 'date_planned asc', limit: 2000 });
     return list.filter((o) => (f.has('receipt_status') ? o.receipt_status !== 'full' : true))
-      .map((o) => ({ name: o.name, supplier: nm(o.partner_id) || 'Unknown', amount: n0(o.amount_total), due: String(o.date_planned || '').slice(0, 10), status: o.receipt_status ? String(o.receipt_status).replace(/_/g, ' ') : '–' }));
+      .map((o) => ({ id: o.id, name: o.name, supplier: nm(o.partner_id) || 'Unknown', amount: n0(o.amount_total), due: String(o.date_planned || '').slice(0, 10), ordered: String(o.date_order || '').slice(0, 10), buyer: nm(o.user_id) || '–', billing: o.invoice_status ? String(o.invoice_status).replace(/_/g, ' ') : '–', status: o.receipt_status ? String(o.receipt_status).replace(/_/g, ' ') : '–' }));
   });
   // Every purchase line (product, supplier, quantity, price) from the earliest date any card needs.
   const supplyFrom = [ps, s, monthsBack(12)[0] + '-01'].sort()[0];
@@ -212,9 +212,26 @@ function build(tab, cfg, ctx) {
       return { initial: 10, columns: [COL.name('Supplier'), { key: 'value', label: 'Purchased', fmt: 'money', bar: true }, COL.pct('share', 'Share'), COL.int('orders', 'Orders'), COL.int('products', 'Products'), COL.money('owed', 'You still owe')], rows: rowsOut.map((r) => ({ ...r, only: true })), empty: 'No purchase orders in this period.' };
     }, 'Click a supplier to see what you buy from them, at what price, and each order.'),
     section('po', 'Purchase orders still to receive', 'table', async () => {
-      const open = (await openPOs()).slice(0, 25);
-      return { columns: [COL.name('Order'), { key: 'amount', label: 'Value', fmt: 'money', bar: true }, COL.str('due', 'Expected'), COL.str('status', 'Status')], rows: open.map((o) => ({ ...o, name: `${o.name} · ${o.supplier}` })), empty: 'Nothing waiting to arrive.' };
-    }),
+      const open = (await openPOs()).slice(0, 40), ids = open.map((o) => o.id);
+      const [lines, bills, all] = await Promise.all([
+        ids.length ? sr(cfg, 'purchase.order.line', [['order_id', 'in', ids]], ['order_id', 'product_id', 'name', 'product_qty', 'qty_received', 'price_unit', 'price_subtotal'], { app: 'Purchase', limit: 5000 }).catch(() => []) : [],
+        invoices(['in_invoice'], [['payment_state', 'in', ['not_paid', 'partial']]]).catch(() => []), openPOs(),
+      ]);
+      const by = new Map(); lines.forEach((l) => { const k = nid(l.order_id); (by.get(k) || by.set(k, []).get(k)).push(l); });
+      const owed = new Map(); bills.forEach((m) => { const k = nm(m.partner_id) || 'Unknown'; owed.set(k, (owed.get(k) || 0) + resid(m)); });
+      const day = (d) => (d ? Math.round((Date.parse(today) - Date.parse(d)) / 86400000) : null);
+      const rowsOut = open.map((o) => {
+        const L = (by.get(o.id) || []).map((l) => ({ name: nm(l.product_id) || l.name || 'Item', qty: n0(l.product_qty), got: n0(l.qty_received), left: Math.max(0, n0(l.product_qty) - n0(l.qty_received)), price: n0(l.price_unit), total: n0(l.price_subtotal) }));
+        const qty = sum(L, 'qty'), got = sum(L, 'got'), late = day(o.due), others = all.filter((x) => x.supplier === o.supplier && x.id !== o.id);
+        return { name: `${o.name} · ${o.supplier}`, amount: o.amount, due: o.due || '–', status: o.status,
+          breakdown: { plain: true, summary: [{ l: 'Order value', v: o.amount, f: 'money' }, { l: 'Received', v: qty ? pct(got, qty) : 0, f: 'pct' }, { l: 'Still to arrive', v: sum(L, (x) => x.left * x.price), f: 'money' }, { l: late !== null && late > 0 ? 'Days late' : 'Days to go', v: late === null ? 0 : Math.abs(late), f: 'int' }, { l: 'You still owe this supplier', v: owed.get(o.supplier) || 0, f: 'money' }],
+            note: `Supplier ${o.supplier} · ordered ${o.ordered || '–'} · expected ${o.due || '–'} · buyer ${o.buyer} · billing ${o.billing}`,
+            columns: [COL.name('Product'), COL.int('qty', 'Ordered'), COL.int('got', 'Received'), COL.int('left', 'Still to arrive'), { key: 'price', label: 'Unit price', fmt: 'money2' }, COL.money('total', 'Total')],
+            rows: L.sort((a, b) => b.total - a.total), 
+            extra: others.length ? [{ title: `Other open orders with ${o.supplier}`, columns: [COL.name('Order'), COL.str('due', 'Expected'), COL.money('amount', 'Value'), COL.str('status', 'Status')], rows: others.slice(0, 30) }] : [] } };
+      });
+      return { initial: 10, columns: [COL.name('Order'), { key: 'amount', label: 'Value', fmt: 'money', bar: true }, COL.str('due', 'Expected'), COL.str('status', 'Status')], rows: rowsOut, empty: 'Nothing waiting to arrive.' };
+    }, 'Click an order to see what is on it, how much has arrived, what is left, and the supplier\'s other open orders and bills.'),
   ];
 
   const stockKind = (kind, noun) => {
