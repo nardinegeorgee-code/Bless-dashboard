@@ -1222,3 +1222,17 @@ document.addEventListener('submit',async e=>{
 
 (function(){try{const h=location.hash.slice(1);if(h.startsWith('ins-')){S.route='ins';S.param=h.slice(4)}else if(['home','uploads','notes','team','send','content','users','shop','eval','odoo','meta'].includes(h))S.route=h}catch(e){}})();
 boot();
+
+/* Side charts (pies and bar panels) can be dragged out of the way. Position is remembered while the page is open; double-click the title to put it back. */
+(function(){
+  const pos={};let drag=null;
+  const keyOf=v=>{const s=v.closest('section,.panel,.an-sec,[data-sec]'),h=s&&s.querySelector('h2,h3');const t=v.querySelector('.viz-t');return [S.route,S.route==='odoo'?S.od.tab:S.route==='meta'?S.meta.tab:S.an.tab,h?h.textContent.trim():'',t?t.textContent.trim():''].join('|')};
+  const apply=v=>{if(v.dataset.mv)return;v.dataset.mv='1';const t=v.querySelector('.viz-t');if(t)t.title='Drag to move · double-click to put back';const p=pos[keyOf(v)];if(p)v.style.transform=`translate(${p[0]}px,${p[1]}px)`};
+  const scan=()=>document.querySelectorAll('aside.viz:not([data-mv])').forEach(apply);
+  let q=0;new MutationObserver(()=>{if(!q)q=requestAnimationFrame(()=>{q=0;scan()})}).observe(document.body,{childList:true,subtree:true});scan();
+  document.addEventListener('pointerdown',e=>{const t=e.target.closest&&e.target.closest('aside.viz .viz-t');if(!t||e.button>0)return;const v=t.closest('.viz'),k=keyOf(v),p=pos[k]||[0,0];drag={v,k,x:e.clientX-p[0],y:e.clientY-p[1]};v.classList.add('dragging');try{t.setPointerCapture(e.pointerId)}catch(x){}e.preventDefault()});
+  document.addEventListener('pointermove',e=>{if(!drag)return;const p=[e.clientX-drag.x,e.clientY-drag.y];pos[drag.k]=p;drag.v.style.transform=`translate(${p[0]}px,${p[1]}px)`});
+  const end=()=>{if(drag){drag.v.classList.remove('dragging');drag=null}};
+  document.addEventListener('pointerup',end);document.addEventListener('pointercancel',end);
+  document.addEventListener('dblclick',e=>{const t=e.target.closest&&e.target.closest('aside.viz .viz-t');if(!t)return;const v=t.closest('.viz');delete pos[keyOf(v)];v.style.transform=''});
+})();
