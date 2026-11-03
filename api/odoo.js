@@ -198,13 +198,6 @@ function build(tab, cfg, ctx) {
         tile('Late deliveries', late.length, 'int', { goodDown: true, sub: 'expected date has passed', breakdown: bd([{ l: 'Late orders', v: late.length, f: 'int' }], openCols, late) }),
       ] };
     }, 'Purchase orders confirmed in Odoo. Click a card to see what is behind it.'),
-    section('trend', 'Last 12 months', 'trend', async () => {
-      const t = await trend12([
-        ['spend', async () => (await poLines()).map((l) => ({ ...l, _d: l.date })), 'total'],
-        ['orders', async () => { const o = await poOrders(monthsBack(12)[0] + '-01', today); return o.map((r) => ({ ...r, _d: r.date_order })); }, () => 1],
-      ]);
-      return { ...t, metrics: [{ key: 'spend', label: 'Purchased', fmt: 'money' }, { key: 'orders', label: 'Purchase orders', fmt: 'int' }], monthBars: { keys: ['spend'], base: 'spend' } };
-    }),
     section('top', `Suppliers ranked (${ctx.monthLabel})`, 'table', async () => {
       const L = (await poLines()).filter((l) => l.date >= s && l.date <= e);
       const bills = await invoices(['in_invoice'], [['payment_state', 'in', ['not_paid', 'partial']]]);
