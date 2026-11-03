@@ -269,10 +269,6 @@ function build(tab, cfg, ctx) {
           tile('Suppliers used', sup.length, 'int', { breakdown: supBd([{ l: 'Suppliers', v: sup.length, f: 'int' }]) }),
         ] };
       }, `Sorted by the product reference: R- raw materials, M- packaging, F- finished goods. Products without one are sorted by category name.`),
-      section('trend', 'Last 12 months of buying', 'trend', async () => {
-        const t = await trend12([['spend', async () => (await bought()).map((l) => ({ ...l, _d: l.date })), 'total'], ['qty', async () => (await bought()).map((l) => ({ ...l, _d: l.date })), 'qty']]);
-        return { ...t, metrics: [{ key: 'spend', label: 'Spent', fmt: 'money' }, { key: 'qty', label: 'Units bought', fmt: 'int' }], monthBars: { keys: ['spend'], base: 'spend' } };
-      }),
       section('stock', `${noun} in stock`, 'table', async () => {
         const { list, mins } = await mine(), L = await bought();
         const rowsOut = list.map((p) => { const buys = L.filter((l) => l.pid === p.id).sort((a, b) => b.date.localeCompare(a.date)), last = buys[0], qty = sum(buys, 'qty'), spent = sum(buys, 'total'), min = mins.get(p.id) ?? 5;
