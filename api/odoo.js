@@ -254,15 +254,19 @@ function build(tab, cfg, ctx) {
         const { list, mins } = await mine(), L = await bought();
         const cur = L.filter((l) => inP(l, s, e)), prev = L.filter((l) => inP(l, ps, pe));
         const out = list.filter((p) => n0(p.qty_available) <= 0), low = list.filter((p) => n0(p.qty_available) > 0 && n0(p.qty_available) <= (mins.get(p.id) ?? 5));
-        const sup = groupBy(cur, (l) => l.supplier, () => ({ count: 0, amount: 0 }), (g, l) => { g.count++; g.amount += l.total; }).sort((a, b) => b.amount - a.amount);
+        const sup = groupBy(cur, (l) => l.supplier, () => ({ count: 0, amount: 0, items: new Map() }), (g, l) => { g.count++; g.amount += l.total; const it = g.items.get(l.product) || { product: l.product, qty: 0, total: 0 }; it.qty += l.qty; it.total += l.total; g.items.set(l.product, it); }).sort((a, b) => b.amount - a.amount);
+        sup.forEach((g) => { g.products = g.items.size; });
+        const prodRows = sup.flatMap((g) => [...g.items.values()].sort((a, b) => b.total - a.total).map((i) => ({ name: g.name, product: i.product, qty: i.qty, avg: i.qty ? i.total / i.qty : 0, total: i.total })));
+        const supCols = [COL.name('Supplier'), COL.int('count', 'Lines'), COL.int('products', 'Products'), COL.money('amount', 'Spent')];
+        const supBd = (summary) => ({ ...bd(summary, supCols, sup.map(({ items, ...r }) => r)), extra: [{ title: 'Products bought from each supplier', columns: [COL.name('Supplier'), COL.str('product', 'Product'), COL.int('qty', 'Qty'), { key: 'avg', label: 'Average price', fmt: 'money2' }, COL.money('total', 'Spent')], rows: prodRows.slice(0, 600) }] });
         const total = sum(list, cost);
         return { tiles: [
           tile(`${noun} stock value`, total, 'money', { sub: list.length + ' products', breakdown: bd([{ l: 'Products', v: list.length, f: 'int' }, { l: 'Units', v: sum(list, (p) => Math.max(0, n0(p.qty_available))), f: 'int' }], stockCols, stockRows(list).filter((x) => x.value > 0)) }),
           tile('Products', list.length, 'int', { breakdown: bd([{ l: 'Products', v: list.length, f: 'int' }], stockCols, stockRows(list)) }),
           tile('Out of stock', out.length, 'int', { goodDown: true, breakdown: bd([{ l: 'Out of stock', v: out.length, f: 'int' }], stockCols, stockRows(out)) }),
           tile('Running low', low.length, 'int', { goodDown: true, sub: mins.size ? 'at or under the reorder minimum' : 'at 5 units or fewer', breakdown: bd([{ l: 'Running low', v: low.length, f: 'int' }], stockCols, stockRows(low)) }),
-          tile('Bought in this period', sum(cur, 'total'), 'money', { prev: sum(prev, 'total'), daily: daily(ctx, cur, prev, (l) => l.date, (l) => l.total), breakdown: bd([{ l: 'Purchase lines', v: cur.length, f: 'int' }, { l: 'Suppliers', v: sup.length, f: 'int' }], [COL.name('Supplier'), COL.int('count', 'Lines'), COL.money('amount', 'Spent')], sup) }),
-          tile('Suppliers used', sup.length, 'int', { breakdown: bd([{ l: 'Suppliers', v: sup.length, f: 'int' }], [COL.name('Supplier'), COL.int('count', 'Lines'), COL.money('amount', 'Spent')], sup) }),
+          tile('Bought in this period', sum(cur, 'total'), 'money', { prev: sum(prev, 'total'), daily: daily(ctx, cur, prev, (l) => l.date, (l) => l.total), breakdown: supBd([{ l: 'Purchase lines', v: cur.length, f: 'int' }, { l: 'Suppliers', v: sup.length, f: 'int' }]) }),
+          tile('Suppliers used', sup.length, 'int', { breakdown: supBd([{ l: 'Suppliers', v: sup.length, f: 'int' }]) }),
         ] };
       }, `Sorted by the product reference: R- raw materials, M- packaging, F- finished goods. Products without one are sorted by category name.`),
       section('trend', 'Last 12 months of buying', 'trend', async () => {
