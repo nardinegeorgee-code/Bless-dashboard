@@ -147,7 +147,7 @@ function mount(){
     <select class="select" id="f-user" style="width:auto" aria-label="Filter by person"></select>
     <select class="select" id="f-kind" style="width:auto" aria-label="Filter by type"><option value="">Responses and uploads</option><option value="resp" ${S.fKind==='resp'?'selected':''}>Responses to instructions</option><option value="free" ${S.fKind==='free'?'selected':''}>Uploads without instruction</option></select></div><div id="live"></div>`;
   else if(S.route==='eval'){v.innerHTML=`<div class="head"><div><h1>Team evaluation</h1><p>Monthly KPIs and ranking. You enter the speed and accuracy percentages; HR gives behaviour once a month.</p></div></div><div id="live"></div>`;if(!S.ev.data&&!S.ev.loading)loadEval();else renderEval(true)}
-  else if(S.route==='odoo'){v.innerHTML=`<div class="head"><div><h1>Odoo</h1><p>Stock, sales, accounting and your team, read live from Odoo.</p></div></div><div id="live"></div>`;if(!S.od.cache[S.od.tab+'|'+(S.od.month||'')]&&!S.od.loading)loadOdoo();else renderOdoo()}
+  else if(S.route==='odoo'){v.innerHTML=`<div class="head"><div><h1>Odoo</h1><p>Supply, sales and finance, read live from Odoo.</p></div></div><div id="live"></div>`;if(!S.od.cache[S.od.tab+'|'+(S.od.month||'')]&&!S.od.loading)loadOdoo();else renderOdoo()}
   else if(S.route==='meta'){v.innerHTML=`<div class="head"><div><h1>Meta Ads</h1><p>Facebook and Instagram advertising, read live from Meta. Pause campaigns and change budgets from here.</p></div></div><div id="live"></div>`;if(!S.meta.cache[S.meta.tab+'|'+(S.meta.month||'')]&&!S.meta.loading)loadMeta();else renderMeta()}
   else if(S.route==='shop'){v.innerHTML=`<div class="head"><div><h1>Shopify</h1><p>Sales, funnel, products, customer experience and retention, one tab each.</p></div></div><div id="live"></div>`;if(S.an.tab==='overview'){if(!S.shop.data&&!S.shop.loading)loadShop()}else loadAn();}
   else if(S.route==='users')v.innerHTML=`<div class="head"><div><h1>Users</h1><p>Add people, change their role, or set a new password.</p></div></div>
@@ -956,13 +956,14 @@ function odHeroSpec(tab,secs){
   if(tab==='profit')return heroSpec('profit',secs);
   const by=id=>secs.find(x=>x.id===id&&!x.error),k=by('kpi'),tr=by('trend');if(!k)return {};
   const T=k.tiles,g=l=>T.find(t=>t.label===l),mini=(l,t)=>t?{l,v:fv(t.value,t.fmt)}:null;
-  const main={inventory:'Stock value (at cost)',sales:'Order value',accounting:'Difference',hr:'Employees'}[tab],m=g(main);if(!m)return {};
-  const minis={inventory:[['Stocked products'],['Out of stock'],['Running low']],sales:[['Confirmed orders'],['Invoiced'],['Overdue']],accounting:[['Invoiced to customers'],['Bills from suppliers'],['Customers owe you']],hr:[['Departments'],['Hours worked'],['Approved time off']]}[tab].map(([l])=>mini(l,g(l))).filter(Boolean);
-  const key={sales:'orders',accounting:'net'}[tab],rows=tr&&key?tr.rows:null;
+  const fixed={inventory:['Stock value (at cost)',['Stocked products','Out of stock','Running low']],sales:['Order value',['Confirmed orders','Invoiced','Overdue']],hr:['Employees',['Departments','Hours worked','Approved time off']]}[tab];
+  const main=fixed?fixed[0]:T[0].label,m=g(main);if(!m)return {};
+  const minis=(fixed?fixed[1]:T.slice(1,4).map(t=>t.label)).map(l=>mini(l,g(l))).filter(Boolean);
+  const key=tab==='sales'?'orders':tr&&tr.metrics&&tr.metrics.length?tr.metrics[0].key:null,rows=tr&&key?tr.rows:null;
   return {label:main,value:fv(m.value,m.fmt),chip:m.prev!==undefined&&m.prev?chip(Math.round((m.value-m.prev)/m.prev*1000)/10,m.goodDown):'',minis,spark:rows?rows.map(r=>r.values[key]):null,sel:rows?rows.findIndex(r=>r.key===perMonthSel()):-1,rows};
 }
 function odooHero(d){
-  const sp=odHeroSpec(d.tab,d.sections),info={inventory:'Stock and purchasing',sales:'Orders and invoices',profit:'Revenue, product cost and ad spend',accounting:'Money in and out',hr:'People and attendance'}[d.tab];
+  const sp=odHeroSpec(d.tab,d.sections),info={suppliers:'Who you buy from and what you owe',raw:'Raw materials: stock and buying',packaging:'Packaging: stock and buying',inventory:'All stock, by type',sales:'Orders and invoices',distributors:'Your distributors and what they owe',people:'Sales per salesperson',profit:'Revenue, product cost and ad spend',in:'Invoices and what customers owe',out:'Bills and what you owe',hr:'People and attendance'}[d.tab];
   const rows=sp.rows||(()=>{const t=d.sections.find(x=>x.id==='trend'&&!x.error);return t?t.rows:null})();
   return `<section class="hero"><div class="hero-top"><div><span class="eyebrow">Odoo${d.company?' · '+esc(d.company):''} · ${esc(d.monthLabel)}</span>${sp.value?`<div class="hero-n${sp.small?' sm':''}">${sp.value}</div><div><span class="hero-vs">${esc(sp.label)}</span> ${sp.chip||''}</div>`:`<div class="hero-n sm">${esc(info)}</div>`}${d.version?`<div><span class="hero-vs">Odoo ${esc(d.version)}</span></div>`:''}</div>
     <div style="display:grid;gap:10px;justify-items:end"><div class="hero-actions"><button class="btn light" data-act="od-refresh" ${S.od.loading?'disabled':''}>${S.od.loading?'Loading…':'Refresh numbers'}</button></div>
@@ -990,8 +991,9 @@ function anReps(sec){
   return `${sec.source?`<p class="muted" style="font-size:.85rem">${esc(sec.source)}</p>`:''}<h3 class="sub">Everyone</h3>${team}<h3 class="sub" style="margin-top:22px">Each salesperson</h3><p class="muted" style="font-size:.85rem">Click any line to see the detail behind it.</p>${sec.people.map(one).join('')}`;
 }
 /* ---------- Odoo ---------- */
-const OD_TABS=[['inventory','Inventory'],['sales','Sales & invoices'],['profit','Profit'],['accounting','Accounting'],['hr','Employees']];
-S.od={tab:'inventory',month:'',cache:{},loading:false,err:'',data:null};
+const OD_GROUPS=[['supply','Supply',[['suppliers','Suppliers'],['raw','Raw materials'],['packaging','Packaging'],['inventory','All stock']]],['sales','Sales',[['sales','Sales'],['distributors','Distributors'],['people','Salespeople']]],['finance','Finance',[['profit','Cost & profit'],['in','Money in'],['out','Money out']]],['team','Team',[['hr','Employees']]]];
+const odGroup=t=>OD_GROUPS.find(g=>g[2].some(x=>x[0]===t))||OD_GROUPS[0];
+S.od={tab:'suppliers',month:'',cache:{},loading:false,err:'',data:null};
 async function loadOdoo(_m,refresh){
   const od=S.od;
   const key=od.tab+'|'+perQuery();
@@ -1010,7 +1012,7 @@ function odooSetup(missing){
 }
 function renderOdoo(){
   if(S.screen!=='app'||S.route!=='odoo')return;const L=$('#live');if(!L)return;
-  const od=S.od,d=od.data,tabs=`<div class="subtabs" role="tablist">${OD_TABS.map(([k,l])=>`<button role="tab" class="subtab${od.tab===k?' on':''}" aria-selected="${od.tab===k}" data-act="od-tab" data-tab="${k}">${l}</button>`).join('')}</div>`;
+  const od=S.od,d=od.data,grp=odGroup(od.tab),tabs=`<div class="subtabs" role="tablist">${OD_GROUPS.map(([g,l,ps])=>`<button role="tab" class="subtab${grp[0]===g?' on':''}" aria-selected="${grp[0]===g}" data-act="od-tab" data-tab="${(od.last&&od.last[g])||ps[0][0]}">${l}</button>`).join('')}</div>${grp[2].length>1?`<div class="subtabs pills" role="tablist" aria-label="${grp[1]}">${grp[2].map(([k,l])=>`<button role="tab" class="subtab${od.tab===k?' on':''}" aria-selected="${od.tab===k}" data-act="od-tab" data-tab="${k}">${l}</button>`).join('')}</div>`:''}`;
   if(!d||d.tab!==od.tab){L.innerHTML=tabs+(od.err?`<div class="empty"><b>Could not reach Odoo</b><span>${esc(od.err)}</span><button class="btn" data-act="od-refresh">Try again</button></div>`:empty('Loading…','Asking Odoo for the numbers. This can take a few seconds.'));return}
   if(d.configured===false){L.innerHTML=tabs+odooSetup(d.missing);return}
   const y=window.scrollY;
@@ -1119,7 +1121,7 @@ document.addEventListener('click',async e=>{
     }catch(x){err.textContent=x.message||'Could not save. Try again.';b.disabled=false;b.textContent='Save changes'}
   }
   else if(a==='see-more'){S.more[b.dataset.id]=!S.more[b.dataset.id];S.route==='meta'?renderMeta():S.route==='odoo'?renderOdoo():renderShop()}
-  else if(a==='od-tab'){S.od.tab=b.dataset.tab;S.od.err='';loadOdoo()}
+  else if(a==='od-tab'){S.od.tab=b.dataset.tab;(S.od.last=S.od.last||{})[odGroup(S.od.tab)[0]]=S.od.tab;S.od.err='';loadOdoo()}
   else if(a==='od-refresh')loadOdoo(undefined,true);
   else if(a==='meta-tab'){S.meta.tab=b.dataset.tab;S.meta.err='';loadMeta()}
   else if(a==='meta-refresh')loadMeta(undefined,true);

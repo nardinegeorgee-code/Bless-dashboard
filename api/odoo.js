@@ -5,7 +5,7 @@ import { adSpend, profitTiles } from './_profit.js';
 
 const TZ = process.env.DASHBOARD_TZ || 'Africa/Cairo';
 
-const TABS = ['inventory', 'sales', 'profit', 'accounting', 'hr'];
+const TABS = ['suppliers', 'raw', 'packaging', 'inventory', 'sales', 'distributors', 'people', 'profit', 'in', 'out', 'hr'];
 const pad = (n) => String(n).padStart(2, '0');
 const n0 = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const pct = (a, b) => (b ? (a / b) * 100 : 0);
@@ -143,13 +143,6 @@ function build(tab, cfg, ctx) {
       for (const p of storable) { const k = nm(p.categ_id) || 'No category'; const g = m.get(k) || { name: k, value: 0, products: 0, units: 0 }; g.value += Math.max(0, n0(p.qty_available)) * n0(p.standard_price); g.products++; g.units += Math.max(0, n0(p.qty_available)); m.set(k, g); }
       return { columns: [{ key: 'name', label: 'Category', fmt: 'str' }, { key: 'value', label: 'Stock value', fmt: 'money', bar: true }, { key: 'products', label: 'Products', fmt: 'int' }, { key: 'units', label: 'Units', fmt: 'int' }], rows: [...m.values()].sort((a, b) => b.value - a.value).slice(0, 15) };
     }),
-    section('po', 'Purchase orders still to receive', 'table', async () => {
-      const f = await needModel(cfg, 'purchase.order', 'Purchase');
-      const list = await sr(cfg, 'purchase.order', [['state', 'in', ['purchase', 'done']]], ['name', 'partner_id', 'amount_total', 'date_planned', 'receipt_status'], { app: 'Purchase', order: 'date_planned asc', limit: 500 });
-      const open = list.filter((o) => (f.has('receipt_status') ? o.receipt_status !== 'full' : true)).slice(0, 15);
-      return { columns: [{ key: 'name', label: 'Order', fmt: 'str' }, { key: 'amount', label: 'Value', fmt: 'money', bar: true }, { key: 'due', label: 'Expected', fmt: 'str' }, { key: 'status', label: 'Status', fmt: 'str' }],
-        rows: open.map((o) => ({ name: `${o.name} · ${nm(o.partner_id)}`, amount: n0(o.amount_total), due: String(o.date_planned || '').slice(0, 10) || '–', status: o.receipt_status ? String(o.receipt_status).replace(/_/g, ' ') : 'open' })), empty: 'Nothing waiting to be received.' };
-    }),
   ];
 
   const invoices = (types, extra = []) => sr(cfg, 'account.move', [['move_type', 'in', types], ['state', '=', 'posted'], ...extra],
@@ -163,6 +156,263 @@ function build(tab, cfg, ctx) {
     const data = {}; for (const [id, fetch, val] of series) data[id] = await fetch(start);
     return { rows: m12.map((k) => ({ key: k, label: label(k), values: Object.fromEntries(series.map(([id, , val]) => [id, sum(data[id].filter((r) => mkey(r._d) === k), val)])) })), selectable: true };
   };
+
+  /* ---------- Supply: suppliers, raw materials, packaging ---------- */
+  const poOrders = (a, b) => sr(cfg, 'purchase.order', [['state', 'in', ['purchase', 'done']], ['date_order', '>=', dt(a)], ['date_order', '<=', dtEnd(b)]], ['name', 'partner_id', 'amount_total', 'date_order'], { app: 'Purchase', limit: 20000 });
+  const openPOs = () => once('openPOs', async () => {
+    const f = await needModel(cfg, 'purchase.order', 'Purchase');
+    const list = await sr(cfg, 'purchase.order', [['state', 'in', ['purchase', 'done']]], ['name', 'partner_id', 'amount_total', 'date_planned', 'receipt_status'], { app: 'Purchase', order: 'date_planned asc', limit: 2000 });
+    return list.filter((o) => (f.has('receipt_status') ? o.receipt_status !== 'full' : true))
+      .map((o) => ({ name: o.name, supplier: nm(o.partner_id) || 'Unknown', amount: n0(o.amount_total), due: String(o.date_planned || '').slice(0, 10), status: o.receipt_status ? String(o.receipt_status).replace(/_/g, ' ') : '–' }));
+  });
+  // Every purchase line (product, supplier, quantity, price) from the earliest date any card needs.
+  const supplyFrom = [ps, s, monthsBack(12)[0] + '-01'].sort()[0];
+  const poLines = () => once('poLines', async () => {
+    const [lines, orders] = await Promise.all([
+      sr(cfg, 'purchase.order.line', [['order_id.state', 'in', ['purchase', 'done']], ['order_id.date_order', '>=', dt(supplyFrom)]], ['order_id', 'product_id', 'product_qty', 'price_unit', 'price_subtotal'], { app: 'Purchase', limit: 40000 }),
+      sr(cfg, 'purchase.order', [['state', 'in', ['purchase', 'done']], ['date_order', '>=', dt(supplyFrom)]], ['name', 'partner_id', 'date_order'], { app: 'Purchase', limit: 40000 }),
+    ]);
+    const o = new Map(orders.map((x) => [x.id, x]));
+    return lines.map((l) => { const x = o.get(nid(l.order_id)) || {}; return { pid: nid(l.product_id), product: nm(l.product_id) || 'Other', order: x.name || nm(l.order_id) || '–', supplier: nm(x.partner_id) || 'Unknown', date: String(x.date_order || '').slice(0, 10), qty: n0(l.product_qty), price: n0(l.price_unit), total: n0(l.price_subtotal) }; });
+  });
+  const buyCols = [COL.name('Order'), COL.str('supplier', 'Supplier'), COL.str('date', 'Date'), COL.int('qty', 'Qty'), { key: 'price', label: 'Unit price', fmt: 'money2' }, COL.money('total', 'Total')];
+  const owedRows = (list) => list.map((m) => ({ name: m.name, who: nm(m.partner_id) || 'Unknown', due: m.invoice_date_due || '–', owed: resid(m) })).sort((a, b) => b.owed - a.owed);
+
+  if (tab === 'suppliers') return [
+    section('kpi', `Suppliers (${ctx.monthLabel})`, 'kpi', async () => {
+      const [cur, prev, bills, open] = await Promise.all([poOrders(s, e), poOrders(ps, pe), invoices(['in_invoice'], [['payment_state', 'in', ['not_paid', 'partial']]]), openPOs()]);
+      const bySup = (list) => groupBy(list, (o) => nm(o.partner_id) || 'Unknown', () => ({ count: 0, amount: 0 }), (g, o) => { g.count++; g.amount += n0(o.amount_total); }).sort((a, b) => b.amount - a.amount);
+      const total = sum(cur, 'amount_total'), sup = bySup(cur), supRows = sup.map((g) => ({ ...g, share: pct(g.amount, total) }));
+      const supCols = [COL.name('Supplier'), COL.int('count', 'Orders'), COL.money('amount', 'Purchased'), COL.pct('share', 'Share')];
+      const orderRows = cur.map((o) => ({ name: o.name, who: nm(o.partner_id) || 'Unknown', date: String(o.date_order).slice(0, 10), amount: n0(o.amount_total) })).sort((a, b) => b.date.localeCompare(a.date));
+      const late = open.filter((o) => o.due && o.due < today);
+      const openCols = [COL.name('Order'), COL.str('supplier', 'Supplier'), COL.str('due', 'Expected'), COL.money('amount', 'Value'), COL.str('status', 'Status')];
+      const dP = daily(ctx, cur, prev, (o) => o.date_order, (o) => n0(o.amount_total));
+      return { tiles: [
+        tile('Purchased', total, 'money', { prev: sum(prev, 'amount_total'), daily: dP, breakdown: bd([{ l: 'Orders', v: cur.length, f: 'int' }, { l: 'Suppliers', v: sup.length, f: 'int' }], supCols, supRows) }),
+        tile('Purchase orders', cur.length, 'int', { prev: prev.length, breakdown: bd([{ l: 'Orders', v: cur.length, f: 'int' }], [COL.name('Order'), COL.str('who', 'Supplier'), COL.str('date', 'Date'), COL.money('amount', 'Value')], orderRows) }),
+        tile('Active suppliers', sup.length, 'int', { prev: bySup(prev).length, breakdown: bd([{ l: 'Suppliers', v: sup.length, f: 'int' }], supCols, supRows) }),
+        tile('Average order', cur.length ? total / cur.length : 0, 'money', { prev: prev.length ? sum(prev, 'amount_total') / prev.length : undefined }),
+        tile('You owe suppliers', sum(bills, resid), 'money', { goodDown: true, sub: bills.length + ' open bills', breakdown: bd([{ l: 'Open bills', v: bills.length, f: 'int' }], [COL.name('Bill'), COL.str('who', 'Supplier'), COL.str('due', 'Due'), COL.money('owed', 'Still to pay')], owedRows(bills)) }),
+        tile('Waiting to arrive', open.length, 'int', { sub: 'purchase orders not fully received', breakdown: bd([{ l: 'Value', v: sum(open, 'amount'), f: 'money' }], openCols, open) }),
+        tile('Late deliveries', late.length, 'int', { goodDown: true, sub: 'expected date has passed', breakdown: bd([{ l: 'Late orders', v: late.length, f: 'int' }], openCols, late) }),
+      ] };
+    }, 'Purchase orders confirmed in Odoo. Click a card to see what is behind it.'),
+    section('trend', 'Last 12 months', 'trend', async () => {
+      const t = await trend12([
+        ['spend', async () => (await poLines()).map((l) => ({ ...l, _d: l.date })), 'total'],
+        ['orders', async () => { const o = await poOrders(monthsBack(12)[0] + '-01', today); return o.map((r) => ({ ...r, _d: r.date_order })); }, () => 1],
+      ]);
+      return { ...t, metrics: [{ key: 'spend', label: 'Purchased', fmt: 'money' }, { key: 'orders', label: 'Purchase orders', fmt: 'int' }], monthBars: { keys: ['spend'], base: 'spend' } };
+    }),
+    section('top', `Suppliers ranked (${ctx.monthLabel})`, 'table', async () => {
+      const L = (await poLines()).filter((l) => l.date >= s && l.date <= e);
+      const bills = await invoices(['in_invoice'], [['payment_state', 'in', ['not_paid', 'partial']]]);
+      const owed = new Map(); bills.forEach((m) => owed.set(nm(m.partner_id) || 'Unknown', (owed.get(nm(m.partner_id) || 'Unknown') || 0) + resid(m)));
+      const total = sum(L, 'total');
+      const rowsOut = groupBy(L, (l) => l.supplier, () => ({ value: 0, orders: new Set(), items: new Map(), buys: [] }), (g, l) => { g.value += l.total; g.orders.add(l.order); g.buys.push(l); const it = g.items.get(l.product) || { name: l.product, qty: 0, total: 0 }; it.qty += l.qty; it.total += l.total; g.items.set(l.product, it); })
+        .sort((a, b) => b.value - a.value).map((g) => ({ name: g.name, value: g.value, share: pct(g.value, total), orders: g.orders.size, products: g.items.size, owed: owed.get(g.name) || 0,
+          breakdown: { plain: true, summary: [{ l: 'Purchased', v: g.value, f: 'money' }, { l: 'Orders', v: g.orders.size, f: 'int' }, { l: 'Products', v: g.items.size, f: 'int' }, { l: 'You still owe', v: owed.get(g.name) || 0, f: 'money' }],
+            columns: [COL.name('Product'), COL.int('qty', 'Qty'), { key: 'avg', label: 'Average price', fmt: 'money2' }, COL.money('total', 'Total')],
+            rows: [...g.items.values()].map((i) => ({ ...i, avg: i.qty ? i.total / i.qty : 0 })).sort((a, b) => b.total - a.total).slice(0, 100),
+            extra: [{ title: 'Orders', columns: buyCols, rows: g.buys.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 100) }] } }));
+      return { initial: 10, columns: [COL.name('Supplier'), { key: 'value', label: 'Purchased', fmt: 'money', bar: true }, COL.pct('share', 'Share'), COL.int('orders', 'Orders'), COL.int('products', 'Products'), COL.money('owed', 'You still owe')], rows: rowsOut.map((r) => ({ ...r, only: true })), empty: 'No purchase orders in this period.' };
+    }, 'Click a supplier to see what you buy from them, at what price, and each order.'),
+    section('po', 'Purchase orders still to receive', 'table', async () => {
+      const open = (await openPOs()).slice(0, 25);
+      return { columns: [COL.name('Order'), { key: 'amount', label: 'Value', fmt: 'money', bar: true }, COL.str('due', 'Expected'), COL.str('status', 'Status')], rows: open.map((o) => ({ ...o, name: `${o.name} · ${o.supplier}` })), empty: 'Nothing waiting to arrive.' };
+    }),
+  ];
+
+  const stockKind = (kind, noun) => {
+    const inKind = (p) => kindOf(nm(p.categ_id)) === kind;
+    const cost = (p) => Math.max(0, n0(p.qty_available)) * n0(p.standard_price);
+    const mine = () => once('mine' + kind, async () => { const { storable, mins } = await products(); const list = storable.filter(inKind); return { list, mins, ids: new Set(list.map((p) => p.id)) }; });
+    const bought = () => once('bought' + kind, async () => { const { ids } = await mine(); return (await poLines()).filter((l) => ids.has(l.pid)); });
+    const inP = (l, a, b) => l.date >= a && l.date <= b;
+    const lastBuy = (L, pid) => L.filter((l) => l.pid === pid).sort((a, b) => b.date.localeCompare(a.date))[0];
+    const stockRows = (arr) => arr.map((p) => ({ name: p.display_name, units: Math.max(0, n0(p.qty_available)), unit: n0(p.standard_price), value: cost(p) })).sort((a, b) => b.value - a.value);
+    const stockCols = [COL.name('Product'), COL.int('units', 'On hand'), { key: 'unit', label: 'Unit cost', fmt: 'money2' }, COL.money('value', 'Value')];
+    return [
+      section('kpi', `${noun} at a glance`, 'kpi', async () => {
+        const { list, mins } = await mine(), L = await bought();
+        const cur = L.filter((l) => inP(l, s, e)), prev = L.filter((l) => inP(l, ps, pe));
+        const out = list.filter((p) => n0(p.qty_available) <= 0), low = list.filter((p) => n0(p.qty_available) > 0 && n0(p.qty_available) <= (mins.get(p.id) ?? 5));
+        const sup = groupBy(cur, (l) => l.supplier, () => ({ count: 0, amount: 0 }), (g, l) => { g.count++; g.amount += l.total; }).sort((a, b) => b.amount - a.amount);
+        const total = sum(list, cost);
+        return { tiles: [
+          tile(`${noun} stock value`, total, 'money', { sub: list.length + ' products', breakdown: bd([{ l: 'Products', v: list.length, f: 'int' }, { l: 'Units', v: sum(list, (p) => Math.max(0, n0(p.qty_available))), f: 'int' }], stockCols, stockRows(list).filter((x) => x.value > 0)) }),
+          tile('Products', list.length, 'int', { breakdown: bd([{ l: 'Products', v: list.length, f: 'int' }], stockCols, stockRows(list)) }),
+          tile('Out of stock', out.length, 'int', { goodDown: true, breakdown: bd([{ l: 'Out of stock', v: out.length, f: 'int' }], stockCols, stockRows(out)) }),
+          tile('Running low', low.length, 'int', { goodDown: true, sub: mins.size ? 'at or under the reorder minimum' : 'at 5 units or fewer', breakdown: bd([{ l: 'Running low', v: low.length, f: 'int' }], stockCols, stockRows(low)) }),
+          tile('Bought in this period', sum(cur, 'total'), 'money', { prev: sum(prev, 'total'), daily: daily(ctx, cur, prev, (l) => l.date, (l) => l.total), breakdown: bd([{ l: 'Purchase lines', v: cur.length, f: 'int' }, { l: 'Suppliers', v: sup.length, f: 'int' }], [COL.name('Supplier'), COL.int('count', 'Lines'), COL.money('amount', 'Spent')], sup) }),
+          tile('Suppliers used', sup.length, 'int', { breakdown: bd([{ l: 'Suppliers', v: sup.length, f: 'int' }], [COL.name('Supplier'), COL.int('count', 'Lines'), COL.money('amount', 'Spent')], sup) }),
+        ] };
+      }, `Sorted by the Odoo product category name. If a product is in the wrong group, rename its category or set ODOO_RAW_WORDS / ODOO_PACKAGING_WORDS in Vercel.`),
+      section('trend', 'Last 12 months of buying', 'trend', async () => {
+        const t = await trend12([['spend', async () => (await bought()).map((l) => ({ ...l, _d: l.date })), 'total'], ['qty', async () => (await bought()).map((l) => ({ ...l, _d: l.date })), 'qty']]);
+        return { ...t, metrics: [{ key: 'spend', label: 'Spent', fmt: 'money' }, { key: 'qty', label: 'Units bought', fmt: 'int' }], monthBars: { keys: ['spend'], base: 'spend' } };
+      }),
+      section('stock', `${noun} in stock`, 'table', async () => {
+        const { list, mins } = await mine(), L = await bought();
+        const rowsOut = list.map((p) => { const buys = L.filter((l) => l.pid === p.id).sort((a, b) => b.date.localeCompare(a.date)), last = buys[0], qty = sum(buys, 'qty'), spent = sum(buys, 'total'), min = mins.get(p.id) ?? 5;
+          return { pid: p.id, name: p.display_name, value: cost(p), units: Math.max(0, n0(p.qty_available)), unit: n0(p.standard_price), min, status: n0(p.qty_available) <= 0 ? 'Out of stock' : n0(p.qty_available) <= min ? 'Running low' : 'OK', supplier: last ? last.supplier : '–',
+            breakdown: { summary: [{ l: 'Bought (12 months)', v: qty, f: 'int' }, { l: 'Spent', v: spent, f: 'money' }, { l: 'Average price', v: qty ? spent / qty : 0, f: 'money' }, { l: 'Last price', v: last ? last.price : 0, f: 'money' }], columns: buyCols, rows: buys.slice(0, 60), more: Math.max(0, buys.length - 60), note: buys.length ? undefined : 'No purchase orders for this product in the last 12 months.' } }; }).sort((a, b) => b.value - a.value);
+        return { initial: 15, columns: [COL.name('Product'), { key: 'value', label: 'Stock value', fmt: 'money', bar: true }, COL.int('units', 'On hand'), { key: 'unit', label: 'Unit cost', fmt: 'money2' }, COL.int('min', 'Minimum'), COL.str('status', 'Status'), COL.str('supplier', 'Last supplier')], rows: await addPictures(cfg, rowsOut.slice(0, 200)), empty: `No ${noun.toLowerCase()} found. Check the product categories in Odoo.` };
+      }, 'Click a product to see every time you bought it, from whom and at what price.'),
+      section('buying', `What you bought (${ctx.monthLabel})`, 'table', async () => {
+        const L = await bought(), cur = L.filter((l) => inP(l, s, e));
+        const before = (pid, d) => L.filter((l) => l.pid === pid && l.date < d);
+        const rowsOut = groupBy(cur, (l) => l.product, () => ({ pid: 0, qty: 0, spent: 0, sup: new Set(), buys: [] }), (g, l) => { g.pid = l.pid; g.qty += l.qty; g.spent += l.total; g.sup.add(l.supplier); g.buys.push(l); })
+          .sort((a, b) => b.spent - a.spent).map((g) => { const avg = g.qty ? g.spent / g.qty : 0, old = before(g.pid, s), oq = sum(old, 'qty'), oavg = oq ? sum(old, 'total') / oq : null;
+            return { name: g.name, spent: g.spent, qty: g.qty, avg, change: oavg ? ((avg - oavg) / oavg) * 100 : null, suppliers: g.sup.size, breakdown: { summary: [{ l: 'Spent', v: g.spent, f: 'money' }, { l: 'Units', v: g.qty, f: 'int' }, { l: 'Suppliers', v: g.sup.size, f: 'int' }], columns: buyCols, rows: g.buys.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 60) } }; });
+        return { initial: 15, columns: [COL.name('Product'), { key: 'spent', label: 'Spent', fmt: 'money', bar: true }, COL.int('qty', 'Units'), { key: 'avg', label: 'Average price', fmt: 'money2' }, COL.pct('change', 'Price vs before'), COL.int('suppliers', 'Suppliers')], rows: rowsOut, empty: 'Nothing was bought in this period.' };
+      }, 'Price vs before compares this period\'s average price with everything bought earlier.'),
+      section('who', `Who you buy from (${ctx.monthLabel})`, 'table', async () => {
+        const cur = (await bought()).filter((l) => inP(l, s, e)), total = sum(cur, 'total');
+        const rowsOut = groupBy(cur, (l) => l.supplier, () => ({ spent: 0, items: new Map(), orders: new Set() }), (g, l) => { g.spent += l.total; g.orders.add(l.order); const it = g.items.get(l.product) || { name: l.product, qty: 0, total: 0 }; it.qty += l.qty; it.total += l.total; g.items.set(l.product, it); })
+          .sort((a, b) => b.spent - a.spent).map((g) => ({ name: g.name, spent: g.spent, share: pct(g.spent, total), orders: g.orders.size, breakdown: { summary: [{ l: 'Spent', v: g.spent, f: 'money' }, { l: 'Orders', v: g.orders.size, f: 'int' }], columns: [COL.name('Product'), COL.int('qty', 'Qty'), { key: 'avg', label: 'Average price', fmt: 'money2' }, COL.money('total', 'Total')], rows: [...g.items.values()].map((i) => ({ ...i, avg: i.qty ? i.total / i.qty : 0 })).sort((a, b) => b.total - a.total).slice(0, 60) } }));
+        return { initial: 10, columns: [COL.name('Supplier'), { key: 'spent', label: 'Spent', fmt: 'money', bar: true }, COL.pct('share', 'Share'), COL.int('orders', 'Orders')], rows: rowsOut, empty: 'Nothing was bought in this period.' };
+      }),
+    ];
+  };
+  if (tab === 'raw') return stockKind('raw', 'Raw materials');
+  if (tab === 'packaging') return stockKind('pack', 'Packaging');
+
+  /* ---------- Sales: distributors and salespeople ---------- */
+  if (tab === 'distributors') return [
+    section('kpi', `Distributors (${ctx.monthLabel})`, 'kpi', async () => {
+      const so = (a, b) => sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(a)], ['date_order', '<=', dtEnd(b)]], ['name', 'partner_id', 'amount_total', 'date_order'], { app: 'Sales', limit: 20000 });
+      const [cur, prev, older, recv] = await Promise.all([so(s, e), so(ps, pe), sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '<', dt(s)]], ['partner_id'], { app: 'Sales', limit: 50000 }), invoices(['out_invoice'], [['payment_state', 'in', ['not_paid', 'partial']]])]);
+      const ids = [...new Set([...cur, ...prev, ...older, ...recv].map((x) => nid(x.partner_id)).filter(Boolean))], top = new Map();
+      for (let i = 0; i < ids.length; i += 500) { try { for (const g of await call(cfg, 'res.partner', 'read', [ids.slice(i, i + 500), ['commercial_partner_id']])) top.set(g.id, nm(g.commercial_partner_id)); } catch (err) { break; } }
+      const who = (x) => top.get(nid(x.partner_id)) || nm(x.partner_id) || 'Unknown';
+      const by = (list) => groupBy(list, who, () => ({ orders: 0, value: 0 }), (g, o) => { g.orders++; g.value += n0(o.amount_total); }).sort((a, b) => b.value - a.value);
+      const dist = by(cur), pdist = by(prev), total = sum(cur, 'amount_total'), had = new Set(older.map(who));
+      const fresh = dist.filter((g) => !had.has(g.name));
+      const dCols = [COL.name('Distributor'), COL.int('orders', 'Orders'), COL.money('value', 'Order value'), COL.pct('share', 'Share')];
+      const dRows = (arr) => arr.map((g) => ({ ...g, share: pct(g.value, total) }));
+      const owedBy = groupBy(recv, who, () => ({ count: 0, owed: 0, late: 0 }), (g, m) => { g.count++; g.owed += resid(m); if (m.invoice_date_due && m.invoice_date_due < today) g.late += resid(m); }).sort((a, b) => b.owed - a.owed);
+      const owedCols = [COL.name('Distributor'), COL.int('count', 'Open invoices'), COL.money('owed', 'Still owed'), COL.money('late', 'Of which late')];
+      return { tiles: [
+        tile('Active distributors', dist.length, 'int', { prev: pdist.length, sub: 'ordered in this period', breakdown: bd([{ l: 'Distributors', v: dist.length, f: 'int' }, { l: 'Order value', v: total, f: 'money' }], dCols, dRows(dist)) }),
+        tile('New distributors', fresh.length, 'int', { sub: 'first order ever in this period', breakdown: bd([{ l: 'New', v: fresh.length, f: 'int' }], dCols, dRows(fresh)) }),
+        tile('Average per distributor', dist.length ? total / dist.length : 0, 'money', { prev: pdist.length ? sum(prev, 'amount_total') / pdist.length : undefined, breakdown: bd([{ l: 'Distributors', v: dist.length, f: 'int' }], dCols, dRows(dist)) }),
+        tile('Orders per distributor', dist.length ? cur.length / dist.length : 0, 'num1', { prev: pdist.length ? prev.length / pdist.length : undefined }),
+        tile('Distributors owe you', sum(recv, resid), 'money', { goodDown: true, sub: owedBy.length + ' distributors', breakdown: bd([{ l: 'Open invoices', v: recv.length, f: 'int' }], owedCols, owedBy) }),
+        tile('Top distributor share', dist.length && total ? pct(dist[0].value, total) : 0, 'pct', { goodDown: true, sub: dist.length ? dist[0].name : undefined, breakdown: bd([{ l: 'Top 3 share', v: pct(sum(dist.slice(0, 3), 'value'), total), f: 'pct' }], dCols, dRows(dist.slice(0, 10))) }),
+      ] };
+    }, 'A distributor is a customer with a confirmed order. Contacts of one company are counted together.'),
+    section('customers', `Top customers (${ctx.monthLabel})`, 'table', async () => {
+      const [list, inv] = await Promise.all([
+        sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(s)], ['date_order', '<=', dtEnd(e)]], ['name', 'partner_id', 'amount_total', 'date_order'], { app: 'Sales', limit: 20000 }),
+        sr(cfg, 'account.move', [['move_type', 'in', ['out_invoice', 'out_refund']], ['state', '=', 'posted'], ['invoice_date', '>=', s], ['invoice_date', '<=', e]], ['name', 'partner_id', 'move_type', 'invoice_date', 'invoice_date_due', 'amount_total_signed', 'amount_residual', 'payment_state'], { app: 'Accounting', limit: 20000 }),
+      ]);
+      // Contacts of a company are counted under the company, so orders and invoices of the same customer meet.
+      const ids = [...new Set([...list, ...inv].map((x) => nid(x.partner_id)).filter(Boolean))], top = new Map();
+      for (let i = 0; i < ids.length; i += 500) { try { for (const g of await call(cfg, 'res.partner', 'read', [ids.slice(i, i + 500), ['commercial_partner_id']])) top.set(g.id, nm(g.commercial_partner_id)); } catch (err) { break; } }
+      const who = (x) => top.get(nid(x.partner_id)) || nm(x.partner_id) || 'Unknown';
+      const m = new Map();
+      const get = (k) => { if (!m.has(k)) m.set(k, { name: k, value: 0, orders: 0, invoices: 0, invoiced: 0, orderRows: [], invRows: [] }); return m.get(k); };
+      for (const o of list) { const g = get(who(o)); g.value += n0(o.amount_total); g.orders++; g.orderRows.push({ name: o.name, date: String(o.date_order).slice(0, 10), amount: n0(o.amount_total) }); }
+      const pay = { paid: 'Paid', not_paid: 'Not paid', partial: 'Partly paid', in_payment: 'In payment', reversed: 'Reversed' };
+      for (const x of inv) { const g = get(who(x)); const v = amt(x); g.invoices++; g.invoiced += v; g.invRows.push({ name: x.name, date: x.invoice_date, amount: v, owed: resid(x), status: pay[x.payment_state] || String(x.payment_state || '–').replace(/_/g, ' ') }); }
+      const rowsOut = [...m.values()].filter((g) => g.orders).sort((a, b) => b.value - a.value).slice(0, 300).map((g) => ({ name: g.name, value: g.value, orders: g.orders, invoices: g.invoices, invoiced: g.invoiced,
+        breakdown: { plain: true, summary: [{ l: 'Orders', v: g.orders, f: 'int' }, { l: 'Order value', v: g.value, f: 'money' }, { l: 'Invoices', v: g.invoices, f: 'int' }, { l: 'Invoiced', v: g.invoiced, f: 'money' }],
+          columns: [{ key: 'name', label: 'Invoice', fmt: 'str' }, { key: 'date', label: 'Date', fmt: 'str' }, { key: 'amount', label: 'Amount', fmt: 'money' }, { key: 'owed', label: 'Still owed', fmt: 'money' }, { key: 'status', label: 'Payment', fmt: 'str' }],
+          rows: g.invRows.sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 100), more: Math.max(0, g.invRows.length - 100), note: g.invRows.length ? undefined : 'No invoices were issued to this customer in this period.',
+          extra: [{ title: 'Orders', columns: [{ key: 'name', label: 'Order', fmt: 'str' }, { key: 'date', label: 'Date', fmt: 'str' }, { key: 'amount', label: 'Value', fmt: 'money' }], rows: g.orderRows.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 100) }] } }));
+      return { initial: 10, columns: [{ key: 'name', label: 'Customer', fmt: 'str' }, { key: 'value', label: 'Order value', fmt: 'money', bar: true }, { key: 'orders', label: 'Orders', fmt: 'int' }, { key: 'invoices', label: 'Invoices', fmt: 'int' }, { key: 'invoiced', label: 'Invoiced', fmt: 'money' }], rows: rowsOut.map((r) => ({ ...r, only: true })), empty: 'No confirmed orders in this period.' };
+    }, 'Click a customer to see each invoice and order. Orders and invoices of a company\'s contacts are counted together.'),
+    section('cities', `Sales by city (${ctx.monthLabel})`, 'table', async () => {
+      const list = await sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(s)], ['date_order', '<=', dtEnd(e)]], ['name', 'partner_id', 'partner_shipping_id', 'amount_total'], { app: 'Sales', limit: 20000 });
+      const addr = (o) => nid(o.partner_shipping_id) || nid(o.partner_id), pids = [...new Set(list.map(addr).filter(Boolean))], city = new Map();
+      for (let i = 0; i < pids.length; i += 500) { try { for (const g of await call(cfg, 'res.partner', 'read', [pids.slice(i, i + 500), ['city', 'state_id']])) city.set(g.id, (g.city || '').trim() || nm(g.state_id) || 'Unknown'); } catch (err) { break; } }
+      const total = sum(list, 'amount_total');
+      const rowsOut = groupBy(list, (o) => city.get(addr(o)) || 'Unknown', () => ({ value: 0, orders: 0, d: new Map() }), (g, o) => { g.value += n0(o.amount_total); g.orders++; const k = nm(o.partner_id) || 'Unknown'; const x = g.d.get(k) || { name: k, orders: 0, value: 0 }; x.orders++; x.value += n0(o.amount_total); g.d.set(k, x); })
+        .sort((a, b) => b.value - a.value).map((g) => ({ name: g.name, value: g.value, share: pct(g.value, total), orders: g.orders, distributors: g.d.size, breakdown: { summary: [{ l: 'Order value', v: g.value, f: 'money' }, { l: 'Orders', v: g.orders, f: 'int' }, { l: 'Distributors', v: g.d.size, f: 'int' }], columns: [COL.name('Distributor'), COL.int('orders', 'Orders'), COL.money('value', 'Order value')], rows: [...g.d.values()].sort((a, b) => b.value - a.value).slice(0, 100) } }));
+      return { initial: 10, columns: [COL.name('City'), { key: 'value', label: 'Order value', fmt: 'money', bar: true }, COL.pct('share', 'Share'), COL.int('orders', 'Orders'), COL.int('distributors', 'Distributors')], rows: rowsOut, empty: 'No confirmed orders in this period.' };
+    }, 'City comes from the delivery address on the order.'),
+  ];
+  if (tab === 'people') return [
+      section('reps', 'Sales by salesperson', 'reps', async () => {
+        const m12 = monthsBack(12), start = [ps, s, m12[0] + '-01'].sort()[0];
+        // Which field holds the salesperson? Odoo's own "Salesperson" is user_id, but shops often add their own, so look at every
+        // "who sold it" field on the order and use the ones that are actually filled in.
+        let metaF = {}; try { metaF = await call(cfg, 'sale.order', 'fields_get', [], { attributes: ['string', 'type', 'relation'] }); } catch (err) { /* user_id below */ }
+        const repFields = Object.entries(metaF).filter(([k, f]) => ['many2one', 'char', 'selection'].includes(f.type) && f.relation !== 'crm.team' && (k === 'user_id' || /sales\s*-?\s*(person|rep|man|agent)/i.test(String(f.string)))).map(([k]) => k);
+        if (!repFields.length) repFields.push('user_id');
+        const [orders, lines, invs] = await Promise.all([
+          sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(start)]], ['name', 'partner_id', 'partner_shipping_id', ...repFields, 'amount_untaxed', 'date_order'], { app: 'Sales', limit: 30000 }).catch(() => sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(start)]], ['name', 'partner_id', ...repFields, 'amount_untaxed', 'date_order'], { app: 'Sales', limit: 30000 })),
+          sr(cfg, 'sale.order.line', [['order_id.state', 'in', ['sale', 'done']], ['order_id.date_order', '>=', dt(start)]], ['order_id', 'product_id', 'product_uom_qty', 'price_subtotal'], { app: 'Sales', limit: 60000 }),
+          sr(cfg, 'account.move', [['move_type', 'in', ['out_invoice', 'out_refund']], ['state', '=', 'posted'], ['invoice_date', '>=', start]], ['name', 'partner_id', 'invoice_user_id', 'invoice_origin', 'move_type', 'invoice_date', 'amount_untaxed_signed', 'payment_state'], { app: 'Accounting', limit: 30000 }),
+        ]);
+        const addr = (o) => nid(o.partner_shipping_id) || nid(o.partner_id), pids = [...new Set(orders.flatMap((o) => [addr(o), nid(o.partner_id)]).filter(Boolean))], city = new Map();
+        for (let i = 0; i < pids.length; i += 500) {
+          try { for (const g of await call(cfg, 'res.partner', 'read', [pids.slice(i, i + 500), ['city', 'state_id']])) city.set(g.id, (g.city || '').trim() || nm(g.state_id) || 'Unknown'); } catch (err) { break; }
+        }
+        // A shared login such as "Sales indoor" can hide several people, so a field that names the actual person (Sales Representative) wins over Odoo's Salesperson login.
+        const val = (o, f) => { const v = o[f]; return Array.isArray(v) ? nm(v) : typeof v === 'string' ? v.trim() : ''; };
+        const filled = Object.fromEntries(repFields.map((f) => [f, orders.filter((o) => val(o, f)).length])), order = [...repFields].sort((a, b) => (a === 'user_id') - (b === 'user_id') || filled[b] - filled[a]);
+        const who = (o) => { for (const f of order) if (val(o, f)) return val(o, f); return 'No salesperson'; }, inR = (d, a, b) => d >= a && d <= b;
+        const byName = new Map(orders.map((o) => [o.name, who(o)])), info = new Map(orders.map((o) => [o.id, { rep: who(o), day: String(o.date_order).slice(0, 10), customer: nm(o.partner_id) || 'Unknown', city: city.get(addr(o)) || city.get(nid(o.partner_id)) || 'Unknown' }]));
+        const reps = new Map(); const R = (name) => { if (!reps.has(name)) reps.set(name, { name, cur: { sales: 0, orders: 0, units: 0, invoiced: 0, invoices: 0 }, prev: { sales: 0, orders: 0, units: 0, invoiced: 0, invoices: 0 }, months: new Map(m12.map((k) => [k, { key: k, label: label(k), sales: 0, orders: 0, units: 0, invoiced: 0 }])), cities: new Map(), customers: new Map(), prods: new Map(), prodDist: new Map(), custCity: new Map(), custProd: new Map(), cityDist: new Map(), invoiceList: [] }); return reps.get(name); };
+        const nest = (m, a, b, init) => { if (!m.has(a)) m.set(a, new Map()); const x = m.get(a); if (!x.has(b)) x.set(b, init()); return x.get(b); };
+        const bump = (map, key, f) => { const g = map.get(key) || { name: key, orders: 0, units: 0, sales: 0, ids: new Set() }; f(g); map.set(key, g); };
+        for (const o of orders) {
+          const i = info.get(o.id), r = R(i.rep), v = n0(o.amount_untaxed), k = i.day.slice(0, 7), mo = r.months.get(k);
+          if (mo) { mo.sales += v; mo.orders++; }
+          const w = inR(i.day, s, e) ? r.cur : inR(i.day, ps, pe) ? r.prev : null;
+          if (w) { w.sales += v; w.orders++; }
+          if (w === r.cur) { for (const [map, key] of [[r.cities, i.city], [r.customers, i.customer]]) bump(map, key, (g) => { g.orders++; g.sales += v; }); nest(r.custCity, i.customer, i.city, () => ({ n: 0 })).n++; }
+        }
+        for (const l of lines) {
+          const i = info.get(nid(l.order_id)); if (!i) continue; const r = R(i.rep), q = n0(l.product_uom_qty), v = n0(l.price_subtotal), mo = r.months.get(i.day.slice(0, 7));
+          if (mo) mo.units += q;
+          const w = inR(i.day, s, e) ? r.cur : inR(i.day, ps, pe) ? r.prev : null;
+          if (w) w.units += q;
+          if (w === r.cur) { bump(r.cities, i.city, (g) => { g.units += q; }); bump(r.customers, i.customer, (g) => { g.units += q; }); const pn = nm(l.product_id) || 'Other', oid = nid(l.order_id);
+            bump(r.prods, pn, (g) => { g.units += q; g.sales += v; g.ids.add(oid); });
+            const a = nest(r.prodDist, pn, i.customer, () => ({ ids: new Set(), units: 0, sales: 0 })); a.ids.add(oid); a.units += q; a.sales += v;
+            const b = nest(r.custProd, i.customer, pn, () => ({ units: 0, sales: 0 })); b.units += q; b.sales += v;
+            const c2 = nest(r.cityDist, i.city, i.customer, () => ({ ids: new Set(), units: 0, sales: 0 })); c2.ids.add(oid); c2.units += q; c2.sales += v; }
+        }
+        for (const m of invs) {
+          const fromOrder = String(m.invoice_origin || '').split(/[,\s]+/).map((x) => byName.get(x)).find(Boolean), r = R(fromOrder || nm(m.invoice_user_id) || 'No salesperson'), d = String(m.invoice_date), v = (m.move_type === 'out_refund' ? -1 : 1) * Math.abs(n0(m.amount_untaxed_signed)), mo = r.months.get(d.slice(0, 7));
+          if (mo) mo.invoiced += v;
+          const w = inR(d, s, e) ? r.cur : inR(d, ps, pe) ? r.prev : null;
+          if (w) { w.invoiced += v; w.invoices++; }
+          if (w === r.cur) r.invoiceList.push({ name: m.name, customer: nm(m.partner_id) || 'Unknown', date: d, amount: v, status: String(m.payment_state || '').replace(/_/g, ' ') || '–' });
+        }
+        const list = (map) => [...map.values()].sort((a, b) => b.sales - a.sales).slice(0, 40).map((g) => ({ name: g.name, sales: g.sales, orders: g.ids && g.ids.size ? g.ids.size : g.orders, units: g.units }));
+        const distRows = (m) => [...(m || new Map()).entries()].map(([name, g]) => ({ name, orders: g.ids.size, units: g.units, sales: g.sales })).sort((a, b) => b.units - a.units);
+        const DCOL = [{ key: 'name', label: 'Distributor', fmt: 'str' }, { key: 'orders', label: 'Orders', fmt: 'int' }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'sales', label: 'Sales', fmt: 'money' }];
+        const PCOL = [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'sales', label: 'Sales', fmt: 'money' }];
+        const people = [...reps.values()].filter((r) => r.cur.sales || r.cur.invoiced || r.prev.sales || r.months.size && [...r.months.values()].some((x) => x.sales || x.invoiced))
+          .map((r) => {
+            const invoices = r.invoiceList.sort((a, b) => b.amount - a.amount);
+            const invOf = (cust) => invoices.filter((x) => x.customer === cust);
+            const prodRows = (m) => [...(m || new Map()).entries()].map(([name, g]) => ({ name, units: g.units, sales: g.sales })).sort((a, b) => b.units - a.units);
+            const cityOf = (c) => [...(r.custCity.get(c) || new Map()).entries()].sort((a, b) => b[1].n - a[1].n)[0]?.[0] || 'Unknown';
+            const custs = list(r.customers).map((g) => { const inv = invOf(g.name); return { ...g, city: cityOf(g.name), invoices: inv.length, invoiced: inv.reduce((a, x) => a + x.amount, 0),
+              breakdown: { plain: true, summary: [{ l: 'Invoices', v: inv.length, f: 'int' }, { l: 'Invoiced', v: inv.reduce((a, x) => a + x.amount, 0), f: 'money' }, { l: 'Products bought', v: (r.custProd.get(g.name) || new Map()).size, f: 'int' }, { l: 'Units', v: g.units, f: 'int' }],
+                columns: [{ key: 'name', label: 'Invoice', fmt: 'str' }, { key: 'date', label: 'Date', fmt: 'str' }, { key: 'amount', label: 'Amount', fmt: 'money' }, { key: 'status', label: 'Payment', fmt: 'str' }], rows: inv.slice(0, 60), more: Math.max(0, inv.length - 60), note: inv.length ? undefined : 'No invoices for this distributor in this period.',
+                extra: [{ title: 'Units per product', columns: PCOL, rows: prodRows(r.custProd.get(g.name)).slice(0, 60) }] } }; });
+            const prods = list(r.prods).map((g) => { const d = distRows(r.prodDist.get(g.name)); return { ...g, distributors: d.length, breakdown: { plain: true, summary: [{ l: 'Distributors', v: d.length, f: 'int' }, { l: 'Units', v: g.units, f: 'int' }, { l: 'Orders', v: g.orders, f: 'int' }], columns: DCOL, rows: d.slice(0, 60), more: Math.max(0, d.length - 60) } }; });
+            const cities = list(r.cities).map((g) => { const d = distRows(r.cityDist.get(g.name)); return { ...g, distributors: d.length, breakdown: { plain: true, summary: [{ l: 'Distributors', v: d.length, f: 'int' }, { l: 'Units', v: g.units, f: 'int' }], columns: DCOL, rows: d.slice(0, 60), more: Math.max(0, d.length - 60) } }; });
+            const allProd = [...r.prods.values()].sort((a, b) => b.units - a.units).map((g) => ({ name: g.name, units: g.units, sales: g.sales, distributors: (r.prodDist.get(g.name) || new Map()).size }));
+            const allCust = [...r.customers.values()].sort((a, b) => b.sales - a.sales).map((g) => { const inv = invOf(g.name); return { name: g.name, orders: g.ids && g.ids.size ? g.ids.size : g.orders, units: g.units, sales: g.sales, invoices: inv.length, invoiced: inv.reduce((a, x) => a + x.amount, 0) }; });
+            const breakdown = { plain: true, summary: [{ l: 'Distributors', v: allCust.length, f: 'int' }, { l: 'Invoices', v: r.cur.invoices, f: 'int' }, { l: 'Products', v: allProd.length, f: 'int' }, { l: 'Units', v: r.cur.units, f: 'int' }],
+              columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'distributors', label: 'Distributors', fmt: 'int' }, { key: 'sales', label: 'Sales', fmt: 'money' }], rows: allProd.slice(0, 60), more: Math.max(0, allProd.length - 60),
+              extra: [{ title: 'Distributors and their invoices', columns: [{ key: 'name', label: 'Distributor', fmt: 'str' }, { key: 'invoices', label: 'Invoices', fmt: 'int' }, { key: 'invoiced', label: 'Invoiced', fmt: 'money' }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'sales', label: 'Sales', fmt: 'money' }], rows: allCust.slice(0, 60) }] };
+            return { name: r.name, distributors: allCust.length, productsCount: allProd.length, cur: r.cur, prev: r.prev, months: [...r.months.values()], cities, customers: custs, products: prods, invoices: invoices.slice(0, 60), breakdown };
+          })
+          .sort((a, b) => b.cur.sales - a.cur.sales).slice(0, 40);
+        const used = order.filter((f) => filled[f]).map((f) => `${metaF[f] ? metaF[f].string : f} (${filled[f]} of ${orders.length} orders)`);
+        return { people, empty: 'No confirmed orders in the last 12 months.', source: used.length ? 'Salesperson read from: ' + used.join(', ') + '.' : 'No salesperson is filled in on the orders of the last 12 months.' };
+      }, 'Salesperson is the one on the sales order (and on the invoice). Amounts are before tax. City is taken from the delivery address on the order (the customer address when there is none), and the distributor is the customer on the order. The lists follow the dates you picked; the month chart always shows the last 12 months.'),
+  ];
+
 
   if (tab === 'profit') {
     const pn = (v) => (typeof v === 'number' ? v : 0);
@@ -258,27 +508,6 @@ function build(tab, cfg, ctx) {
       ]);
       return { ...t, metrics: [{ key: 'orders', label: 'Order value', fmt: 'money' }, { key: 'invoiced', label: 'Invoiced', fmt: 'money' }], monthBars: { keys: ['orders', 'invoiced'], base: 'orders' } };
     }),
-    section('customers', `Top customers (${ctx.monthLabel})`, 'table', async () => {
-      const [list, inv] = await Promise.all([
-        sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(s)], ['date_order', '<=', dtEnd(e)]], ['name', 'partner_id', 'amount_total', 'date_order'], { app: 'Sales', limit: 20000 }),
-        sr(cfg, 'account.move', [['move_type', 'in', ['out_invoice', 'out_refund']], ['state', '=', 'posted'], ['invoice_date', '>=', s], ['invoice_date', '<=', e]], ['name', 'partner_id', 'move_type', 'invoice_date', 'invoice_date_due', 'amount_total_signed', 'amount_residual', 'payment_state'], { app: 'Accounting', limit: 20000 }),
-      ]);
-      // Contacts of a company are counted under the company, so orders and invoices of the same customer meet.
-      const ids = [...new Set([...list, ...inv].map((x) => nid(x.partner_id)).filter(Boolean))], top = new Map();
-      for (let i = 0; i < ids.length; i += 500) { try { for (const g of await call(cfg, 'res.partner', 'read', [ids.slice(i, i + 500), ['commercial_partner_id']])) top.set(g.id, nm(g.commercial_partner_id)); } catch (err) { break; } }
-      const who = (x) => top.get(nid(x.partner_id)) || nm(x.partner_id) || 'Unknown';
-      const m = new Map();
-      const get = (k) => { if (!m.has(k)) m.set(k, { name: k, value: 0, orders: 0, invoices: 0, invoiced: 0, orderRows: [], invRows: [] }); return m.get(k); };
-      for (const o of list) { const g = get(who(o)); g.value += n0(o.amount_total); g.orders++; g.orderRows.push({ name: o.name, date: String(o.date_order).slice(0, 10), amount: n0(o.amount_total) }); }
-      const pay = { paid: 'Paid', not_paid: 'Not paid', partial: 'Partly paid', in_payment: 'In payment', reversed: 'Reversed' };
-      for (const x of inv) { const g = get(who(x)); const v = amt(x); g.invoices++; g.invoiced += v; g.invRows.push({ name: x.name, date: x.invoice_date, amount: v, owed: resid(x), status: pay[x.payment_state] || String(x.payment_state || '–').replace(/_/g, ' ') }); }
-      const rowsOut = [...m.values()].filter((g) => g.orders).sort((a, b) => b.value - a.value).slice(0, 300).map((g) => ({ name: g.name, value: g.value, orders: g.orders, invoices: g.invoices, invoiced: g.invoiced,
-        breakdown: { plain: true, summary: [{ l: 'Orders', v: g.orders, f: 'int' }, { l: 'Order value', v: g.value, f: 'money' }, { l: 'Invoices', v: g.invoices, f: 'int' }, { l: 'Invoiced', v: g.invoiced, f: 'money' }],
-          columns: [{ key: 'name', label: 'Invoice', fmt: 'str' }, { key: 'date', label: 'Date', fmt: 'str' }, { key: 'amount', label: 'Amount', fmt: 'money' }, { key: 'owed', label: 'Still owed', fmt: 'money' }, { key: 'status', label: 'Payment', fmt: 'str' }],
-          rows: g.invRows.sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 100), more: Math.max(0, g.invRows.length - 100), note: g.invRows.length ? undefined : 'No invoices were issued to this customer in this period.',
-          extra: [{ title: 'Orders', columns: [{ key: 'name', label: 'Order', fmt: 'str' }, { key: 'date', label: 'Date', fmt: 'str' }, { key: 'amount', label: 'Value', fmt: 'money' }], rows: g.orderRows.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 100) }] } }));
-      return { initial: 10, columns: [{ key: 'name', label: 'Customer', fmt: 'str' }, { key: 'value', label: 'Order value', fmt: 'money', bar: true }, { key: 'orders', label: 'Orders', fmt: 'int' }, { key: 'invoices', label: 'Invoices', fmt: 'int' }, { key: 'invoiced', label: 'Invoiced', fmt: 'money' }], rows: rowsOut.map((r) => ({ ...r, only: true })), empty: 'No confirmed orders in this period.' };
-    }, 'Click a customer to see each invoice and order. Orders and invoices of a company\'s contacts are counted together.'),
     section('products', `Top products sold (${ctx.monthLabel})`, 'table', async () => {
       const list = await sr(cfg, 'sale.order.line', [['order_id.state', 'in', ['sale', 'done']], ['order_id.date_order', '>=', dt(s)], ['order_id.date_order', '<=', dtEnd(e)]], ['product_id', 'product_uom_qty', 'price_subtotal'], { app: 'Sales', limit: 20000 });
       const m = new Map(); list.forEach((l) => { const k = nm(l.product_id) || 'Other'; const g = m.get(k) || { name: k, pid: nid(l.product_id), value: 0, units: 0 }; g.value += n0(l.price_subtotal); g.units += n0(l.product_uom_qty); m.set(k, g); });
@@ -287,14 +516,9 @@ function build(tab, cfg, ctx) {
       top.forEach((g) => { const c = costs.get(g.pid); if (c !== undefined) { g.cost = c; g.totalCost = c * g.units; g.profit = g.value - g.totalCost; g.margin = g.value ? (g.profit / g.value) * 100 : null; } });
       return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'value', label: 'Sales (before tax)', fmt: 'money', bar: true }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'cost', label: 'Unit cost', fmt: 'money2' }, { key: 'totalCost', label: 'Total cost', fmt: 'money' }, { key: 'profit', label: 'Profit', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' }], rows: await addPictures(cfg, top), empty: 'No sales lines in this period.' };
     }),
-    section('overdue', 'Overdue invoices to chase', 'table', async () => {
-      const list = (await invoices(['out_invoice'], [['payment_state', 'in', ['not_paid', 'partial']], ['invoice_date_due', '<', today]])).sort((a, b) => resid(b) - resid(a)).slice(0, 12);
-      const days = (d) => Math.max(0, Math.round((Date.parse(today) - Date.parse(d)) / 86400000));
-      return { columns: [{ key: 'name', label: 'Invoice', fmt: 'str' }, { key: 'amount', label: 'Still owed', fmt: 'money', bar: true }, { key: 'late', label: 'Days late', fmt: 'days' }], rows: list.map((m) => ({ name: `${m.name} · ${nm(m.partner_id)}`, amount: resid(m), late: days(m.invoice_date_due) })), empty: 'Nothing is overdue.' };
-    }),
   ];
 
-  if (tab === 'accounting') return [
+  const accounting = () => [
     section('kpi', `Money in and out (${ctx.monthLabel})`, 'kpi', async () => {
       const get = (a, b) => Promise.all([invoices(['out_invoice', 'out_refund'], [['invoice_date', '>=', a], ['invoice_date', '<=', b]]), invoices(['in_invoice', 'in_refund'], [['invoice_date', '>=', a], ['invoice_date', '<=', b]])]);
       const [[inn, out], [pin, pout]] = await Promise.all([get(s, e), get(ps, pe)]);
@@ -341,6 +565,33 @@ function build(tab, cfg, ctx) {
     }),
   ];
 
+  /* ---------- Finance: money in and money out share the invoice and bill data ---------- */
+  const only = (sec, title, labels, keys) => async () => {
+    const r = await sec(); const out = { ...r, title };
+    if (r.tiles && labels) out.tiles = r.tiles.filter((t) => labels.includes(t.label));
+    if (r.metrics && keys) { out.metrics = r.metrics.filter((m) => keys.includes(m.key)); out.monthBars = { keys, base: keys[0] }; }
+    return out;
+  };
+  if (tab === 'in' || tab === 'out') {
+    const [kpi, trend, aging, bills, expenses] = accounting();
+    if (tab === 'in') return [
+      only(kpi, `Money in (${ctx.monthLabel})`, ['Invoiced to customers', 'Customers owe you', 'Payments received', 'Difference'], null),
+      only(trend, 'Invoiced to customers, last 12 months', null, ['in']),
+      aging,
+    section('overdue', 'Overdue invoices to chase', 'table', async () => {
+      const list = (await invoices(['out_invoice'], [['payment_state', 'in', ['not_paid', 'partial']], ['invoice_date_due', '<', today]])).sort((a, b) => resid(b) - resid(a)).slice(0, 12);
+      const days = (d) => Math.max(0, Math.round((Date.parse(today) - Date.parse(d)) / 86400000));
+      return { columns: [{ key: 'name', label: 'Invoice', fmt: 'str' }, { key: 'amount', label: 'Still owed', fmt: 'money', bar: true }, { key: 'late', label: 'Days late', fmt: 'days' }], rows: list.map((m) => ({ name: `${m.name} · ${nm(m.partner_id)}`, amount: resid(m), late: days(m.invoice_date_due) })), empty: 'Nothing is overdue.' };
+    }),
+    ];
+    return [
+      only(kpi, `Money out (${ctx.monthLabel})`, ['Bills from suppliers', 'You owe suppliers', 'Payments sent'], null),
+      only(trend, 'Bills from suppliers, last 12 months', null, ['out']),
+      bills, expenses,
+    ];
+  }
+
+
   if (tab === 'hr') {
     const emps = () => once('emps', () => sr(cfg, 'hr.employee', [['active', '=', true]], ['name', 'department_id', 'job_id', 'parent_id'], { app: 'Employees', limit: 5000 }));
     return [
@@ -356,82 +607,6 @@ function build(tab, cfg, ctx) {
           ...(leave ? [tile('Approved time off', sum(leave, 'number_of_days'), 'num1', { sub: 'days touching this period' })] : []),
         ] };
       }),
-      section('reps', 'Sales by salesperson', 'reps', async () => {
-        const m12 = monthsBack(12), start = [ps, s, m12[0] + '-01'].sort()[0];
-        // Which field holds the salesperson? Odoo's own "Salesperson" is user_id, but shops often add their own, so look at every
-        // "who sold it" field on the order and use the ones that are actually filled in.
-        let metaF = {}; try { metaF = await call(cfg, 'sale.order', 'fields_get', [], { attributes: ['string', 'type', 'relation'] }); } catch (err) { /* user_id below */ }
-        const repFields = Object.entries(metaF).filter(([k, f]) => ['many2one', 'char', 'selection'].includes(f.type) && f.relation !== 'crm.team' && (k === 'user_id' || /sales\s*-?\s*(person|rep|man|agent)/i.test(String(f.string)))).map(([k]) => k);
-        if (!repFields.length) repFields.push('user_id');
-        const [orders, lines, invs] = await Promise.all([
-          sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(start)]], ['name', 'partner_id', 'partner_shipping_id', ...repFields, 'amount_untaxed', 'date_order'], { app: 'Sales', limit: 30000 }).catch(() => sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(start)]], ['name', 'partner_id', ...repFields, 'amount_untaxed', 'date_order'], { app: 'Sales', limit: 30000 })),
-          sr(cfg, 'sale.order.line', [['order_id.state', 'in', ['sale', 'done']], ['order_id.date_order', '>=', dt(start)]], ['order_id', 'product_id', 'product_uom_qty', 'price_subtotal'], { app: 'Sales', limit: 60000 }),
-          sr(cfg, 'account.move', [['move_type', 'in', ['out_invoice', 'out_refund']], ['state', '=', 'posted'], ['invoice_date', '>=', start]], ['name', 'partner_id', 'invoice_user_id', 'invoice_origin', 'move_type', 'invoice_date', 'amount_untaxed_signed', 'payment_state'], { app: 'Accounting', limit: 30000 }),
-        ]);
-        const addr = (o) => nid(o.partner_shipping_id) || nid(o.partner_id), pids = [...new Set(orders.flatMap((o) => [addr(o), nid(o.partner_id)]).filter(Boolean))], city = new Map();
-        for (let i = 0; i < pids.length; i += 500) {
-          try { for (const g of await call(cfg, 'res.partner', 'read', [pids.slice(i, i + 500), ['city', 'state_id']])) city.set(g.id, (g.city || '').trim() || nm(g.state_id) || 'Unknown'); } catch (err) { break; }
-        }
-        // A shared login such as "Sales indoor" can hide several people, so a field that names the actual person (Sales Representative) wins over Odoo's Salesperson login.
-        const val = (o, f) => { const v = o[f]; return Array.isArray(v) ? nm(v) : typeof v === 'string' ? v.trim() : ''; };
-        const filled = Object.fromEntries(repFields.map((f) => [f, orders.filter((o) => val(o, f)).length])), order = [...repFields].sort((a, b) => (a === 'user_id') - (b === 'user_id') || filled[b] - filled[a]);
-        const who = (o) => { for (const f of order) if (val(o, f)) return val(o, f); return 'No salesperson'; }, inR = (d, a, b) => d >= a && d <= b;
-        const byName = new Map(orders.map((o) => [o.name, who(o)])), info = new Map(orders.map((o) => [o.id, { rep: who(o), day: String(o.date_order).slice(0, 10), customer: nm(o.partner_id) || 'Unknown', city: city.get(addr(o)) || city.get(nid(o.partner_id)) || 'Unknown' }]));
-        const reps = new Map(); const R = (name) => { if (!reps.has(name)) reps.set(name, { name, cur: { sales: 0, orders: 0, units: 0, invoiced: 0, invoices: 0 }, prev: { sales: 0, orders: 0, units: 0, invoiced: 0, invoices: 0 }, months: new Map(m12.map((k) => [k, { key: k, label: label(k), sales: 0, orders: 0, units: 0, invoiced: 0 }])), cities: new Map(), customers: new Map(), prods: new Map(), prodDist: new Map(), custCity: new Map(), custProd: new Map(), cityDist: new Map(), invoiceList: [] }); return reps.get(name); };
-        const nest = (m, a, b, init) => { if (!m.has(a)) m.set(a, new Map()); const x = m.get(a); if (!x.has(b)) x.set(b, init()); return x.get(b); };
-        const bump = (map, key, f) => { const g = map.get(key) || { name: key, orders: 0, units: 0, sales: 0, ids: new Set() }; f(g); map.set(key, g); };
-        for (const o of orders) {
-          const i = info.get(o.id), r = R(i.rep), v = n0(o.amount_untaxed), k = i.day.slice(0, 7), mo = r.months.get(k);
-          if (mo) { mo.sales += v; mo.orders++; }
-          const w = inR(i.day, s, e) ? r.cur : inR(i.day, ps, pe) ? r.prev : null;
-          if (w) { w.sales += v; w.orders++; }
-          if (w === r.cur) { for (const [map, key] of [[r.cities, i.city], [r.customers, i.customer]]) bump(map, key, (g) => { g.orders++; g.sales += v; }); nest(r.custCity, i.customer, i.city, () => ({ n: 0 })).n++; }
-        }
-        for (const l of lines) {
-          const i = info.get(nid(l.order_id)); if (!i) continue; const r = R(i.rep), q = n0(l.product_uom_qty), v = n0(l.price_subtotal), mo = r.months.get(i.day.slice(0, 7));
-          if (mo) mo.units += q;
-          const w = inR(i.day, s, e) ? r.cur : inR(i.day, ps, pe) ? r.prev : null;
-          if (w) w.units += q;
-          if (w === r.cur) { bump(r.cities, i.city, (g) => { g.units += q; }); bump(r.customers, i.customer, (g) => { g.units += q; }); const pn = nm(l.product_id) || 'Other', oid = nid(l.order_id);
-            bump(r.prods, pn, (g) => { g.units += q; g.sales += v; g.ids.add(oid); });
-            const a = nest(r.prodDist, pn, i.customer, () => ({ ids: new Set(), units: 0, sales: 0 })); a.ids.add(oid); a.units += q; a.sales += v;
-            const b = nest(r.custProd, i.customer, pn, () => ({ units: 0, sales: 0 })); b.units += q; b.sales += v;
-            const c2 = nest(r.cityDist, i.city, i.customer, () => ({ ids: new Set(), units: 0, sales: 0 })); c2.ids.add(oid); c2.units += q; c2.sales += v; }
-        }
-        for (const m of invs) {
-          const fromOrder = String(m.invoice_origin || '').split(/[,\s]+/).map((x) => byName.get(x)).find(Boolean), r = R(fromOrder || nm(m.invoice_user_id) || 'No salesperson'), d = String(m.invoice_date), v = (m.move_type === 'out_refund' ? -1 : 1) * Math.abs(n0(m.amount_untaxed_signed)), mo = r.months.get(d.slice(0, 7));
-          if (mo) mo.invoiced += v;
-          const w = inR(d, s, e) ? r.cur : inR(d, ps, pe) ? r.prev : null;
-          if (w) { w.invoiced += v; w.invoices++; }
-          if (w === r.cur) r.invoiceList.push({ name: m.name, customer: nm(m.partner_id) || 'Unknown', date: d, amount: v, status: String(m.payment_state || '').replace(/_/g, ' ') || '–' });
-        }
-        const list = (map) => [...map.values()].sort((a, b) => b.sales - a.sales).slice(0, 40).map((g) => ({ name: g.name, sales: g.sales, orders: g.ids && g.ids.size ? g.ids.size : g.orders, units: g.units }));
-        const distRows = (m) => [...(m || new Map()).entries()].map(([name, g]) => ({ name, orders: g.ids.size, units: g.units, sales: g.sales })).sort((a, b) => b.units - a.units);
-        const DCOL = [{ key: 'name', label: 'Distributor', fmt: 'str' }, { key: 'orders', label: 'Orders', fmt: 'int' }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'sales', label: 'Sales', fmt: 'money' }];
-        const PCOL = [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'sales', label: 'Sales', fmt: 'money' }];
-        const people = [...reps.values()].filter((r) => r.cur.sales || r.cur.invoiced || r.prev.sales || r.months.size && [...r.months.values()].some((x) => x.sales || x.invoiced))
-          .map((r) => {
-            const invoices = r.invoiceList.sort((a, b) => b.amount - a.amount);
-            const invOf = (cust) => invoices.filter((x) => x.customer === cust);
-            const prodRows = (m) => [...(m || new Map()).entries()].map(([name, g]) => ({ name, units: g.units, sales: g.sales })).sort((a, b) => b.units - a.units);
-            const cityOf = (c) => [...(r.custCity.get(c) || new Map()).entries()].sort((a, b) => b[1].n - a[1].n)[0]?.[0] || 'Unknown';
-            const custs = list(r.customers).map((g) => { const inv = invOf(g.name); return { ...g, city: cityOf(g.name), invoices: inv.length, invoiced: inv.reduce((a, x) => a + x.amount, 0),
-              breakdown: { plain: true, summary: [{ l: 'Invoices', v: inv.length, f: 'int' }, { l: 'Invoiced', v: inv.reduce((a, x) => a + x.amount, 0), f: 'money' }, { l: 'Products bought', v: (r.custProd.get(g.name) || new Map()).size, f: 'int' }, { l: 'Units', v: g.units, f: 'int' }],
-                columns: [{ key: 'name', label: 'Invoice', fmt: 'str' }, { key: 'date', label: 'Date', fmt: 'str' }, { key: 'amount', label: 'Amount', fmt: 'money' }, { key: 'status', label: 'Payment', fmt: 'str' }], rows: inv.slice(0, 60), more: Math.max(0, inv.length - 60), note: inv.length ? undefined : 'No invoices for this distributor in this period.',
-                extra: [{ title: 'Units per product', columns: PCOL, rows: prodRows(r.custProd.get(g.name)).slice(0, 60) }] } }; });
-            const prods = list(r.prods).map((g) => { const d = distRows(r.prodDist.get(g.name)); return { ...g, distributors: d.length, breakdown: { plain: true, summary: [{ l: 'Distributors', v: d.length, f: 'int' }, { l: 'Units', v: g.units, f: 'int' }, { l: 'Orders', v: g.orders, f: 'int' }], columns: DCOL, rows: d.slice(0, 60), more: Math.max(0, d.length - 60) } }; });
-            const cities = list(r.cities).map((g) => { const d = distRows(r.cityDist.get(g.name)); return { ...g, distributors: d.length, breakdown: { plain: true, summary: [{ l: 'Distributors', v: d.length, f: 'int' }, { l: 'Units', v: g.units, f: 'int' }], columns: DCOL, rows: d.slice(0, 60), more: Math.max(0, d.length - 60) } }; });
-            const allProd = [...r.prods.values()].sort((a, b) => b.units - a.units).map((g) => ({ name: g.name, units: g.units, sales: g.sales, distributors: (r.prodDist.get(g.name) || new Map()).size }));
-            const allCust = [...r.customers.values()].sort((a, b) => b.sales - a.sales).map((g) => { const inv = invOf(g.name); return { name: g.name, orders: g.ids && g.ids.size ? g.ids.size : g.orders, units: g.units, sales: g.sales, invoices: inv.length, invoiced: inv.reduce((a, x) => a + x.amount, 0) }; });
-            const breakdown = { plain: true, summary: [{ l: 'Distributors', v: allCust.length, f: 'int' }, { l: 'Invoices', v: r.cur.invoices, f: 'int' }, { l: 'Products', v: allProd.length, f: 'int' }, { l: 'Units', v: r.cur.units, f: 'int' }],
-              columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'distributors', label: 'Distributors', fmt: 'int' }, { key: 'sales', label: 'Sales', fmt: 'money' }], rows: allProd.slice(0, 60), more: Math.max(0, allProd.length - 60),
-              extra: [{ title: 'Distributors and their invoices', columns: [{ key: 'name', label: 'Distributor', fmt: 'str' }, { key: 'invoices', label: 'Invoices', fmt: 'int' }, { key: 'invoiced', label: 'Invoiced', fmt: 'money' }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'sales', label: 'Sales', fmt: 'money' }], rows: allCust.slice(0, 60) }] };
-            return { name: r.name, distributors: allCust.length, productsCount: allProd.length, cur: r.cur, prev: r.prev, months: [...r.months.values()], cities, customers: custs, products: prods, invoices: invoices.slice(0, 60), breakdown };
-          })
-          .sort((a, b) => b.cur.sales - a.cur.sales).slice(0, 40);
-        const used = order.filter((f) => filled[f]).map((f) => `${metaF[f] ? metaF[f].string : f} (${filled[f]} of ${orders.length} orders)`);
-        return { people, empty: 'No confirmed orders in the last 12 months.', source: used.length ? 'Salesperson read from: ' + used.join(', ') + '.' : 'No salesperson is filled in on the orders of the last 12 months.' };
-      }, 'Salesperson is the one on the sales order (and on the invoice). Amounts are before tax. City is taken from the delivery address on the order (the customer address when there is none), and the distributor is the customer on the order. The lists follow the dates you picked; the month chart always shows the last 12 months.'),
       section('dept', 'People by department', 'table', async () => {
         const m = new Map(); (await emps()).forEach((x) => { const k = nm(x.department_id) || 'No department'; m.set(k, (m.get(k) || 0) + 1); });
         return { columns: [{ key: 'name', label: 'Department', fmt: 'str' }, { key: 'n', label: 'People', fmt: 'int', bar: true }], rows: [...m.entries()].map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n) };
@@ -463,7 +638,7 @@ export default route(async (req, res) => {
   const cfg = odooConfig();
   if (cfg.missing.length) return res.json({ configured: false, missing: cfg.missing });
   const months = monthsBack(12);
-  const tab = TABS.includes(req.query.tab) ? req.query.tab : 'inventory';
+  const tab = TABS.includes(req.query.tab) ? req.query.tab : 'suppliers';
   const monthKey = months.includes(req.query.month) ? req.query.month : months[months.length - 1];
   const per = parsePeriod(req.query, TZ) || monthPeriod(monthKey, TZ);
   const month = per.to.slice(0, 7);
