@@ -305,7 +305,10 @@ function build(tab, cfg, ctx) {
       const soldRows = groupBy(c1, (l) => nm(l.product_id) || 'Other', () => ({ units: 0, value: 0 }), (g, l) => { g.units += n0(l.product_uom_qty); g.value += n0(l.price_subtotal); }).sort((a, b) => b.value - a.value);
       return { tiles: [
         tile('Finished goods value (at cost)', sum(list, cost), 'money', { sub: list.length + ' products', breakdown: bd([{ l: 'Products', v: list.length, f: 'int' }, { l: 'Units', v: sum(list, (p) => Math.max(0, n0(p.qty_available))), f: 'int' }], cols, rowsOf(list).filter((x) => x.value > 0)) }),
-        tile('Value at sale price', sum(list, sale), 'money', { sub: sum(list, sale) ? 'potential margin ' + pct(sum(list, sale) - sum(list, cost), sum(list, sale)).toFixed(0) + '%' : undefined }),
+        tile('Value at sale price', sum(list, sale), 'money', { sub: sum(list, sale) ? 'potential margin ' + pct(sum(list, sale) - sum(list, cost), sum(list, sale)).toFixed(0) + '%' : undefined,
+          breakdown: bd([{ l: 'At sale price', v: sum(list, sale), f: 'money' }, { l: 'At cost', v: sum(list, cost), f: 'money' }, { l: 'Potential margin', v: sum(list, sale) - sum(list, cost), f: 'money' }, { l: 'Margin %', v: pct(sum(list, sale) - sum(list, cost), sum(list, sale)), f: 'pct' }],
+            [COL.name('Product'), COL.int('units', 'On hand'), { key: 'price', label: 'Sale price', fmt: 'money2' }, { key: 'unit', label: 'Unit cost', fmt: 'money2' }, COL.money('value', 'Value at sale price'), COL.money('cost', 'Value at cost'), COL.pct('margin', 'Margin')],
+            list.map((p) => ({ name: p.display_name, units: Math.max(0, n0(p.qty_available)), price: n0(p.list_price), unit: n0(p.standard_price), value: sale(p), cost: cost(p), margin: n0(p.list_price) ? pct(n0(p.list_price) - n0(p.standard_price), n0(p.list_price)) : null })).filter((x) => x.value > 0).sort((a, b) => b.value - a.value)) }),
         tile('Products', list.length, 'int', { breakdown: bd([{ l: 'Products', v: list.length, f: 'int' }], cols, rowsOf(list)) }),
         tile('Out of stock', out.length, 'int', { goodDown: true, breakdown: bd([{ l: 'Out of stock', v: out.length, f: 'int' }], cols, rowsOf(out)) }),
         tile('Running low', low.length, 'int', { goodDown: true, breakdown: bd([{ l: 'Running low', v: low.length, f: 'int' }], cols, rowsOf(low)) }),
