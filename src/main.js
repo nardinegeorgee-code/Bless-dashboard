@@ -671,7 +671,7 @@ async function submitUpload(kind){
 }
 
 /* ---------- Shopify analysis tabs ---------- */
-const AN_TABS=[['overview','Overview'],['sales','Sales'],['profit','Profit'],['funnel','Funnel'],['products','Products'],['experience','Customer experience'],['retention','Retention']];
+const AN_TABS=[['overview','Overview'],['sales','Sales'],['profit','Profit'],['funnel','Funnel'],['products','Products'],['experience','Customer experience'],['retention','Retention'],['delivery','Delivery'],['undelivered','Without delivery']];
 S.an={tab:'overview',cache:{},loading:false,err:'',metric:{},saving:false};
 function shopTabs(){return `<div class="subtabs" role="tablist">${AN_TABS.map(([k,l])=>`<button role="tab" class="subtab${S.an.tab===k?' on':''}" aria-selected="${S.an.tab===k}" data-act="an-tab" data-tab="${k}">${l}</button>`).join('')}</div>`}
 async function loadAn(refresh){
@@ -698,7 +698,7 @@ function fv(v,f){
   }
 }
 const noHtml=new Set(['growth','link']);
-const ST_CLS={paid:'ok','in payment':'info',partial:'warn','partly paid':'warn','not paid':'bad',reversed:'mute',ok:'ok','running low':'warn','out of stock':'bad'};
+const ST_CLS={paid:'ok','in payment':'info',partial:'warn','partly paid':'warn','not paid':'bad',reversed:'mute',ok:'ok','running low':'warn','out of stock':'bad',delivered:'ok','in transit':'info',shipped:'info','out for delivery':'info','delivery attempted':'warn','partly shipped':'warn','on hold':'warn',scheduled:'warn',failed:'bad','not shipped':'bad',cancelled:'mute'};
 const stTag=v=>{const s=String(v),k=ST_CLS[s.toLowerCase()];return k?`<span class="st st-${k}">${esc(s)}</span>`:esc(s)};
 const cellText=(v,f)=>noHtml.has(f)?fv(v,f):f==='str'&&ST_CLS[String(v).toLowerCase()]?stTag(v):esc(fv(v,f)).replace(/&amp;/g,'&');
 const KPAL=['#F28D3A','#7B4FA0','#0F766E','#C2410C','#1D4ED8','#A21CAF'];
@@ -908,9 +908,11 @@ function heroSpec(tab,secs){
   if(tab==='products'){const b=by('best');if(!b||!b.rows.length)return {};const r=b.rows[0];return {label:'Best seller',value:esc(r.name),small:true,minis:[mini('Units sold',fv(r.units,'int')),mini('Net revenue',fv(r.revenue,'money'))]}}
   if(tab==='experience'){const dl=by('delivery'),rk=by('returnsKpi');if(!dl)return {};const T=dl.tiles;return {label:'Order to delivered (median)',value:fv(T[4].value,'hours'),minis:[mini('Delivered',fv(T[1].value,'int')),...(rk?[mini('Return rate',fv(rk.tiles[1].value,'pct')),mini('Cancellation rate',fv(rk.tiles[4].value,'pct'))]:[])]}}
   if(tab==='retention'){const k=by('kpi');if(!k)return {};const T=k.tiles;return {label:'Repeat purchase rate',value:fv(T[1].value,'pct'),minis:[mini('Customers',fv(T[0].value,'int')),mini('Orders each',fv(T[2].value,'num1')),mini('Average lifetime value',fv(T[4].value,'money'))]}}
+  if(tab==='delivery'){const k=by('kpi');if(!k)return {};const T=k.tiles;return {label:'Delivered',value:fv(T[1].value,'int'),minis:[mini('Orders',fv(T[0].value,'int')),mini('On the way',fv(T[2].value,'int')),mini('Not shipped yet',fv(T[3].value,'int'))]}}
+  if(tab==='undelivered'){const k=by('kpi');if(!k)return {};const T=k.tiles;return {label:'Orders without delivery',value:fv(T[0].value,'int'),minis:[mini('Value waiting',fv(T[1].value,'money')),mini('Over 3 days',fv(T[2].value,'int')),mini('Oldest (days)',fv(T[4].value,'num1'))]}}
   return {};
 }
-const TAB_INFO={profit:['Profit','Revenue, product cost and ad spend'],sales:['Sales','Revenue, orders, channels and profit'],funnel:['Website funnel','Where visitors drop off before buying'],products:['Products','What sells, what sits, and what needs work'],experience:['Customer experience','Delivery, returns and service'],retention:['Retention','Who comes back, and who to win back']};
+const TAB_INFO={profit:['Profit','Revenue, product cost and ad spend'],sales:['Sales','Revenue, orders, channels and profit'],funnel:['Website funnel','Where visitors drop off before buying'],products:['Products','What sells, what sits, and what needs work'],experience:['Customer experience','Delivery, returns and service'],retention:['Retention','Who comes back, and who to win back'],delivery:['Delivery','The delivery of every order, read live from Shopify'],undelivered:['Orders without delivery','Open orders that have not been shipped yet']};
 function analyticsHero(tab,d){
   const sp=heroSpec(tab,d.sections),info=TAB_INFO[tab]||[tab,''];
   return `<section class="hero"><div class="hero-top"><div><span class="eyebrow">${esc(info[0])} · ${esc(d.monthLabel)}</span>${sp.value?`<div class="hero-n${sp.small?' sm':''}">${sp.value}</div><div><span class="hero-vs">${esc(sp.label)}</span> ${sp.chip||''}</div>`:`<div class="hero-n sm">${esc(info[1])}</div>`}</div>

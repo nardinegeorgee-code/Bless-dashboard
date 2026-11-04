@@ -5,6 +5,9 @@
   "functions": {
     "api/shopify-sync.js": {
       "maxDuration": 60
+    },
+    "api/analytics.js": {
+      "maxDuration": 60
     }
   },
   "crons": [

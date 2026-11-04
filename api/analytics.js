@@ -4,9 +4,10 @@ import { ensureShopSchema, shopConfig, shopifyql, fetchProducts, fetchProductIma
 import { parsePeriod, monthPeriod, dayList } from './_period.js';
 import { odooConfig, sr as odooSearch } from './_odoo.js';
 import { adSpend } from './_profit.js';
+import { buildDelivery } from './_delivery.js';
 
 const DAY = 86400000;
-const TABS = ['sales', 'profit', 'funnel', 'products', 'experience', 'retention'];
+const TABS = ['sales', 'profit', 'funnel', 'products', 'experience', 'retention', 'delivery', 'undelivered'];
 const CACHE_MS = 30 * 60000;
 
 /* ---------- dates ---------- */
@@ -684,7 +685,7 @@ export default route(async (req, res) => {
   const ctx = { refresh, month, monthLabel: per.label, compareText: per.compareText, s: per.from, e: per.to, ps: per.compare.from, pe: per.compare.to, today, trendStart: `${months[0]}-01` };
   const run = (query) => cachedQuery(cfg, query, refresh);
 
-  const tasks = tab === 'retention' ? await buildRetention(ctx, keyOf, cfg).catch((err) => [async () => ({ id: 'err', title: 'Retention', kind: 'text', error: err.message })]) : buildShopifyTabs(tab, ctx, run);
+  const tasks = tab === 'retention' ? await buildRetention(ctx, keyOf, cfg).catch((err) => [async () => ({ id: 'err', title: 'Retention', kind: 'text', error: err.message })]) : (tab === 'delivery' || tab === 'undelivered') ? buildDelivery(tab, ctx, cfg) : buildShopifyTabs(tab, ctx, run);
   const wrapped = tab === 'retention' ? tasks.map((fn, i) => async () => { try { return await fn(); } catch (err) { return { id: 'r' + i, title: 'Retention', kind: 'text', error: String(err.message || err).slice(0, 400) }; } }) : tasks;
   const sections = await pool(wrapped, 3);
 
