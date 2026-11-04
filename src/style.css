@@ -553,3 +553,6 @@ aside.viz .viz-t{cursor:grab;touch-action:none;user-select:none}
 .repsum button.rs{background:none;border:0;border-radius:10px;padding:6px 10px;margin:-6px -10px;text-align:left;cursor:pointer;color:inherit;font:inherit}
 .repsum button.rs:hover,.repsum button.rs.on{background:color-mix(in srgb,var(--accent) 12%,transparent)}
 .repsum button.rs em{cursor:pointer}.repdet{margin:10px 0;padding:10px 0;border-bottom:1px solid var(--line,#e4dcee)}
+
+.st{font-weight:600}.st-ok{color:#2c7a4b}.st-info{color:#2f6bd1}.st-warn{color:#c2610c}.st-bad{color:#b3261e}.st-mute{color:#7a6b8a}
+@media (prefers-color-scheme:dark){.st-ok{color:#6fcf97}.st-info{color:#7fb0ff}.st-warn{color:#ffb86b}.st-bad{color:#ff8a80}.st-mute{color:#b9a8cc}}

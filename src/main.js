@@ -698,7 +698,9 @@ function fv(v,f){
   }
 }
 const noHtml=new Set(['growth','link']);
-const cellText=(v,f)=>noHtml.has(f)?fv(v,f):esc(fv(v,f)).replace(/&amp;/g,'&');
+const ST_CLS={paid:'ok','in payment':'info',partial:'warn','partly paid':'warn','not paid':'bad',reversed:'mute',ok:'ok','running low':'warn','out of stock':'bad'};
+const stTag=v=>{const s=String(v),k=ST_CLS[s.toLowerCase()];return k?`<span class="st st-${k}">${esc(s)}</span>`:esc(s)};
+const cellText=(v,f)=>noHtml.has(f)?fv(v,f):f==='str'&&ST_CLS[String(v).toLowerCase()]?stTag(v):esc(fv(v,f)).replace(/&amp;/g,'&');
 const KPAL=['#F28D3A','#7B4FA0','#0F766E','#C2410C','#1D4ED8','#A21CAF'];
 function iconFor(label){
   const l=String(label).toLowerCase();
@@ -854,10 +856,10 @@ function breakdownHtml(b){
   if(!b)return '';
   const sum=(b.summary||[]).map(x=>`<span class="bk-s"><em>${esc(x.l)}</em><b>${esc(fv(x.v,x.f))}</b></span>`).join('');
   const head=b.columns.map(c=>`<th class="${c.fmt==='str'?'':'num'}">${esc(c.label)}</th>`).join('');
-  const body=b.rows.map(r=>`<tr>${b.columns.map(c=>{const v=r[c.key];return `<td class="${c.fmt==='str'?'':'num'}">${v===null||v===undefined?'–':esc(c.fmt==='str'?String(v):fv(v,c.fmt))}</td>`}).join('')}</tr>`).join('');
+  const body=b.rows.map(r=>`<tr>${b.columns.map(c=>{const v=r[c.key];return `<td class="${c.fmt==='str'?'':'num'}">${v===null||v===undefined?'–':c.fmt==='str'?stTag(v):esc(fv(v,c.fmt))}</td>`}).join('')}</tr>`).join('');
   const chart=b.plain?'':b.columns[0].key==='step'?waterfall(b):bkBars(b);
   const tbl=b.rows.length?`<div><div class="bk-wrap"><table class="bk-t"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>${b.more?`<p class="muted dn">Showing the first ${b.rows.length}. ${b.more} more are not listed.</p>`:''}</div>`:'';
-  const more=(b.extra||[]).map(x=>`<h4 class="bk-h">${esc(x.title)}</h4><div class="bk-wrap"><table class="bk-t"><thead><tr>${x.columns.map(c=>`<th class="${c.fmt==='str'?'':'num'}">${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${x.rows.map(r=>`<tr>${x.columns.map(c=>{const v=r[c.key];return `<td class="${c.fmt==='str'?'':'num'}">${v===null||v===undefined?'–':esc(c.fmt==='str'?String(v):fv(v,c.fmt))}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>`).join('');
+  const more=(b.extra||[]).map(x=>`<h4 class="bk-h">${esc(x.title)}</h4><div class="bk-wrap"><table class="bk-t"><thead><tr>${x.columns.map(c=>`<th class="${c.fmt==='str'?'':'num'}">${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${x.rows.map(r=>`<tr>${x.columns.map(c=>{const v=r[c.key];return `<td class="${c.fmt==='str'?'':'num'}">${v===null||v===undefined?'–':c.fmt==='str'?stTag(v):esc(fv(v,c.fmt))}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>`).join('');
   return `<div class="bk">${sum?`<div class="bk-sum">${sum}</div>`:''}${b.note?`<p class="muted dn">${esc(b.note)}</p>`:''}<div class="${chart?'splitc':''}">${tbl}${chart}</div>${more}</div>`;
 }
 function tileDetail(t){
