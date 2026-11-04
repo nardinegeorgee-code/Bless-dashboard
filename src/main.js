@@ -979,9 +979,14 @@ function anReps(sec){
   const team=plain([col('name','Salesperson','str'),col('sales','Sales (before tax)','money'),col('orders','Orders','int'),col('units','Units','int'),col('distributors','Distributors','int'),col('invoices','Invoices','int'),col('invoiced','Invoiced','money')],
     sec.people.map(x=>({name:x.name,sales:x.cur.sales,orders:x.cur.orders,units:x.cur.units,distributors:x.distributors,invoices:x.cur.invoices,invoiced:x.cur.invoiced,breakdown:x.breakdown})));
   const one=(p,n)=>{
-    const c=p.cur,stat=(l,v)=>`<span class="rs"><em>${esc(l)}</em><b>${esc(v)}</b></span>`;
+    const c=p.cur,stat=(l,v,k)=>`<button type="button" class="rs" data-act="rep-stat" data-k="${k}" aria-expanded="false"><em>${esc(l)}</em><b>${esc(v)}</b></button>`;
     return `<details class="repbox"${n===0?' open':''}><summary><b>${esc(p.name)}</b><span class="muted">${esc(fv(c.sales,'money'))} · ${fmtNum(c.orders)} orders · ${fmtNum(c.units)} units</span></summary>
-    <div class="repin"><div class="repsum">${stat('Sales',fv(c.sales,'money'))}${stat('Orders',fmtNum(c.orders))}${stat('Units',fmtNum(c.units))}${stat('Distributors',fmtNum(p.distributors))}${stat('Invoices',fmtNum(c.invoices))}${stat('Invoiced',fv(c.invoiced,'money'))}</div>
+    <div class="repin"><div class="repsum">${stat('Sales',fv(c.sales,'money'),'months')}${stat('Orders',fmtNum(c.orders),'orders')}${stat('Units',fmtNum(c.units),'units')}${stat('Distributors',fmtNum(p.distributors),'dist')}${stat('Invoices',fmtNum(c.invoices),'invoices')}${stat('Invoiced',fv(c.invoiced,'money'),'invoices')}</div>
+    <div class="repdet" data-k="orders" hidden><h3 class="sub">Orders (${fmtNum(c.orders)})</h3>${plain([col('name','Order','str'),col('date','Date','str'),col('customer','Distributor','str'),col('city','City','str'),col('amount','Amount','money')],p.orders||[],'No orders in this period.')}</div>
+    <div class="repdet" data-k="units" hidden><h3 class="sub">Units per product (${fmtNum(c.units)})</h3>${plain([col('name','Product','str'),col('units','Units','int'),col('distributors','Distributors','int'),col('orders','Orders','int'),col('sales','Sales','money')],p.products,'No sales in this period.')}</div>
+    <div class="repdet" data-k="dist" hidden><h3 class="sub">Distributors (${fmtNum(p.distributors)})</h3>${plain([col('name','Distributor','str'),col('city','City','str'),col('orders','Orders','int'),col('units','Units','int'),col('sales','Sales','money'),col('invoices','Invoices','int'),col('invoiced','Invoiced','money')],p.customers,'No sales in this period.')}</div>
+    <div class="repdet" data-k="invoices" hidden><h3 class="sub">Invoices (${fmtNum(c.invoices)}) · ${esc(fv(c.invoiced,'money'))}</h3>${plain([col('name','Invoice','str'),col('customer','Distributor','str'),col('date','Date','str'),col('amount','Amount','money'),col('status','Payment','str')],p.invoices,'No invoices in this period.')}</div>
+    <div class="repdet" data-k="months" hidden><h3 class="sub">Sales month by month</h3>${plain([col('label','Month','str'),col('sales','Sales','money'),col('orders','Orders','int'),col('units','Units','int'),col('invoiced','Invoiced','money')],p.months.slice().reverse(),'No sales.')}</div>
     <h3 class="sub">Products</h3>${plain([col('name','Product','str'),col('units','Units','int'),col('distributors','Distributors','int'),col('orders','Orders','int'),col('sales','Sales','money')],p.products,'No sales in this period.')}
     <h3 class="sub">Distributors</h3>${plain([col('name','Distributor','str'),col('city','City','str'),col('invoices','Invoices','int'),col('invoiced','Invoiced','money'),col('units','Units','int'),col('orders','Orders','int'),col('sales','Sales','money')],p.customers,'No sales in this period.')}
     <h3 class="sub">Cities</h3>${plain([col('name','City','str'),col('distributors','Distributors','int'),col('units','Units','int'),col('orders','Orders','int'),col('sales','Sales','money')],p.cities,'No sales in this period.')}
@@ -1120,6 +1125,9 @@ document.addEventListener('click',async e=>{
       delete S.draft['am-'+id];S.amend=null;S.lastJson='';await sync();update();toast('Task amended. The old version is kept in the history.');
     }catch(x){err.textContent=x.message||'Could not save. Try again.';b.disabled=false;b.textContent='Save changes'}
   }
+  else if(a==='rep-stat'){const box=b.closest('.repin'),k=b.dataset.k,det=box.querySelector('.repdet[data-k="'+k+'"]'),was=det&&!det.hidden;
+    box.querySelectorAll('.repdet').forEach(d=>d.hidden=true);box.querySelectorAll('.rs').forEach(x=>{x.classList.remove('on');x.setAttribute('aria-expanded','false')});
+    if(det&&!was){det.hidden=false;b.classList.add('on');b.setAttribute('aria-expanded','true');box.querySelectorAll('.rs[data-k="'+(k==='invoices'?'invoices':k)+'"]').forEach(x=>x.classList.add('on'))}}
   else if(a==='see-more'){S.more[b.dataset.id]=!S.more[b.dataset.id];S.route==='meta'?renderMeta():S.route==='odoo'?renderOdoo():renderShop()}
   else if(a==='od-tab'){S.od.tab=b.dataset.tab;(S.od.last=S.od.last||{})[odGroup(S.od.tab)[0]]=S.od.tab;S.od.err='';loadOdoo()}
   else if(a==='od-refresh')loadOdoo(undefined,true);
