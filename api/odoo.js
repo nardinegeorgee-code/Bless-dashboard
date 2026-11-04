@@ -335,19 +335,30 @@ function build(tab, cfg, ctx) {
   if (tab === 'raw') return stockKind('raw', 'Raw materials');
   if (tab === 'packaging') return stockKind('pack', 'Packaging');
 
+  // Which order fields name the salesperson (Odoo's Salesperson, or a custom Sales Representative field).
+  const repFieldsOf = () => once('repFields', async () => {
+    let meta = {}; try { meta = await call(cfg, 'sale.order', 'fields_get', [], { attributes: ['string', 'type', 'relation'] }); } catch (err) { /* user_id below */ }
+    const f = Object.entries(meta).filter(([k, x]) => ['many2one', 'char', 'selection'].includes(x.type) && x.relation !== 'crm.team' && (k === 'user_id' || /sales\s*-?\s*(person|rep|man|agent)/i.test(String(x.string)))).map(([k]) => k);
+    return f.length ? f : ['user_id'];
+  });
   /* ---------- Sales: distributors and salespeople ---------- */
   if (tab === 'distributors') return [
     section('kpi', `Distributors (${ctx.monthLabel})`, 'kpi', async () => {
-      const so = (a, b) => sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(a)], ['date_order', '<=', dtEnd(b)]], ['name', 'partner_id', 'amount_total', 'date_order'], { app: 'Sales', limit: 20000 });
+      const repFields = await repFieldsOf();
+      const so = (a, b) => sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(a)], ['date_order', '<=', dtEnd(b)]], ['name', 'partner_id', 'amount_total', 'date_order', ...repFields], { app: 'Sales', limit: 20000 });
       const [cur, prev, older, recv] = await Promise.all([so(s, e), so(ps, pe), sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '<', dt(s)]], ['partner_id'], { app: 'Sales', limit: 50000 }), invoices(['out_invoice'], [['payment_state', 'in', ['not_paid', 'partial']]])]);
       const ids = [...new Set([...cur, ...prev, ...older, ...recv].map((x) => nid(x.partner_id)).filter(Boolean))], top = new Map();
       for (let i = 0; i < ids.length; i += 500) { try { for (const g of await call(cfg, 'res.partner', 'read', [ids.slice(i, i + 500), ['commercial_partner_id']])) top.set(g.id, nm(g.commercial_partner_id)); } catch (err) { break; } }
       const who = (x) => top.get(nid(x.partner_id)) || nm(x.partner_id) || 'Unknown';
-      const by = (list) => groupBy(list, who, () => ({ orders: 0, value: 0 }), (g, o) => { g.orders++; g.value += n0(o.amount_total); }).sort((a, b) => b.value - a.value);
+      // A field that names the actual person wins over Odoo's Salesperson login, which can be shared.
+      const val = (o, f) => { const v = o[f]; return Array.isArray(v) ? nm(v) : typeof v === 'string' ? v.trim() : ''; };
+      const filled = Object.fromEntries(repFields.map((f) => [f, [...cur, ...prev].filter((o) => val(o, f)).length])), pref = [...repFields].sort((a, b) => (a === 'user_id') - (b === 'user_id') || filled[b] - filled[a]);
+      const repOf = (o) => { for (const f of pref) if (val(o, f)) return val(o, f); return ''; };
+      const by = (list) => groupBy(list, who, () => ({ orders: 0, value: 0, reps: new Set() }), (g, o) => { g.orders++; g.value += n0(o.amount_total); const r = repOf(o); if (r) g.reps.add(r); }).sort((a, b) => b.value - a.value);
       const dist = by(cur), pdist = by(prev), total = sum(cur, 'amount_total'), had = new Set(older.map(who));
       const fresh = dist.filter((g) => !had.has(g.name));
-      const dCols = [COL.name('Distributor'), COL.int('orders', 'Orders'), COL.money('value', 'Order value'), COL.pct('share', 'Share')];
-      const dRows = (arr) => arr.map((g) => ({ ...g, share: pct(g.value, total) }));
+      const dCols = [COL.name('Distributor'), COL.str('rep', 'Salesperson'), COL.int('orders', 'Orders'), COL.money('value', 'Order value'), COL.pct('share', 'Share')];
+      const dRows = (arr) => arr.map((g) => ({ name: g.name, rep: [...g.reps].join(', ') || '–', orders: g.orders, value: g.value, share: pct(g.value, total) }));
       const owedBy = groupBy(recv, who, () => ({ count: 0, owed: 0, late: 0 }), (g, m) => { g.count++; g.owed += resid(m); if (m.invoice_date_due && m.invoice_date_due < today) g.late += resid(m); }).sort((a, b) => b.owed - a.owed);
       const owedCols = [COL.name('Distributor'), COL.int('count', 'Open invoices'), COL.money('owed', 'Still owed'), COL.money('late', 'Of which late')];
       return { tiles: [
