@@ -643,8 +643,11 @@ function build(tab, cfg, ctx) {
       return m;
     };
     const yearStart = s.slice(0, 4) + '-01-01';
+    const pmEndD = new Date(Date.parse(s.slice(0, 7) + '-01T12:00:00Z') - 86400000), pmEnd = pmEndD.toISOString().slice(0, 10), pmStart = pmEnd.slice(0, 7) + '-01';
+    const sameAsPrev = ps === pmStart && pe === pmEnd;
     const data = () => once('trial', async () => {
       const [before, yearBefore, period, prior] = await Promise.all([groups([['date', '<', s]]), groups([['date', '>=', yearStart], ['date', '<', s]]), groups([['date', '>=', s], ['date', '<=', e]]), tab === 'pnl' ? groups([['date', '>=', ps], ['date', '<=', pe]]) : new Map()]);
+      const pmGroups = tab === 'pnl' && !sameAsPrev ? await groups([['date', '>=', pmStart], ['date', '<=', pmEnd]]) : prior;
       let info = new Map();
       try {
         const have = await fieldsOf(cfg, 'account.account');
@@ -664,18 +667,18 @@ function build(tab, cfg, ctx) {
         return 'other';
       };
       const isPL = (t) => /income|expense|revenue|cost_of_revenue|depreciation/i.test(t);
-      const ids = new Set([...before.keys(), ...period.keys(), ...prior.keys()]);
+      const ids = new Set([...before.keys(), ...period.keys(), ...prior.keys(), ...pmGroups.keys()]);
       const rows = [...ids].map((id) => {
-        const f = before.get(id) || period.get(id) || prior.get(id), a = info.get(id);
+        const f = before.get(id) || period.get(id) || prior.get(id) || pmGroups.get(id), a = info.get(id);
         let code = a ? a.code : '', name = a ? a.name : f.label;
         if (!a) { const mm = /^(\S+)\s+(.*)$/.exec(f.label); if (mm && /\d/.test(mm[1])) { code = mm[1]; name = mm[2]; } }
         const type = a ? a.type : '';
         const op = isPL(type) ? yearBefore.get(id) : before.get(id), mv = period.get(id) || { debit: 0, credit: 0 };
         const opening = op ? op.debit - op.credit : 0;
-        const all = before.get(id), pv = prior.get(id) || { debit: 0, credit: 0 };
+        const all = before.get(id), pv = prior.get(id) || { debit: 0, credit: 0 }, pm = pmGroups.get(id) || { debit: 0, credit: 0 };
         const cum = (all ? all.debit - all.credit : 0) + mv.debit - mv.credit;
-        return { code, name, type: type || 'Other', cls: classOf(type), opening, debit: mv.debit, credit: mv.credit, closing: opening + mv.debit - mv.credit, cum, pd: pv.debit, pc: pv.credit };
-      }).filter((r) => Math.abs(r.opening) > 0.004 || r.debit || r.credit || r.pd || r.pc || Math.abs(r.cum) > 0.004).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }) || a.name.localeCompare(b.name));
+        return { code, name, type: type || 'Other', cls: classOf(type), opening, debit: mv.debit, credit: mv.credit, closing: opening + mv.debit - mv.credit, cum, pd: pv.debit, pc: pv.credit, md: pm.debit, mc: pm.credit };
+      }).filter((r) => Math.abs(r.opening) > 0.004 || r.debit || r.credit || r.pd || r.pc || r.md || r.mc || Math.abs(r.cum) > 0.004).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }) || a.name.localeCompare(b.name));
       return rows;
     });
     if (tab === 'trial') return [
@@ -714,13 +717,13 @@ function build(tab, cfg, ctx) {
     };
     const lineCols = [COL.str('code', 'Code'), COL.str('name', 'Account'), COL.money('amount', 'Amount'), COL.pct('share', 'Of revenue')];
     if (tab === 'pnl') {
-      const cr = (r) => r.credit - r.debit, db = (r) => r.debit - r.credit, cr0 = (r) => r.pc - r.pd, db0 = (r) => r.pd - r.pc;
+      const cr = (r) => r.credit - r.debit, db = (r) => r.debit - r.credit, cr0 = (r) => r.pc - r.pd, db0 = (r) => r.pd - r.pc, crm = (r) => r.mc - r.md, dbm = (r) => r.md - r.mc;
       const calc = async () => {
         const rows = await data(), g = (c) => rows.filter((r) => r.cls === c);
         const inc = g('income'), cogs = g('cogs'), exp = g('expense');
-        const T = (l, f, f0) => ({ now: l.reduce((a, r) => a + f(r), 0), prev: l.reduce((a, r) => a + f0(r), 0) });
-        const I = T(inc, cr, cr0), C = T(cogs, db, db0), X = T(exp, db, db0);
-        return { inc, cogs, exp, I, C, X, gross: { now: I.now - C.now, prev: I.prev - C.prev }, net: { now: I.now - C.now - X.now, prev: I.prev - C.prev - X.prev } };
+        const T = (l, f, f0, fm) => ({ now: l.reduce((a, r) => a + f(r), 0), prev: l.reduce((a, r) => a + f0(r), 0), pm: l.reduce((a, r) => a + fm(r), 0) });
+        const I = T(inc, cr, cr0, crm), C = T(cogs, db, db0, dbm), X = T(exp, db, db0, dbm);
+        return { inc, cogs, exp, I, C, X, gross: { now: I.now - C.now, prev: I.prev - C.prev, pm: I.pm - C.pm }, net: { now: I.now - C.now - X.now, prev: I.prev - C.prev - X.prev, pm: I.pm - C.pm - X.pm } };
       };
       return [
         section('kpi', `Profit and loss (${ctx.monthLabel})`, 'kpi', async () => {
@@ -733,10 +736,12 @@ function build(tab, cfg, ctx) {
           ] };
         }, 'Built from the posted journal entries in Odoo Accounting, by account type, for the dates chosen.'),
         section('pl', `Profit and loss statement (${ctx.monthLabel})`, 'table', async () => {
-          const c = await calc(), cols = [...lineCols.slice(0, 3), COL.money('prev', 'Previous period'), lineCols[3]];
-          const withPrev = (list, f, f0) => list.map((r) => ({ code: r.code, name: r.name, amount: f(r), prev: f0(r), share: c.I.now ? pct(f(r), c.I.now) : null }));
-          const head = (name, t) => ({ code: '', name, amount: t.now, prev: t.prev, share: c.I.now ? pct(t.now, c.I.now) : null });
-          const rows = [head('INCOME', c.I), ...withPrev(c.inc, cr, cr0), head('COST OF REVENUE', c.C), ...withPrev(c.cogs, db, db0), head('GROSS PROFIT', c.gross), head('EXPENSES', c.X), ...withPrev(c.exp, db, db0), head('NET PROFIT', c.net)];
+          const c = await calc(), pmLabel = 'Previous month (' + pmStart.slice(0, 7) + ')';
+          const cols = [...lineCols.slice(0, 3), ...(sameAsPrev ? [] : [COL.money('prev', 'Previous period')]), COL.money('pm', pmLabel), { key: 'chg', label: 'Change vs previous month', fmt: 'pct' }, lineCols[3]];
+          const row = (code, name, now, prev, pm) => ({ code, name, amount: now, prev, pm, chg: pm ? ((now - pm) / Math.abs(pm)) * 100 : null, share: c.I.now ? pct(now, c.I.now) : null });
+          const withPrev = (list, f, f0, fm) => list.map((r) => row(r.code, r.name, f(r), f0(r), fm(r)));
+          const head = (name, t) => row('', name, t.now, t.prev, t.pm);
+          const rows = [head('INCOME', c.I), ...withPrev(c.inc, cr, cr0, crm), head('COST OF REVENUE', c.C), ...withPrev(c.cogs, db, db0, dbm), head('GROSS PROFIT', c.gross), head('EXPENSES', c.X), ...withPrev(c.exp, db, db0, dbm), head('NET PROFIT', c.net)];
           return { columns: cols, rows, empty: 'No income or expense entries in this period.' };
         }, 'Income and expense accounts only. Capitalised words are totals; the lines under them are the accounts that make them up.'),
       ];
