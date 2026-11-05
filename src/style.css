@@ -556,3 +556,10 @@ aside.viz .viz-t{cursor:grab;touch-action:none;user-select:none}
 
 .st{font-weight:600}.st-ok{color:#2c7a4b}.st-info{color:#2f6bd1}.st-warn{color:#c2610c}.st-bad{color:#b3261e}.st-mute{color:#7a6b8a}
 @media (prefers-color-scheme:dark){.st-ok{color:#6fcf97}.st-info{color:#7fb0ff}.st-warn{color:#ffb86b}.st-bad{color:#ff8a80}.st-mute{color:#b9a8cc}}
+
+/* statements (profit and loss, balance sheet) */
+.an .dt tr.stm-head td{background:color-mix(in srgb,var(--accent,#F28D3A) 12%,transparent);font-weight:800;border-top:1px solid color-mix(in srgb,var(--paper-line) 80%,transparent);padding-top:12px;padding-bottom:12px}
+.an .dt tr.stm-head td:nth-child(2){text-transform:uppercase;letter-spacing:.04em;font-size:.82rem}
+.an .dt tr.stm-line td:nth-child(2){padding-left:30px}
+.an .dt tr.stm-line td:first-child{color:var(--muted);font-size:.85rem}
+.an .dt tr.stm-total td{font-weight:800;font-size:1.02rem;border-top:2px solid var(--ink,#2a1a3a);border-bottom:2px solid var(--ink,#2a1a3a);background:color-mix(in srgb,var(--ok,#0F766E) 10%,transparent)}

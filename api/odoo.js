@@ -744,12 +744,12 @@ function build(tab, cfg, ctx) {
         section('pl', `Profit and loss statement (${ctx.monthLabel})`, 'table', async () => {
           const c = await calc(), pmLabel = 'Previous month (' + pmStart.slice(0, 7) + ')';
           const cols = [...lineCols.slice(0, 3), ...(sameAsPrev ? [] : [COL.money('prev', 'Previous period')]), COL.money('pm', pmLabel), { key: 'chg', label: 'Change vs previous month', fmt: 'pct' }, lineCols[3]];
-          const row = (code, name, now, prev, pm) => ({ code, name, amount: now, prev, pm, chg: pm ? ((now - pm) / Math.abs(pm)) * 100 : null, share: c.I.now ? pct(now, c.I.now) : null });
-          const withPrev = (list, f, f0, fm) => list.map((r) => row(r.code, r.name, f(r), f0(r), fm(r)));
-          const head = (name, t) => row('', name, t.now, t.prev, t.pm);
-          const rows = [head('INCOME', c.I), ...withPrev(c.inc, cr, cr0, crm), head('COST OF REVENUE', c.C), ...withPrev(c.cogs, db, db0, dbm), head('GROSS PROFIT', c.gross), head('EXPENSES', c.X), ...withPrev(c.exp, db, db0, dbm), head('NET PROFIT', c.net)];
+          const row = (style, code, name, now, prev, pm) => ({ style, code, name, amount: now, prev, pm, chg: pm ? ((now - pm) / Math.abs(pm)) * 100 : null, share: c.I.now ? pct(now, c.I.now) : null });
+          const lines = (list, f, f0, fm) => list.map((r) => row('line', r.code, r.name, f(r), f0(r), fm(r))).filter((r) => Math.abs(r.amount) >= 0.5 || Math.abs(r.prev) >= 0.5 || Math.abs(r.pm) >= 0.5).sort((x, y) => Math.abs(y.amount) - Math.abs(x.amount));
+          const head = (name, t) => row('head', '', name, t.now, t.prev, t.pm), total = (name, t) => row('total', '', name, t.now, t.prev, t.pm);
+          const rows = [head('Income', c.I), ...lines(c.inc, cr, cr0, crm), head('Cost of revenue', c.C), ...lines(c.cogs, db, db0, dbm), total('Gross profit', c.gross), head('Expenses', c.X), ...lines(c.exp, db, db0, dbm), total('Net profit', c.net)];
           return { columns: cols, rows, empty: 'No income or expense entries in this period.' };
-        }, 'Income and expense accounts only. Capitalised words are totals; the lines under them are the accounts that make them up.'),
+        }, 'Income and expense accounts only. Accounts with no amount in these periods are left out; the biggest come first.'),
       ];
     }
     // balance sheet as at the last day of the period
@@ -770,11 +770,13 @@ function build(tab, cfg, ctx) {
       }, 'Every posted entry up to and including the last day of the dates chosen.'),
       section('bs', `Balance sheet on ${e}`, 'table', async () => {
         const b = await asOf(), cols = [COL.str('code', 'Code'), COL.str('name', 'Account'), COL.money('amount', 'Amount')];
-        const ln = (l, f) => l.map((r) => ({ code: r.code, name: r.name, amount: f(r) }));
-        const rows = [{ code: '', name: 'ASSETS', amount: b.A }, ...ln(b.assets, (r) => r.cum),
-          { code: '', name: 'LIABILITIES', amount: b.L }, ...ln(b.liab, (r) => -r.cum),
-          { code: '', name: 'EQUITY', amount: b.E }, ...ln(b.eq, (r) => -r.cum), { code: '', name: 'Profit and loss to date', amount: b.profit },
-          ...(b.other.length ? [{ code: '', name: 'OTHER ACCOUNTS (type not recognised)', amount: -b.other.reduce((a, r) => a + r.cum, 0) }, ...ln(b.other, (r) => -r.cum)] : [])];
+        const ln = (l, f) => l.map((r) => ({ style: 'line', code: r.code, name: r.name, amount: f(r) })).filter((r) => Math.abs(r.amount) >= 0.5).sort((x, y) => Math.abs(y.amount) - Math.abs(x.amount));
+        const H = (name, amount) => ({ style: 'head', code: '', name, amount }), T = (name, amount) => ({ style: 'total', code: '', name, amount });
+        const rows = [H('Assets', b.A), ...ln(b.assets, (r) => r.cum), T('Total assets', b.A),
+          H('Liabilities', b.L), ...ln(b.liab, (r) => -r.cum), T('Total liabilities', b.L),
+          H('Equity', b.E), ...ln(b.eq, (r) => -r.cum), { style: 'line', code: '', name: 'Profit and loss to date', amount: b.profit }, T('Total equity', b.E),
+          T('Liabilities + equity', b.L + b.E),
+          ...(b.other.length ? [H('Other accounts (type not recognised)', -b.other.reduce((a, r) => a + r.cum, 0)), ...ln(b.other, (r) => -r.cum)] : [])];
         return { columns: cols, rows, empty: 'No posted entries found.' };
       }, 'Assets are shown as debit balances; liabilities and equity as credit balances. "Profit and loss to date" is all income less all expenses not yet closed into equity.'),
     ];
