@@ -2,7 +2,7 @@ import { neon } from '@neondatabase/serverless';
 import { SignJWT, jwtVerify } from 'jose';
 import bcrypt from 'bcryptjs';
 
-export const ROLES = ['super_admin', 'graphic_designer', 'media_buyer', 'content_creator', 'moderator', 'pr', 'ecommerce'];
+export const ROLES = ['super_admin', 'graphic_designer', 'media_buyer', 'content_creator', 'moderator', 'pr', 'ecommerce', 'ceo'];
 export const COOKIE = 'hub_session';
 const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
@@ -185,6 +185,13 @@ export async function requireUser(req) {
 export async function requireAdmin(req) {
   const u = await requireUser(req);
   if (u.role !== 'super_admin') throw new HttpError(403, 'Only the Super Admin can do that.');
+  return u;
+}
+
+/** The CEO can look at every analysis page but cannot change anything. */
+export async function requireViewer(req) {
+  const u = await requireUser(req);
+  if (u.role !== 'super_admin' && u.role !== 'ceo') throw new HttpError(403, 'You do not have access to that page.');
   return u;
 }
 

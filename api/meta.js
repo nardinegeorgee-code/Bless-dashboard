@@ -1,4 +1,4 @@
-import { route, allow, db, HttpError, requireAdmin } from './_lib.js';
+import { route, allow, db, HttpError, requireAdmin, requireViewer } from './_lib.js';
 import { ensureShopSchema } from './_shopify.js';
 import { parsePeriod, monthPeriod, startMs, endMs, dayList } from './_period.js';
 import { metaConfig, graph, graphAll, cached, clearMetaCache, audit, recentAudit, accountInfo, metrics, INSIGHT_FIELDS, ACCOUNT_STATUS, budgetOffset } from './_meta.js';
@@ -237,7 +237,7 @@ async function write(req, res, cfg, user) {
 
 export default route(async (req, res) => {
   allow(req, ['GET', 'POST']);
-  const user = await requireAdmin(req);
+  const user = req.method === 'POST' ? await requireAdmin(req) : await requireViewer(req);
   res.setHeader('Cache-Control', 'no-store');
   const cfg = metaConfig();
   if (req.method === 'POST') return write(req, res, cfg, user);

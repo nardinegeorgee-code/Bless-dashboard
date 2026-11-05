@@ -1,4 +1,4 @@
-import { route, allow, requireAdmin } from './_lib.js';
+import { route, allow, requireViewer } from './_lib.js';
 import { odooConfig, odooVersion, call, sr, nm, nid, fieldsOf, needModel } from './_odoo.js';
 import { parsePeriod, monthPeriod, dayList } from './_period.js';
 import { adSpend, profitTiles } from './_profit.js';
@@ -835,7 +835,7 @@ async function pool(tasks, size = 3) {
 
 export default route(async (req, res) => {
   allow(req, ['GET']);
-  await requireAdmin(req);
+  await requireViewer(req);
   res.setHeader('Cache-Control', 'no-store');
   const cfg = odooConfig();
   if (cfg.missing.length) return res.json({ configured: false, missing: cfg.missing });

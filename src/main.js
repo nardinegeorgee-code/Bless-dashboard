@@ -10,6 +10,7 @@ const ROLES=[
   {key:'moderator',label:'Moderator',tok:'--role-mo'},
   {key:'pr',label:'PR',tok:'--role-pr'},
   {key:'ecommerce',label:'E-Commerce',tok:'--role-ec'},
+  {key:'ceo',label:'CEO',tok:'--role-ceo'},
 ];
 const ROLE=Object.fromEntries(ROLES.map(r=>[r.key,r]));
 const TYPES={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml',mp4:'video/mp4',webm:'video/webm',pdf:'application/pdf',txt:'text/plain',csv:'text/csv',md:'text/markdown',json:'application/json'};
@@ -22,6 +23,7 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const rid=p=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 const isAdmin=()=>S.me&&S.me.role==='super_admin';
+const isCeo=()=>S.me&&S.me.role==='ceo';
 const roleChip=k=>{const r=ROLE[k]||{label:k,tok:'--muted'};return `<span class="chip" style="--rc:var(${r.tok})">${esc(r.label)}</span>`};
 const fmtDate=ms=>{if(!ms)return'';const d=new Date(ms);return d.toLocaleDateString(undefined,{month:'short',day:'numeric'})+', '+d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})};
 const fmtSize=b=>b<1024?b+' B':b<1048576?(b/1024).toFixed(0)+' KB':(b/1048576).toFixed(1)+' MB';
@@ -98,6 +100,7 @@ const validName=u=>u.length>=2&&u.length<=40;
 function navItems(){
   const nu=unreadNotes().length;
   if(isAdmin())return [['home','Overview'],['send','Send instruction'],['content','All content'],['eval','Evaluation'],['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads'],['team','Team by role'],['notes','Notifications',nu],['users','Users']];
+  if(isCeo())return [['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads']];
   const pending=myInstructions().filter(i=>!responded(i.id)).length;
   return [['home','Instructions',pending],['uploads','My uploads'],['notes','Notifications',nu],['team','Team by role']];
 }
@@ -126,7 +129,8 @@ function targetChips(ins){
 /* ---------- views: mount builds static parts (forms), update fills live parts ---------- */
 function mount(){
   const v=$('#view');const r=S.route;
-  if(!isAdmin()&&['send','content','users','shop','eval','odoo','meta'].includes(r)){S.route='home'}
+  if(isCeo()){if(!['shop','odoo','meta'].includes(S.route))S.route='shop'}
+  else if(!isAdmin()&&['send','content','users','shop','eval','odoo','meta'].includes(r)){S.route='home'}
   if(S.route==='home')v.innerHTML=isAdmin()?`<div id="live"></div>`
     :`<div class="head"><div><h1>Instructions</h1><p>Briefs from your Super Admin. Open one to send back your files.</p></div><button class="btn" data-act="go" data-route="uploads">Upload without an instruction</button></div><div id="live"></div>`;
   else if(S.route==='ins')v.innerHTML=`<button class="btn ghost back" data-act="go" data-route="${isAdmin()?'send':'home'}">← Back</button><div id="live"></div>${isAdmin()?'':`<div class="panel"><div><h2>Respond</h2><p class="muted">Attach your files and add a note if needed.</p></div>${uploadForm('resp')}</div>`}<div id="live2"></div>`;
@@ -137,7 +141,7 @@ function mount(){
     <form class="panel" data-form="send">
       <div class="field"><label for="in-t">Title</label><input class="input" id="in-t" maxlength="120" placeholder="Do the post for Friday's offer" required></div>
       <div class="field"><label for="in-b">Instructions</label><textarea class="textarea" id="in-b" placeholder="Sizes, copy, deadline, references…" required></textarea></div>
-      <div class="field"><label>Send to roles</label><div class="checks" id="in-roles">${ROLES.filter(r=>r.key!=='super_admin').map(r=>`<label class="check"><input type="checkbox" id="role-${r.key}" value="${r.key}" data-act="pick-role" ${S.sendRoles.has(r.key)?'checked':''}>${roleChip(r.key)}</label>`).join('')}</div></div>
+      <div class="field"><label>Send to roles</label><div class="checks" id="in-roles">${ROLES.filter(r=>r.key!=='super_admin'&&r.key!=='ceo').map(r=>`<label class="check"><input type="checkbox" id="role-${r.key}" value="${r.key}" data-act="pick-role" ${S.sendRoles.has(r.key)?'checked':''}>${roleChip(r.key)}</label>`).join('')}</div></div>
       <div class="field"><label>Or send to specific people</label><div id="in-people"></div></div>
       <div class="row" style="justify-content:space-between"><span class="muted" id="in-count"></span><button class="btn primary" type="submit">Send instruction</button></div>
       <div class="err" id="in-err"></div>
@@ -971,12 +975,12 @@ async function sheetSend(rows){
   catch(x){S.an.saving=false;toast(x.message||'Could not save the sheet');renderShop()}
 }
 function anSheet(sec){
-  const rows=sec.rows||[];
+  const rows=sec.rows||[],ro=!isAdmin();
   return `<div class="sheetbox">
   <p class="body-text" style="font-size:.9rem"><b>Returned to shipper</b>: the order is taken out of revenue and cost, and its shipping fee comes off profit. <b>Confirmed delivery</b>: the order stays and its shipping fee comes off profit. Column A = order number, column B = status, column E = shipping fee.</p>
-  <textarea id="sheet-text" class="input" rows="5" placeholder="Paste the sheet here (copy the cells from Excel or Google Sheets)" style="width:100%;font-family:var(--mono,monospace)"></textarea>
+  ${ro?'':`<textarea id="sheet-text" class="input" rows="5" placeholder="Paste the sheet here (copy the cells from Excel or Google Sheets)" style="width:100%;font-family:var(--mono,monospace)"></textarea>
   <div class="row" style="gap:10px;margin-top:8px;flex-wrap:wrap;align-items:center"><button class="btn primary" data-act="sheet-save" ${S.an.saving?'disabled':''}>${S.an.saving?'Saving…':'Add pasted sheet'}</button><label class="btn">Upload a file (.xlsx or .csv)<input id="sheet-file" type="file" accept=".xlsx,.csv,.tsv,.txt" hidden></label>${sec.total?`<button class="btn" data-act="sheet-clear">Clear the sheet</button>`:''}</div>
-  <p class="muted" style="font-size:.82rem;margin-top:8px">New uploads add to what is already saved. An order that appears again is updated.</p>
+  <p class="muted" style="font-size:.82rem;margin-top:8px">New uploads add to what is already saved. An order that appears again is updated.</p>`}
   ${sec.total?`<div class="repsum" style="margin:10px 0"><span>${fmtNum(sec.total)} orders in the sheet</span> · <span>${fmtNum(sec.delivered)} delivered</span> · <span>${fmtNum(sec.returned)} returned</span> · <span>${fmtNum(sec.other)} ignored</span> · <span>Fees counted ${money(sec.fees)}</span>${sec.unmatched?` · <b style="color:var(--warn)">${fmtNum(sec.unmatched)} not found in Shopify</b>`:''}</div>
   ${(sec.ignoredStatuses||[]).length?`<p class="muted" style="font-size:.82rem">Ignored statuses: ${sec.ignoredStatuses.map(x=>esc(x.status)+' ('+x.n+')').join(', ')}. Tell me if one of these should count.</p>`:''}<div class="tablewrap"><table class="dt"><thead><tr><th>Order</th><th>Date</th><th>Courier status</th><th>Result</th><th class="num">Shipping fee</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.no)}</td><td>${esc(r.date)}</td><td>${esc(r.status)}</td><td>${esc(r.result)}</td><td class="num">${esc(money(r.fee))}</td></tr>`).join('')}</tbody></table></div>${sec.more?`<p class="muted">Showing 300 of ${fmtNum(sec.total)}.</p>`:''}`:''}
   </div>`;

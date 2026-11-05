@@ -13,7 +13,7 @@ export default route(async (req, res) => {
   const title = String(req.body?.title ?? '').trim().slice(0, 120);
   const body = String(req.body?.body ?? '').trim().slice(0, 10000);
   const roles = [...new Set(Array.isArray(req.body?.roles) ? req.body.roles : [])]
-    .filter((r) => ROLES.includes(r) && r !== 'super_admin');
+    .filter((r) => ROLES.includes(r) && r !== 'super_admin' && r !== 'ceo');
   const userIds = [...new Set(Array.isArray(req.body?.userIds) ? req.body.userIds : [])]
     .map(String).slice(0, 500);
   if (!title || !body) throw new HttpError(400, 'Add a title and the instructions.');

@@ -1,4 +1,4 @@
-import { route, allow, db, requireAdmin } from './_lib.js';
+import { route, allow, db, requireAdmin, requireViewer } from './_lib.js';
 import { ensureShopSchema, shopConfig, getState, shopifyql } from './_shopify.js';
 import { parsePeriod, monthPeriod, startMs, endMs } from './_period.js';
 
@@ -28,7 +28,7 @@ const top = (map, n, by) => [...map.values()].sort((a, b) => b[by] - a[by]).slic
 
 export default route(async (req, res) => {
   allow(req, ['GET']);
-  await requireAdmin(req);
+  await requireViewer(req);
   res.setHeader('Cache-Control', 'no-store');
   const cfg = shopConfig();
   if (cfg.missing.length) return res.json({ configured: false, missing: cfg.missing });

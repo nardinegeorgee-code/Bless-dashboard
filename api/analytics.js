@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { route, allow, db, HttpError, requireAdmin } from './_lib.js';
+import { route, allow, db, HttpError, requireAdmin, requireViewer } from './_lib.js';
 import { ensureShopSchema, shopConfig, shopifyql, fetchProducts, fetchProductImages, fetchVariantCodes, gql, resetToken } from './_shopify.js';
 import { parsePeriod, monthPeriod, dayList } from './_period.js';
 import { odooConfig, sr as odooSearch } from './_odoo.js';
@@ -670,7 +670,7 @@ async function buildRetention(ctx, keyOf, cfg) {
 /* ---------- route ---------- */
 export default route(async (req, res) => {
   allow(req, ['GET', 'POST']);
-  await requireAdmin(req);
+  if (req.method === 'POST') await requireAdmin(req); else await requireViewer(req);
   res.setHeader('Cache-Control', 'no-store');
   const cfg = shopConfig();
   if (cfg.missing.length) return res.json({ configured: false, missing: cfg.missing });
