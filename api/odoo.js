@@ -5,7 +5,7 @@ import { adSpend, profitTiles } from './_profit.js';
 
 const TZ = process.env.DASHBOARD_TZ || 'Africa/Cairo';
 
-const TABS = ['suppliers', 'raw', 'packaging', 'finished', 'inventory', 'sales', 'distributors', 'people', 'profit', 'in', 'out', 'hr'];
+const TABS = ['suppliers', 'raw', 'packaging', 'finished', 'inventory', 'sales', 'distributors', 'people', 'profit', 'in', 'out', 'trial', 'hr'];
 const pad = (n) => String(n).padStart(2, '0');
 const n0 = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const pct = (a, b) => (b ? (a / b) * 100 : 0);
@@ -632,6 +632,64 @@ function build(tab, cfg, ctx) {
     if (r.metrics && keys) { out.metrics = r.metrics.filter((m) => keys.includes(m.key)); out.monthBars = { keys, base: keys[0] }; }
     return out;
   };
+  /* ---------- Finance: trial balance, from the posted journal items ---------- */
+  if (tab === 'trial') {
+    const base = [['parent_state', '=', 'posted']];
+    const groups = async (extra) => {
+      await needModel(cfg, 'account.move.line', 'Accounting');
+      const r = await call(cfg, 'account.move.line', 'read_group', [[...base, ...extra], ['debit:sum', 'credit:sum'], ['account_id']], { lazy: false, context: { lang: 'en_US' } });
+      const m = new Map();
+      for (const g of r || []) { const id = nid(g.account_id); if (id) m.set(id, { id, label: nm(g.account_id), debit: n0(g.debit), credit: n0(g.credit) }); }
+      return m;
+    };
+    const yearStart = s.slice(0, 4) + '-01-01';
+    const data = () => once('trial', async () => {
+      const [before, yearBefore, period] = await Promise.all([groups([['date', '<', s]]), groups([['date', '>=', yearStart], ['date', '<', s]]), groups([['date', '>=', s], ['date', '<=', e]])]);
+      let info = new Map();
+      try {
+        const have = await fieldsOf(cfg, 'account.account');
+        const tf = have && have.has('account_type') ? 'account_type' : 'user_type_id';
+        const list = await sr(cfg, 'account.account', [], ['code', 'name', tf], { app: 'Accounting', limit: 8000 });
+        info = new Map(list.map((a) => [a.id, { code: String(a.code || ''), name: a.name || '', type: Array.isArray(a[tf]) ? a[tf][1] : String(a[tf] || '') }]));
+      } catch (err) { /* codes are then read from the account's display name */ }
+      const isPL = (t) => /income|expense|revenue|cost_of_revenue|depreciation/i.test(t);
+      const ids = new Set([...before.keys(), ...period.keys()]);
+      const rows = [...ids].map((id) => {
+        const f = before.get(id) || period.get(id), a = info.get(id);
+        let code = a ? a.code : '', name = a ? a.name : f.label;
+        if (!a) { const mm = /^(\S+)\s+(.*)$/.exec(f.label); if (mm && /\d/.test(mm[1])) { code = mm[1]; name = mm[2]; } }
+        const type = a ? a.type : '';
+        const op = isPL(type) ? yearBefore.get(id) : before.get(id), mv = period.get(id) || { debit: 0, credit: 0 };
+        const opening = op ? op.debit - op.credit : 0;
+        return { code, name, type: type || 'Other', opening, debit: mv.debit, credit: mv.credit, closing: opening + mv.debit - mv.credit };
+      }).filter((r) => Math.abs(r.opening) > 0.004 || r.debit || r.credit).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }) || a.name.localeCompare(b.name));
+      return rows;
+    });
+    return [
+      section('kpi', `Trial balance (${ctx.monthLabel})`, 'kpi', async () => {
+        const rows = await data(), d = sum(rows, 'debit'), c = sum(rows, 'credit');
+        const cols = [COL.str('code', 'Code'), COL.str('name', 'Account'), COL.money('opening', 'Opening'), COL.money('debit', 'Debit'), COL.money('credit', 'Credit'), COL.money('closing', 'Closing')];
+        const moved = rows.filter((r) => r.debit || r.credit);
+        return { tiles: [
+          tile('Total debit', d, 'money', { sub: 'all posted entries in the period', breakdown: bd([{ l: 'Accounts', v: moved.length, f: 'int' }], cols, moved.slice().sort((a, b) => b.debit - a.debit).filter((r) => r.debit).map((r) => ({ ...r })))}),
+          tile('Total credit', c, 'money', { sub: 'all posted entries in the period', breakdown: bd([{ l: 'Accounts', v: moved.length, f: 'int' }], cols, moved.slice().sort((a, b) => b.credit - a.credit).filter((r) => r.credit).map((r) => ({ ...r })))}),
+          tile('Difference', d - c, 'money', { goodDown: true, sub: Math.abs(d - c) < 0.5 ? 'debit equals credit, the books balance' : 'debit and credit do not match, check the entries' }),
+          tile('Accounts with movement', moved.length, 'int', { sub: rows.length + ' accounts with a balance or movement' }),
+        ] };
+      }, 'Read from the posted journal items in Odoo Accounting. Debit and credit are the totals for the dates chosen.'),
+      section('types', 'Balance by type of account', 'table', async () => {
+        const rows = await data(), m = new Map();
+        for (const r of rows) { const g = m.get(r.type) || { name: r.type, debit: 0, credit: 0, closing: 0, n: 0 }; g.debit += r.debit; g.credit += r.credit; g.closing += r.closing; g.n++; m.set(r.type, g); }
+        return { columns: [COL.name('Type'), { key: 'debit', label: 'Debit', fmt: 'money', bar: true }, COL.money('credit', 'Credit'), COL.money('closing', 'Closing balance'), COL.int('n', 'Accounts')], rows: [...m.values()].sort((a, b) => b.debit - a.debit) };
+      }, 'A positive closing balance is a debit balance; a negative one is a credit balance.'),
+      section('tb', `Trial balance by account (${ctx.monthLabel})`, 'table', async () => {
+        const rows = await data();
+        return { columns: [COL.str('code', 'Code'), COL.str('name', 'Account'), COL.money('opening', 'Opening balance'), COL.money('debit', 'Debit'), COL.money('credit', 'Credit'), COL.money('closing', 'Closing balance')],
+          rows: rows.slice(0, 1500), empty: 'No posted entries found.' };
+      }, 'Opening is everything before the start date; for income and expense accounts it starts on 1 January of that year. Positive = debit balance, negative = credit balance.'),
+    ];
+  }
+
   if (tab === 'in' || tab === 'out') {
     const [kpi, trend, aging, bills, expenses] = accounting();
     if (tab === 'in') return [

@@ -1012,7 +1012,7 @@ function odHeroSpec(tab,secs){
   return {label:main,value:fv(m.value,m.fmt),chip:m.prev!==undefined&&m.prev?chip(Math.round((m.value-m.prev)/m.prev*1000)/10,m.goodDown):'',minis,spark:rows?rows.map(r=>r.values[key]):null,sel:rows?rows.findIndex(r=>r.key===perMonthSel()):-1,rows};
 }
 function odooHero(d){
-  const sp=odHeroSpec(d.tab,d.sections),info={suppliers:'Who you buy from and what you owe',raw:'Raw materials: stock and buying',packaging:'Packaging: stock and buying',finished:'Finished goods: stock and sales',inventory:'All stock, by type',sales:'Orders and invoices',distributors:'Your distributors and what they owe',people:'Sales per salesperson',profit:'Revenue, product cost and ad spend',in:'Invoices and what customers owe',out:'Bills and what you owe',hr:'People and attendance'}[d.tab];
+  const sp=odHeroSpec(d.tab,d.sections),info={suppliers:'Who you buy from and what you owe',raw:'Raw materials: stock and buying',packaging:'Packaging: stock and buying',finished:'Finished goods: stock and sales',inventory:'All stock, by type',sales:'Orders and invoices',distributors:'Your distributors and what they owe',people:'Sales per salesperson',profit:'Revenue, product cost and ad spend',in:'Invoices and what customers owe',out:'Bills and what you owe',trial:'Debit and credit by account',hr:'People and attendance'}[d.tab];
   const rows=sp.rows||(()=>{const t=d.sections.find(x=>x.id==='trend'&&!x.error);return t?t.rows:null})();
   return `<section class="hero"><div class="hero-top"><div><span class="eyebrow">Odoo${d.company?' · '+esc(d.company):''} · ${esc(d.monthLabel)}</span>${sp.value?`<div class="hero-n${sp.small?' sm':''}">${sp.value}</div><div><span class="hero-vs">${esc(sp.label)}</span> ${sp.chip||''}</div>`:`<div class="hero-n sm">${esc(info)}</div>`}${d.version?`<div><span class="hero-vs">Odoo ${esc(d.version)}</span></div>`:''}</div>
     <div style="display:grid;gap:10px;justify-items:end"><div class="hero-actions"><button class="btn light" data-act="od-refresh" ${S.od.loading?'disabled':''}>${S.od.loading?'Loading…':'Refresh numbers'}</button></div>
@@ -1045,7 +1045,7 @@ function anReps(sec){
   return `${sec.source?`<p class="muted" style="font-size:.85rem">${esc(sec.source)}</p>`:''}<h3 class="sub">Everyone</h3>${team}<h3 class="sub" style="margin-top:22px">Each salesperson</h3><p class="muted" style="font-size:.85rem">Click any line to see the detail behind it.</p>${sec.people.map(one).join('')}`;
 }
 /* ---------- Odoo ---------- */
-const OD_GROUPS=[['supply','Supply',[['suppliers','Suppliers'],['raw','Raw materials'],['packaging','Packaging'],['finished','Finished goods'],['inventory','All stock']]],['sales','Sales',[['sales','Sales'],['distributors','Distributors'],['people','Salespeople']]],['finance','Finance',[['profit','Cost & profit'],['in','Money in'],['out','Money out']]],['team','Team',[['hr','Employees']]]];
+const OD_GROUPS=[['supply','Supply',[['suppliers','Suppliers'],['raw','Raw materials'],['packaging','Packaging'],['finished','Finished goods'],['inventory','All stock']]],['sales','Sales',[['sales','Sales'],['distributors','Distributors'],['people','Salespeople']]],['finance','Finance',[['profit','Cost & profit'],['in','Money in'],['out','Money out'],['trial','Trial balance']]],['team','Team',[['hr','Employees']]]];
 const odGroup=t=>OD_GROUPS.find(g=>g[2].some(x=>x[0]===t))||OD_GROUPS[0];
 S.od={tab:'suppliers',month:'',cache:{},loading:false,err:'',data:null};
 async function loadOdoo(_m,refresh){
