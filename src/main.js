@@ -1,5 +1,5 @@
 import { upload } from '@vercel/blob/client';
-import { zipSync } from 'fflate';
+import { zipSync, unzipSync, strFromU8 } from 'fflate';
 import './style.css';
 
 const ROLES=[
@@ -936,12 +936,57 @@ function anManual(sec){
   <div class="row" style="gap:10px;grid-column:1/-1"><button class="btn primary" type="submit" ${S.an.saving?'disabled':''}>${S.an.saving?'Saving…':'Save for '+esc(sec.monthText||'this month')}</button><span class="muted" style="font-size:.8rem">Leave a box empty if you do not track it.</span></div></form>
   ${sec.history.length?`<h3 class="sub">Previous months</h3><div class="tablewrap"><table class="dt"><thead><tr><th>Month</th>${sec.fields.map(f=>`<th class="num">${esc(f.label.replace(/\s*\(.*\)/,''))}</th>`).join('')}</tr></thead><tbody>${sec.history.map(h=>`<tr><td>${esc(h.label)}</td>${sec.fields.map(f=>`<td class="num mono">${h.values[f.key]??'–'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:''}`;
 }
+
+/* ---- courier sheet (profit tab) ---- */
+function parseDelim(text){
+  const first=(text.split(/\r?\n/).find(l=>l.trim())||'');const d=first.includes('\t')?'\t':(first.split(';').length>first.split(',').length?';':',');
+  const rows=[];let row=[],cur='',q=false;
+  for(let i=0;i<text.length;i++){const c=text[i];
+    if(q){if(c==='"'){if(text[i+1]==='"'){cur+='"';i++}else q=false}else cur+=c}
+    else if(c==='"')q=true;else if(c===d){row.push(cur);cur=''}else if(c==='\n'||c==='\r'){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cur);cur='';rows.push(row);row=[]}else cur+=c}
+  if(cur||row.length){row.push(cur);rows.push(row)}
+  return rows;
+}
+function colIdx(ref){let n=0;for(const ch of ref.replace(/[0-9]/g,''))n=n*26+ch.charCodeAt(0)-64;return n-1}
+function parseXlsx(buf){
+  const z=unzipSync(new Uint8Array(buf)),dom=t=>new DOMParser().parseFromString(t,'application/xml');
+  const names=Object.keys(z),sheetName=names.filter(n=>/^xl\/worksheets\/sheet\d+\.xml$/.test(n)).sort()[0];
+  if(!sheetName)throw new Error('Could not read that Excel file.');
+  const shared=z['xl/sharedStrings.xml']?[...dom(strFromU8(z['xl/sharedStrings.xml'])).getElementsByTagName('si')].map(si=>[...si.getElementsByTagName('t')].map(t=>t.textContent).join('')):[];
+  const out=[];
+  for(const r of dom(strFromU8(z[sheetName])).getElementsByTagName('row')){
+    const row=[];
+    for(const c of r.getElementsByTagName('c')){
+      const i=colIdx(c.getAttribute('r')||'A1'),t=c.getAttribute('t'),v=c.getElementsByTagName('v')[0],is=c.getElementsByTagName('is')[0];
+      row[i]=t==='s'&&v?(shared[+v.textContent]||''):t==='inlineStr'&&is?[...is.getElementsByTagName('t')].map(x=>x.textContent).join(''):v?v.textContent:'';
+    }
+    for(let k=0;k<row.length;k++)if(row[k]===undefined)row[k]='';
+    out.push(row);
+  }
+  return out;
+}
+async function sheetSend(rows){
+  S.an.saving=true;renderShop();
+  try{const r=await api('POST','/api/analytics',{action:'sheet',rows});Object.keys(S.an.cache).forEach(k=>{if(k.startsWith('profit|'))delete S.an.cache[k]});S.an.saving=false;toast('Saved '+r.saved+' orders from the sheet');await loadAn(true)}
+  catch(x){S.an.saving=false;toast(x.message||'Could not save the sheet');renderShop()}
+}
+function anSheet(sec){
+  const rows=sec.rows||[];
+  return `<div class="sheetbox">
+  <p class="body-text" style="font-size:.9rem"><b>Returned to shipper</b>: the order is taken out of revenue and cost, and its shipping fee comes off profit. <b>Confirmed delivery</b>: the order stays and its shipping fee comes off profit. Column A = order number, column B = status, column E = shipping fee.</p>
+  <textarea id="sheet-text" class="input" rows="5" placeholder="Paste the sheet here (copy the cells from Excel or Google Sheets)" style="width:100%;font-family:var(--mono,monospace)"></textarea>
+  <div class="row" style="gap:10px;margin-top:8px;flex-wrap:wrap;align-items:center"><button class="btn primary" data-act="sheet-save" ${S.an.saving?'disabled':''}>${S.an.saving?'Saving…':'Add pasted sheet'}</button><label class="btn">Upload a file (.xlsx or .csv)<input id="sheet-file" type="file" accept=".xlsx,.csv,.tsv,.txt" hidden></label>${sec.total?`<button class="btn" data-act="sheet-clear">Clear the sheet</button>`:''}</div>
+  <p class="muted" style="font-size:.82rem;margin-top:8px">New uploads add to what is already saved. An order that appears again is updated.</p>
+  ${sec.total?`<div class="repsum" style="margin:10px 0"><span>${fmtNum(sec.total)} orders in the sheet</span> · <span>${fmtNum(sec.delivered)} delivered</span> · <span>${fmtNum(sec.returned)} returned</span> · <span>${fmtNum(sec.other)} ignored</span> · <span>Fees counted ${money(sec.fees)}</span>${sec.unmatched?` · <b style="color:var(--warn)">${fmtNum(sec.unmatched)} not found in Shopify</b>`:''}</div>
+  <div class="tablewrap"><table class="dt"><thead><tr><th>Order</th><th>Date</th><th>Courier status</th><th>Result</th><th class="num">Shipping fee</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.no)}</td><td>${esc(r.date)}</td><td>${esc(r.status)}</td><td>${esc(r.result)}</td><td class="num">${esc(money(r.fee))}</td></tr>`).join('')}</tbody></table></div>${sec.more?`<p class="muted">Showing 300 of ${fmtNum(sec.total)}.</p>`:''}`:''}
+  </div>`;
+}
 function anSection(sec){
   const head=`<div><h2>${esc(sec.title)}</h2>${sec.note?`<p class="muted" style="font-size:.85rem">${esc(sec.note)}</p>`:''}</div>`;
   if(sec.error)return `<section class="panel an" style="border-color:var(--warn)">${head}<p class="body-text"><b style="color:var(--warn)">This part could not be loaded.</b> ${esc(sec.error)}</p></section>`;
   let body='';
   try{
-    body=sec.kind==='kpi'?anKpi(sec):sec.kind==='funnel'?anFunnel(sec):sec.kind==='trend'?trendMonthChart(sec)+anTrend(sec):sec.kind==='table'?(sec.id==='months'?monthsChart(sec):'')+anTable(sec):sec.kind==='reps'?anReps(sec):sec.kind==='cohort'?anCohort(sec):sec.kind==='audit'?anAudit(sec):sec.kind==='campaigns'?metaCampaigns(sec):sec.kind==='manual'?anManual(sec):sec.kind==='text'?`<ul class="gaps">${sec.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>`:'';
+    body=sec.kind==='kpi'?anKpi(sec):sec.kind==='funnel'?anFunnel(sec):sec.kind==='trend'?trendMonthChart(sec)+anTrend(sec):sec.kind==='table'?(sec.id==='months'?monthsChart(sec):'')+anTable(sec):sec.kind==='reps'?anReps(sec):sec.kind==='cohort'?anCohort(sec):sec.kind==='audit'?anAudit(sec):sec.kind==='campaigns'?metaCampaigns(sec):sec.kind==='manual'?anManual(sec):sec.kind==='sheet'?anSheet(sec):sec.kind==='text'?`<ul class="gaps">${sec.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>`:'';
   }catch(e){body=`<p class="muted">Could not show this part (${esc(e.message)}).</p>`}
   return `<section class="panel an${sec.kind==='text'?' soft':''}">${head}${body}</section>`;
 }
@@ -1140,6 +1185,8 @@ document.addEventListener('click',async e=>{
   else if(a==='meta-toggle'){if(S.meta.busy||!arm(b))return;await metaWrite({action:'status',id:b.dataset.id,status:b.dataset.to},b.dataset.to==='PAUSED'?'Campaign paused':'Campaign resumed')}
   else if(a==='meta-budget'){if(S.meta.busy)return;const i=document.querySelector('.mbud[data-id="'+b.dataset.id+'"]');if(!i||!(Number(i.value)>0)){toast('Enter a daily budget above zero');return}if(!arm(b))return;await metaWrite({action:'budget',id:b.dataset.id,amount:Number(i.value)},'Daily budget saved')}
   else if(a==='ov-seg'){S.shop[b.dataset.k]=b.dataset.v;const y=window.scrollY;renderShop();window.scrollTo(0,y)}
+  else if(a==='sheet-save'){const t=(document.getElementById('sheet-text')||{}).value||'';if(!t.trim()){toast('Paste the sheet first');return}sheetSend(parseDelim(t))}
+  else if(a==='sheet-clear'){if(!confirm('Remove the saved courier sheet? Profit will go back to the Shopify figures.'))return;api('POST','/api/analytics',{action:'sheet',clear:true}).then(()=>{Object.keys(S.an.cache).forEach(k=>{if(k.startsWith('profit|'))delete S.an.cache[k]});loadAn(true)}).catch(x=>toast(x.message))}
   else if(a==='an-tab'){S.an.tab=b.dataset.tab;S.an.err='';if(S.an.tab==='overview'){if(!S.shop.data)loadShop();else renderShop()}else loadAn()}
   else if(a==='an-refresh')loadAn(true);
   else if(a==='sel-file'){b.checked?S.sel.add(b.dataset.url):S.sel.delete(b.dataset.url);syncChecks()}
@@ -1170,6 +1217,7 @@ document.addEventListener('keydown',e=>{
 });
 document.addEventListener('change',async e=>{
   const t=e.target;
+  if(t.id==='sheet-file'&&t.files&&t.files[0]){const f=t.files[0];try{const rows=/\.xlsx$/i.test(f.name)?parseXlsx(await f.arrayBuffer()):parseDelim(await f.text());t.value='';sheetSend(rows)}catch(x){toast(x.message||'Could not read that file')}return}
   if(t.matches('input[type=file]')){addFiles(t.dataset.kind,[...t.files]);t.value=''}
   else if(t.id==='mc-m'||t.id==='mc-y'){if(t.id==='mc-m')S.mc.key=t.value;else{const k=S.mc.keys.filter(k=>k.startsWith(t.value)).sort();const cur=(S.mc.key||perMonthSel()||'').slice(5);S.mc.key=k.find(x=>x.slice(5)===cur)||k[k.length-1]||S.mc.key}S.route==='odoo'?renderOdoo():renderShop()}
   else if(t.id&&t.id.startsWith('per-')){if((t.id==='per-q'||t.id==='per-y')&&S.per.mode==='quarter'){const q=+(document.getElementById('per-q').value),y=+(document.getElementById('per-y').value);if(!perQuarter(y,q)){toast('That quarter has not started yet');perRender();return}perReload()}else perChange(t)}

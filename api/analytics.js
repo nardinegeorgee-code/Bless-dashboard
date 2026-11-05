@@ -5,6 +5,7 @@ import { parsePeriod, monthPeriod, dayList } from './_period.js';
 import { odooConfig, sr as odooSearch } from './_odoo.js';
 import { adSpend } from './_profit.js';
 import { buildDelivery } from './_delivery.js';
+import { saveSheet, clearSheet, loadSheet } from './_sheet.js';
 
 const DAY = 86400000;
 const TABS = ['sales', 'profit', 'funnel', 'products', 'experience', 'retention', 'delivery', 'undelivered'];
@@ -148,7 +149,7 @@ function buildShopifyTabs(tab, ctx, run) {
     const book = () => (odooMemo ||= odooCosts());
     const GROUP = 'product_title, product_variant_title, product_variant_sku';
     // Revenue, cost of goods and how much of the revenue had a known cost, for any dates.
-    const figures = async (a, b) => {
+    const figures0 = async (a, b) => {
       const bk = await book();
       const tot = (await run(`FROM sales SHOW net_sales, gross_profit SINCE ${a} UNTIL ${b}`)).rows[0] || {};
       const rev = n0(tot.net_sales);
@@ -159,11 +160,17 @@ function buildShopifyTabs(tab, ctx, run) {
       for (const l of lines) { all += l.rev; if (l.cost !== null) { cost += l.cost; known += l.rev; } }
       return { rev, cost, cover: all ? (known / all) * 100 : null, lines };
     };
+    let sheetMemo;
+    const sheet = async () => (sheetMemo ||= (async () => { const bk = await book(); return loadSheet(shopConfigCacheRef().tz, bk.unit || null); })().catch(() => ({ list: [], range: () => ({ fee: 0, rev: 0, cost: 0, returned: 0, delivered: 0, list: [] }), byMonth: () => new Map() })));
+    const figures = async (a, b) => {
+      const c = await figures0(a, b), x = (await sheet()).range(a, b);
+      return { ...c, rev: c.rev - x.rev, cost: Math.max(0, c.cost - x.cost), ship: x.fee, retRev: x.rev, ret: x.returned, deliv: x.delivered, shipList: x.list };
+    };
     const sourceNote = async () => { const bk = await book(); return bk.off || 'Product cost is the Cost field of the matching product in Odoo (matched by SKU, then barcode, then name). Products with no Odoo cost set are not counted.'; };
     return [
       section('kpi', `Profit after ads (${monthLabel})`, 'kpi', async () => {
         const [c, p, a, bk] = await Promise.all([figures(s, e), figures(ps, pe), ads(), book()]);
-        const gp = c.rev - c.cost, gp0 = p.rev - p.cost;
+        const gp = c.rev - c.cost, gp0 = p.rev - p.cost, sh = c.ship || 0, sh0 = p.ship || 0, hasSheet = (await sheet()).list.length > 0;
         const dz = await dailyFn(run, ctx, 'sales', 'net_sales');
         const L = c.lines, LIMIT = 60, skuKey = (l) => l.sku || l.name;
         const nProducts = new Set(L.map((l) => l.title)).size, nSkus = new Set(L.map(skuKey)).size, nUnits = L.reduce((x, l) => x + l.units, 0);
@@ -189,18 +196,25 @@ function buildShopifyTabs(tab, ctx, run) {
           { label: 'Product cost', value: c.cost, prev: p.cost, fmt: 'money', goodDown: true, breakdown: bCost, sub: (c.rev ? pct(c.cost, c.rev) : 0).toFixed(1) + '% of revenue' },
           { label: 'Gross profit', value: gp, prev: gp0, fmt: 'money', breakdown: bProfit, sub: (c.rev ? pct(gp, c.rev) : 0).toFixed(1) + '% margin' },
         ];
+        if (hasSheet) {
+          const bShip = { summary: [{ l: 'Delivered orders', v: c.deliv, f: 'int' }, { l: 'Returned orders', v: c.ret, f: 'int' }, { l: 'Returned orders removed from revenue', v: c.retRev, f: 'money' }],
+            columns: [{ key: 'no', label: 'Order', fmt: 'str' }, { key: 'date', label: 'Date', fmt: 'str' }, { key: 'status', label: 'Courier status', fmt: 'str' }, { key: 'fee', label: 'Shipping fee', fmt: 'money' }],
+            rows: c.shipList.map((x) => ({ no: x.label, date: x.date, status: x.status, fee: x.fee })).slice(0, 600), more: 0, note: 'From the courier sheet. Returned orders are also taken out of revenue and product cost.' };
+          tiles.push({ label: 'Delivery fees', value: sh, prev: sh0, fmt: 'money', goodDown: true, breakdown: bShip, sub: c.deliv + ' delivered, ' + c.ret + ' returned' });
+        }
         if (c.cover !== null) tiles.push({ label: 'Revenue with a known cost', value: c.cover, prev: p.cover === null ? undefined : p.cover, fmt: 'pct', breakdown: bCover, sub: 'sales of products found in Odoo with a cost' });
         if (a.sum) {
           const [s1, s0] = await Promise.all([a.sum(s, e), a.sum(ps, pe)]);
           const camps = await a.byCampaign(s, e).catch(() => []);
           const bAds = { summary: [{ l: 'Campaigns with spend', v: camps.length, f: 'int' }, { l: 'Share of revenue', v: c.rev ? pct(s1, c.rev) : 0, f: 'pct' }], columns: [{ key: 'name', label: 'Campaign', fmt: 'str' }, { key: 'spend', label: 'Spent', fmt: 'money' }, { key: 'share', label: 'Share of spend', fmt: 'pct' }], ...cut(camps.map((x) => ({ name: x.name, spend: x.spend, share: s1 ? pct(x.spend, s1) : null }))) };
-          const bNet = { summary: [{ l: 'Profit after ads', v: gp - s1, f: 'money' }, { l: 'Of revenue', v: c.rev ? pct(gp - s1, c.rev) : 0, f: 'pct' }], columns: [{ key: 'step', label: 'Step', fmt: 'str' }, { key: 'amount', label: 'Amount', fmt: 'money' }, { key: 'share', label: 'Of revenue', fmt: 'pct' }],
-            rows: [{ step: 'Net revenue', amount: c.rev, share: 100 }, { step: 'Product cost', amount: -c.cost, share: c.rev ? -pct(c.cost, c.rev) : null }, { step: 'Gross profit', amount: gp, share: c.rev ? pct(gp, c.rev) : null }, { step: 'Ad spend (Meta)', amount: -s1, share: c.rev ? -pct(s1, c.rev) : null }, { step: 'Profit after ads', amount: gp - s1, share: c.rev ? pct(gp - s1, c.rev) : null }], more: 0 };
+          const bNet = { summary: [{ l: 'Profit after ads', v: gp - sh - s1, f: 'money' }, { l: 'Of revenue', v: c.rev ? pct(gp - sh - s1, c.rev) : 0, f: 'pct' }], columns: [{ key: 'step', label: 'Step', fmt: 'str' }, { key: 'amount', label: 'Amount', fmt: 'money' }, { key: 'share', label: 'Of revenue', fmt: 'pct' }],
+            rows: [{ step: 'Net revenue', amount: c.rev, share: 100 }, { step: 'Product cost', amount: -c.cost, share: c.rev ? -pct(c.cost, c.rev) : null }, { step: 'Gross profit', amount: gp, share: c.rev ? pct(gp, c.rev) : null }, ...(hasSheet ? [{ step: 'Delivery fees (courier sheet)', amount: -sh, share: c.rev ? -pct(sh, c.rev) : null }] : []), { step: 'Ad spend (Meta)', amount: -s1, share: c.rev ? -pct(s1, c.rev) : null }, { step: 'Profit after ads', amount: gp - sh - s1, share: c.rev ? pct(gp - sh - s1, c.rev) : null }], more: 0 };
           tiles.push({ label: 'Ad spend (Meta)', value: s1, prev: s0, fmt: 'money', goodDown: true, breakdown: bAds, sub: (c.rev ? pct(s1, c.rev) : 0).toFixed(1) + '% of revenue' });
-          tiles.push({ label: 'Profit after ads', value: gp - s1, prev: gp0 - s0, fmt: 'money', breakdown: bNet, sub: (c.rev ? pct(gp - s1, c.rev) : 0).toFixed(1) + '% of revenue' });
+          tiles.push({ label: 'Profit after ads', value: gp - sh - s1, prev: gp0 - sh0 - s0, fmt: 'money', breakdown: bNet, sub: (c.rev ? pct(gp - sh - s1, c.rev) : 0).toFixed(1) + '% of revenue' });
           tiles.push({ label: 'Revenue per 1 spent on ads', value: s1 ? c.rev / s1 : 0, prev: s0 ? p.rev / s0 : 0, fmt: 'x', sub: 'net revenue ÷ ad spend, all sales' });
         }
-        return { tiles, note: [await sourceNote(), a.off].filter(Boolean).join(' ') };
+        if (hasSheet && !a.sum) tiles.push({ label: 'Profit after delivery', value: gp - sh, prev: gp0 - sh0, fmt: 'money', sub: (c.rev ? pct(gp - sh, c.rev) : 0).toFixed(1) + '% of revenue' });
+        return { tiles, note: [await sourceNote(), a.off, hasSheet ? 'Revenue and cost leave out orders the courier sheet marks as returned to shipper, and profit has the sheet\'s shipping fees deducted.' : ''].filter(Boolean).join(' ') };
       }),
       section('trend', 'Month by month', 'trend', async () => {
         const { rows, hasAds } = await monthRows();
@@ -210,9 +224,16 @@ function buildShopifyTabs(tab, ctx, run) {
       section('months', 'The numbers, month by month', 'table', async () => {
         const { rows, hasAds } = await monthRows();
         const cols = [{ key: 'month', label: 'Month', fmt: 'str' }, { key: 'revenue', label: 'Net revenue', fmt: 'money' }, { key: 'cost', label: 'Product cost', fmt: 'money' }, { key: 'gross', label: 'Gross profit', fmt: 'money' }];
+        if (rows.some((x) => x.ship)) cols.push({ key: 'ship', label: 'Delivery fees', fmt: 'money' });
         if (hasAds) cols.push({ key: 'ads', label: 'Ad spend', fmt: 'money' }, { key: 'profit', label: 'Profit after ads', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' });
-        return { columns: cols, rows: rows.slice().reverse().map((x) => ({ key: x.key, month: x.label, revenue: x.revenue, cost: x.cost, gross: x.gross, ads: x.ads, profit: x.profit, margin: x.revenue ? pct(x.profit, x.revenue) : null })), empty: 'No sales in these months.' };
+        return { columns: cols, rows: rows.slice().reverse().map((x) => ({ key: x.key, month: x.label, revenue: x.revenue, cost: x.cost, gross: x.gross, ship: x.ship, ads: x.ads, profit: x.profit, margin: x.revenue ? pct(x.profit, x.revenue) : null })), empty: 'No sales in these months.' };
       }),
+      section('sheet', 'Courier sheet', 'sheet', async () => {
+        const sh = await sheet();
+        const L = sh.list, cnt = (k) => L.filter((x) => x.kind === k).length;
+        return { total: L.length, returned: cnt('returned'), delivered: cnt('delivered'), other: cnt('other'), unmatched: L.filter((x) => !x.matched).length, fees: L.filter((x) => x.kind !== 'other' && x.matched).reduce((a, x) => a + x.fee, 0),
+          rows: L.slice(0, 300).map((x) => ({ no: x.label, status: x.status || '–', result: x.kind === 'returned' ? 'Returned: order removed, fee deducted' : x.kind === 'delivered' ? 'Delivered: fee deducted' : 'Ignored', fee: x.fee, date: x.date || 'Order not found' })), more: Math.max(0, L.length - 300) };
+      }, 'Paste or upload the sheet from your courier. Column A is the order number, column B the status, column E the shipping fee.'),
       section('cost', `Cost per product (${monthLabel})`, 'table', async () => {
         const bk = await book();
         const r0 = await run(`FROM sales SHOW net_sales, net_items_sold, gross_profit GROUP BY ${GROUP} ${per} ORDER BY net_sales DESC LIMIT 500`);
@@ -236,14 +257,15 @@ function buildShopifyTabs(tab, ctx, run) {
       const [bk, a] = [await book(), await ads()];
       const rev = await run(`FROM sales SHOW net_sales, gross_profit TIMESERIES month SINCE ${trendStart} UNTIL ${today}`);
       const spend = a.monthly ? await a.monthly(trendStart, today) : new Map();
+      const shM = (await sheet()).byMonth();
       const costBy = new Map();
       if (bk.unit) {
         const g = await run(`FROM sales SHOW net_items_sold GROUP BY ${GROUP} TIMESERIES month SINCE ${trendStart} UNTIL ${today}`);
         for (const r of g.rows) { const u = bk.unit(r); if (u !== null) { const k = String(r.month).slice(0, 7); costBy.set(k, (costBy.get(k) || 0) + u * n0(r.net_items_sold)); } }
       }
       const rows = rev.rows.map((x) => {
-        const k = String(x.month).slice(0, 7), revenue = n0(x.net_sales), cost = bk.unit ? costBy.get(k) || 0 : Math.max(0, revenue - n0(x.gross_profit)), ad = spend.get(k) || 0, gross = revenue - cost;
-        return { key: k, label: label(k), revenue, cost, gross, ads: ad, profit: gross - ad };
+        const k = String(x.month).slice(0, 7), sm = shM.get(k) || { fee: 0, rev: 0, cost: 0 }, revenue = n0(x.net_sales) - sm.rev, cost0 = bk.unit ? costBy.get(k) || 0 : Math.max(0, n0(x.net_sales) - n0(x.gross_profit)), cost = Math.max(0, cost0 - sm.cost), ad = spend.get(k) || 0, gross = revenue - cost;
+        return { key: k, label: label(k), revenue, cost, gross, ads: ad, ship: sm.fee, profit: gross - sm.fee - ad };
       });
       return { rows, hasAds: !!a.monthly };
     }
@@ -658,6 +680,11 @@ export default route(async (req, res) => {
   const keyOf = monthKeyer(cfg.tz);
   const months = monthsBack(keyOf, 12);
 
+  if (req.method === 'POST' && req.body?.action === 'sheet') {
+    if (req.body.clear) { await clearSheet(); return res.json({ ok: true }); }
+    const n = await saveSheet(req.body.rows);
+    return res.json({ ok: true, saved: n });
+  }
   if (req.method === 'POST') {
     const month = months.includes(req.body?.month) ? req.body.month : null;
     if (!month) throw new HttpError(400, 'Choose a month from the list.');
