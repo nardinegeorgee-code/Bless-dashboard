@@ -5,7 +5,7 @@ import { adSpend, profitTiles } from './_profit.js';
 
 const TZ = process.env.DASHBOARD_TZ || 'Africa/Cairo';
 
-const TABS = ['suppliers', 'raw', 'packaging', 'finished', 'inventory', 'sales', 'distributors', 'people', 'profit', 'in', 'out', 'trial', 'hr'];
+const TABS = ['suppliers', 'raw', 'packaging', 'finished', 'inventory', 'sales', 'distributors', 'people', 'profit', 'in', 'out', 'trial', 'pnl', 'balance', 'hr'];
 const pad = (n) => String(n).padStart(2, '0');
 const n0 = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const pct = (a, b) => (b ? (a / b) * 100 : 0);
@@ -633,7 +633,7 @@ function build(tab, cfg, ctx) {
     return out;
   };
   /* ---------- Finance: trial balance, from the posted journal items ---------- */
-  if (tab === 'trial') {
+  if (tab === 'trial' || tab === 'pnl' || tab === 'balance') {
     const base = [['parent_state', '=', 'posted']];
     const groups = async (extra) => {
       await needModel(cfg, 'account.move.line', 'Accounting');
@@ -644,7 +644,7 @@ function build(tab, cfg, ctx) {
     };
     const yearStart = s.slice(0, 4) + '-01-01';
     const data = () => once('trial', async () => {
-      const [before, yearBefore, period] = await Promise.all([groups([['date', '<', s]]), groups([['date', '>=', yearStart], ['date', '<', s]]), groups([['date', '>=', s], ['date', '<=', e]])]);
+      const [before, yearBefore, period, prior] = await Promise.all([groups([['date', '<', s]]), groups([['date', '>=', yearStart], ['date', '<', s]]), groups([['date', '>=', s], ['date', '<=', e]]), tab === 'pnl' ? groups([['date', '>=', ps], ['date', '<=', pe]]) : new Map()]);
       let info = new Map();
       try {
         const have = await fieldsOf(cfg, 'account.account');
@@ -652,22 +652,35 @@ function build(tab, cfg, ctx) {
         const list = await sr(cfg, 'account.account', [], ['code', 'name', tf], { app: 'Accounting', limit: 8000 });
         info = new Map(list.map((a) => [a.id, { code: String(a.code || ''), name: a.name || '', type: Array.isArray(a[tf]) ? a[tf][1] : String(a[tf] || '') }]));
       } catch (err) { /* codes are then read from the account's display name */ }
+      const classOf = (t) => {
+        const x = String(t || '').toLowerCase();
+        if (/cost.of.revenue|direct.cost/.test(x)) return 'cogs';
+        if (/depreciation/.test(x)) return 'expense';
+        if (/expense/.test(x)) return 'expense';
+        if (/income|revenue/.test(x)) return 'income';
+        if (/payable|liabilit|credit.card/.test(x)) return 'liability';
+        if (/equity|unaffected|earnings/.test(x)) return 'equity';
+        if (/receivable|asset|bank|cash|prepay|fixed|stock|inventory/.test(x)) return 'asset';
+        return 'other';
+      };
       const isPL = (t) => /income|expense|revenue|cost_of_revenue|depreciation/i.test(t);
-      const ids = new Set([...before.keys(), ...period.keys()]);
+      const ids = new Set([...before.keys(), ...period.keys(), ...prior.keys()]);
       const rows = [...ids].map((id) => {
-        const f = before.get(id) || period.get(id), a = info.get(id);
+        const f = before.get(id) || period.get(id) || prior.get(id), a = info.get(id);
         let code = a ? a.code : '', name = a ? a.name : f.label;
         if (!a) { const mm = /^(\S+)\s+(.*)$/.exec(f.label); if (mm && /\d/.test(mm[1])) { code = mm[1]; name = mm[2]; } }
         const type = a ? a.type : '';
         const op = isPL(type) ? yearBefore.get(id) : before.get(id), mv = period.get(id) || { debit: 0, credit: 0 };
         const opening = op ? op.debit - op.credit : 0;
-        return { code, name, type: type || 'Other', opening, debit: mv.debit, credit: mv.credit, closing: opening + mv.debit - mv.credit };
-      }).filter((r) => Math.abs(r.opening) > 0.004 || r.debit || r.credit).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }) || a.name.localeCompare(b.name));
+        const all = before.get(id), pv = prior.get(id) || { debit: 0, credit: 0 };
+        const cum = (all ? all.debit - all.credit : 0) + mv.debit - mv.credit;
+        return { code, name, type: type || 'Other', cls: classOf(type), opening, debit: mv.debit, credit: mv.credit, closing: opening + mv.debit - mv.credit, cum, pd: pv.debit, pc: pv.credit };
+      }).filter((r) => Math.abs(r.opening) > 0.004 || r.debit || r.credit || r.pd || r.pc || Math.abs(r.cum) > 0.004).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }) || a.name.localeCompare(b.name));
       return rows;
     });
-    return [
+    if (tab === 'trial') return [
       section('kpi', `Trial balance (${ctx.monthLabel})`, 'kpi', async () => {
-        const rows = await data(), d = sum(rows, 'debit'), c = sum(rows, 'credit');
+        const rows = (await data()).filter((r) => Math.abs(r.opening) > 0.004 || r.debit || r.credit), d = sum(rows, 'debit'), c = sum(rows, 'credit');
         const cols = [COL.str('code', 'Code'), COL.str('name', 'Account'), COL.money('opening', 'Opening'), COL.money('debit', 'Debit'), COL.money('credit', 'Credit'), COL.money('closing', 'Closing')];
         const moved = rows.filter((r) => r.debit || r.credit);
         return { tiles: [
@@ -678,15 +691,81 @@ function build(tab, cfg, ctx) {
         ] };
       }, 'Read from the posted journal items in Odoo Accounting. Debit and credit are the totals for the dates chosen.'),
       section('types', 'Balance by type of account', 'table', async () => {
-        const rows = await data(), m = new Map();
+        const rows = (await data()).filter((r) => Math.abs(r.opening) > 0.004 || r.debit || r.credit), m = new Map();
         for (const r of rows) { const g = m.get(r.type) || { name: r.type, debit: 0, credit: 0, closing: 0, n: 0 }; g.debit += r.debit; g.credit += r.credit; g.closing += r.closing; g.n++; m.set(r.type, g); }
         return { columns: [COL.name('Type'), { key: 'debit', label: 'Debit', fmt: 'money', bar: true }, COL.money('credit', 'Credit'), COL.money('closing', 'Closing balance'), COL.int('n', 'Accounts')], rows: [...m.values()].sort((a, b) => b.debit - a.debit) };
       }, 'A positive closing balance is a debit balance; a negative one is a credit balance.'),
       section('tb', `Trial balance by account (${ctx.monthLabel})`, 'table', async () => {
-        const rows = await data();
+        const rows = (await data()).filter((r) => Math.abs(r.opening) > 0.004 || r.debit || r.credit);
         return { columns: [COL.str('code', 'Code'), COL.str('name', 'Account'), COL.money('opening', 'Opening balance'), COL.money('debit', 'Debit'), COL.money('credit', 'Credit'), COL.money('closing', 'Closing balance')],
           rows: rows.slice(0, 1500), empty: 'No posted entries found.' };
       }, 'Opening is everything before the start date; for income and expense accounts it starts on 1 January of that year. Positive = debit balance, negative = credit balance.'),
+    ];
+
+    /* Profit and loss for the chosen dates, and the balance sheet as it stands on the last day. */
+    const stmt = (groupsList, val, revenueBase) => {
+      const out = [];
+      for (const [title, list] of groupsList) {
+        if (!list.length) continue;
+        out.push({ code: '', name: title, amount: list.reduce((a, r) => a + val(r), 0), head: true });
+        for (const r of list) out.push({ code: r.code, name: r.name, amount: val(r), share: revenueBase ? pct(val(r), revenueBase) : null });
+      }
+      return out;
+    };
+    const lineCols = [COL.str('code', 'Code'), COL.str('name', 'Account'), COL.money('amount', 'Amount'), COL.pct('share', 'Of revenue')];
+    if (tab === 'pnl') {
+      const cr = (r) => r.credit - r.debit, db = (r) => r.debit - r.credit, cr0 = (r) => r.pc - r.pd, db0 = (r) => r.pd - r.pc;
+      const calc = async () => {
+        const rows = await data(), g = (c) => rows.filter((r) => r.cls === c);
+        const inc = g('income'), cogs = g('cogs'), exp = g('expense');
+        const T = (l, f, f0) => ({ now: l.reduce((a, r) => a + f(r), 0), prev: l.reduce((a, r) => a + f0(r), 0) });
+        const I = T(inc, cr, cr0), C = T(cogs, db, db0), X = T(exp, db, db0);
+        return { inc, cogs, exp, I, C, X, gross: { now: I.now - C.now, prev: I.prev - C.prev }, net: { now: I.now - C.now - X.now, prev: I.prev - C.prev - X.prev } };
+      };
+      return [
+        section('kpi', `Profit and loss (${ctx.monthLabel})`, 'kpi', async () => {
+          const c = await calc();
+          return { tiles: [
+            tile('Revenue', c.I.now, 'money', { prev: c.I.prev }),
+            tile('Gross profit', c.gross.now, 'money', { prev: c.gross.prev, sub: (c.I.now ? pct(c.gross.now, c.I.now) : 0).toFixed(1) + '% of revenue' }),
+            tile('Expenses', c.X.now, 'money', { prev: c.X.prev, goodDown: true, sub: (c.I.now ? pct(c.X.now, c.I.now) : 0).toFixed(1) + '% of revenue' }),
+            tile('Net profit', c.net.now, 'money', { prev: c.net.prev, sub: (c.I.now ? pct(c.net.now, c.I.now) : 0).toFixed(1) + '% of revenue' }),
+          ] };
+        }, 'Built from the posted journal entries in Odoo Accounting, by account type, for the dates chosen.'),
+        section('pl', `Profit and loss statement (${ctx.monthLabel})`, 'table', async () => {
+          const c = await calc(), cols = [...lineCols.slice(0, 3), COL.money('prev', 'Previous period'), lineCols[3]];
+          const withPrev = (list, f, f0) => list.map((r) => ({ code: r.code, name: r.name, amount: f(r), prev: f0(r), share: c.I.now ? pct(f(r), c.I.now) : null }));
+          const head = (name, t) => ({ code: '', name, amount: t.now, prev: t.prev, share: c.I.now ? pct(t.now, c.I.now) : null });
+          const rows = [head('INCOME', c.I), ...withPrev(c.inc, cr, cr0), head('COST OF REVENUE', c.C), ...withPrev(c.cogs, db, db0), head('GROSS PROFIT', c.gross), head('EXPENSES', c.X), ...withPrev(c.exp, db, db0), head('NET PROFIT', c.net)];
+          return { columns: cols, rows, empty: 'No income or expense entries in this period.' };
+        }, 'Income and expense accounts only. Capitalised words are totals; the lines under them are the accounts that make them up.'),
+      ];
+    }
+    // balance sheet as at the last day of the period
+    const asOf = async () => {
+      const rows = await data(), g = (c) => rows.filter((r) => r.cls === c && Math.abs(r.cum) > 0.004);
+      const assets = g('asset'), liab = g('liability'), eq = g('equity'), other = g('other');
+      const pl = rows.filter((r) => ['income', 'cogs', 'expense'].includes(r.cls)), profit = -pl.reduce((a, r) => a + r.cum, 0);
+      const A = assets.reduce((a, r) => a + r.cum, 0), L = -liab.reduce((a, r) => a + r.cum, 0), E = -eq.reduce((a, r) => a + r.cum, 0) + profit;
+      return { assets, liab, eq, other, profit, A, L, E };
+    };
+    return [
+      section('kpi', `Balance sheet on ${e}`, 'kpi', async () => {
+        const b = await asOf();
+        return { tiles: [
+          tile('Total assets', b.A, 'money'), tile('Total liabilities', b.L, 'money', { goodDown: true }), tile('Equity', b.E, 'money', { sub: 'including profit to date' }),
+          tile('Difference', b.A - b.L - b.E, 'money', { goodDown: true, sub: Math.abs(b.A - b.L - b.E) < 0.5 ? 'assets equal liabilities plus equity' : 'does not balance, some accounts have an unusual type' }),
+        ] };
+      }, 'Every posted entry up to and including the last day of the dates chosen.'),
+      section('bs', `Balance sheet on ${e}`, 'table', async () => {
+        const b = await asOf(), cols = [COL.str('code', 'Code'), COL.str('name', 'Account'), COL.money('amount', 'Amount')];
+        const ln = (l, f) => l.map((r) => ({ code: r.code, name: r.name, amount: f(r) }));
+        const rows = [{ code: '', name: 'ASSETS', amount: b.A }, ...ln(b.assets, (r) => r.cum),
+          { code: '', name: 'LIABILITIES', amount: b.L }, ...ln(b.liab, (r) => -r.cum),
+          { code: '', name: 'EQUITY', amount: b.E }, ...ln(b.eq, (r) => -r.cum), { code: '', name: 'Profit and loss to date', amount: b.profit },
+          ...(b.other.length ? [{ code: '', name: 'OTHER ACCOUNTS (type not recognised)', amount: -b.other.reduce((a, r) => a + r.cum, 0) }, ...ln(b.other, (r) => -r.cum)] : [])];
+        return { columns: cols, rows, empty: 'No posted entries found.' };
+      }, 'Assets are shown as debit balances; liabilities and equity as credit balances. "Profit and loss to date" is all income less all expenses not yet closed into equity.'),
     ];
   }
 
