@@ -8,6 +8,9 @@
     },
     "api/analytics.js": {
       "maxDuration": 60
+    },
+    "api/odoo.js": {
+      "maxDuration": 60
     }
   },
   "crons": [

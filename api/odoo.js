@@ -635,18 +635,24 @@ function build(tab, cfg, ctx) {
   /* ---------- Finance: trial balance, from the posted journal items ---------- */
   if (tab === 'trial' || tab === 'pnl' || tab === 'balance') {
     const base = [['parent_state', '=', 'posted']];
-    const groups = async (extra) => {
+    const groups = async (extra, byYear) => {
       await needModel(cfg, 'account.move.line', 'Accounting');
-      const r = await call(cfg, 'account.move.line', 'read_group', [[...base, ...extra], ['debit:sum', 'credit:sum'], ['account_id']], { lazy: false, context: { lang: 'en_US' } });
-      const m = new Map();
-      for (const g of r || []) { const id = nid(g.account_id); if (id) m.set(id, { id, label: nm(g.account_id), debit: n0(g.debit), credit: n0(g.credit) }); }
+      const r = await call(cfg, 'account.move.line', 'read_group', [[...base, ...extra], ['debit:sum', 'credit:sum'], byYear ? ['account_id', 'date:year'] : ['account_id']], { lazy: false, context: { lang: 'en_US' } });
+      const m = new Map(), thisYear = Number(s.slice(0, 4));
+      for (const g of r || []) {
+        const id = nid(g.account_id); if (!id) continue;
+        const x = m.get(id) || { id, label: nm(g.account_id), debit: 0, credit: 0, yb: { debit: 0, credit: 0 } };
+        x.debit += n0(g.debit); x.credit += n0(g.credit);
+        if (byYear) { const yr = Number((/\d{4}/.exec(String(g['date:year'] || '')) || [thisYear])[0]); if (yr === thisYear) { x.yb.debit += n0(g.debit); x.yb.credit += n0(g.credit); } }
+        m.set(id, x);
+      }
       return m;
     };
     const yearStart = s.slice(0, 4) + '-01-01';
     const pmEndD = new Date(Date.parse(s.slice(0, 7) + '-01T12:00:00Z') - 86400000), pmEnd = pmEndD.toISOString().slice(0, 10), pmStart = pmEnd.slice(0, 7) + '-01';
     const sameAsPrev = ps === pmStart && pe === pmEnd;
     const data = () => once('trial', async () => {
-      const [before, yearBefore, period, prior] = await Promise.all([groups([['date', '<', s]]), groups([['date', '>=', yearStart], ['date', '<', s]]), groups([['date', '>=', s], ['date', '<=', e]]), tab === 'pnl' ? groups([['date', '>=', ps], ['date', '<=', pe]]) : new Map()]);
+      const [before, period, prior] = await Promise.all([groups([['date', '<', s]], true), groups([['date', '>=', s], ['date', '<=', e]]), tab === 'pnl' ? groups([['date', '>=', ps], ['date', '<=', pe]]) : new Map()]);
       const pmGroups = tab === 'pnl' && !sameAsPrev ? await groups([['date', '>=', pmStart], ['date', '<=', pmEnd]]) : prior;
       let info = new Map();
       try {
@@ -673,7 +679,7 @@ function build(tab, cfg, ctx) {
         let code = a ? a.code : '', name = a ? a.name : f.label;
         if (!a) { const mm = /^(\S+)\s+(.*)$/.exec(f.label); if (mm && /\d/.test(mm[1])) { code = mm[1]; name = mm[2]; } }
         const type = a ? a.type : '';
-        const op = isPL(type) ? yearBefore.get(id) : before.get(id), mv = period.get(id) || { debit: 0, credit: 0 };
+        const bf = before.get(id), op = isPL(type) ? (bf ? bf.yb : null) : bf, mv = period.get(id) || { debit: 0, credit: 0 };
         const opening = op ? op.debit - op.credit : 0;
         const all = before.get(id), pv = prior.get(id) || { debit: 0, credit: 0 }, pm = pmGroups.get(id) || { debit: 0, credit: 0 };
         const cum = (all ? all.debit - all.credit : 0) + mv.debit - mv.credit;
