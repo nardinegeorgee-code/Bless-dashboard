@@ -16,7 +16,8 @@ export const normNo = (v) => String(v ?? '').toLowerCase().replace(/[^0-9a-z]/g,
 export function kindOf(status) {
   const s = String(status || '').toLowerCase();
   if (/return/.test(s) && /shipper|sender|merchant/.test(s)) return 'returned';
-  if (/confirmed\s+delivery|delivery\s+confirmed/.test(s)) return 'delivered';
+  if (/(un|not\s+)deliver|out\s+for\s+delivery|attempt|fail|pending|in\s+transit/.test(s)) return 'other';
+  if (/deliver/.test(s)) return 'delivered';
   return 'other';
 }
 const money = (v) => { const n = Number(String(v ?? '').replace(/[^0-9.\-]/g, '')); return Number.isFinite(n) ? n : 0; };

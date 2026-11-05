@@ -231,7 +231,7 @@ function buildShopifyTabs(tab, ctx, run) {
       section('sheet', 'Courier sheet', 'sheet', async () => {
         const sh = await sheet();
         const L = sh.list, cnt = (k) => L.filter((x) => x.kind === k).length;
-        return { total: L.length, returned: cnt('returned'), delivered: cnt('delivered'), other: cnt('other'), unmatched: L.filter((x) => !x.matched).length, fees: L.filter((x) => x.kind !== 'other' && x.matched).reduce((a, x) => a + x.fee, 0),
+        return { total: L.length, returned: cnt('returned'), delivered: cnt('delivered'), other: cnt('other'), unmatched: L.filter((x) => !x.matched).length, ignoredStatuses: Object.entries(L.filter((x) => x.kind === 'other').reduce((m, x) => { const k = x.status || '(empty)'; m[k] = (m[k] || 0) + 1; return m; }, {})).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([status, n]) => ({ status, n })), fees: L.filter((x) => x.kind !== 'other' && x.matched).reduce((a, x) => a + x.fee, 0),
           rows: L.slice(0, 300).map((x) => ({ no: x.label, status: x.status || '–', result: x.kind === 'returned' ? 'Returned: order removed, fee deducted' : x.kind === 'delivered' ? 'Delivered: fee deducted' : 'Ignored', fee: x.fee, date: x.date || 'Order not found' })), more: Math.max(0, L.length - 300) };
       }, 'Paste or upload the sheet from your courier. Column A is the order number, column B the status, column E the shipping fee.'),
       section('cost', `Cost per product (${monthLabel})`, 'table', async () => {
