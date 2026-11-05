@@ -651,6 +651,9 @@ function build(tab, cfg, ctx) {
     const yearStart = s.slice(0, 4) + '-01-01';
     const pmEndD = new Date(Date.parse(s.slice(0, 7) + '-01T12:00:00Z') - 86400000), pmEnd = pmEndD.toISOString().slice(0, 10), pmStart = pmEnd.slice(0, 7) + '-01';
     const sameAsPrev = ps === pmStart && pe === pmEnd;
+    const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const dmy = (d) => `${Number(d.slice(8, 10))} ${MON[Number(d.slice(5, 7)) - 1]} ${d.slice(0, 4)}`;
+    const span = (a, b) => (a === b ? dmy(a) : a.slice(0, 7) === b.slice(0, 7) ? `${Number(a.slice(8, 10))} to ${dmy(b)}` : `${dmy(a)} to ${dmy(b)}`);
     const data = () => once('trial', async () => {
       const [before, period, prior] = await Promise.all([groups([['date', '<', s]], true), groups([['date', '>=', s], ['date', '<=', e]]), tab === 'pnl' ? groups([['date', '>=', ps], ['date', '<=', pe]]) : new Map()]);
       const pmGroups = tab === 'pnl' && !sameAsPrev ? await groups([['date', '>=', pmStart], ['date', '<=', pmEnd]]) : prior;
@@ -742,8 +745,8 @@ function build(tab, cfg, ctx) {
           ] };
         }, 'Built from the posted journal entries in Odoo Accounting, by account type, for the dates chosen.'),
         section('pl', `Profit and loss statement (${ctx.monthLabel})`, 'table', async () => {
-          const c = await calc(), pmLabel = 'Previous month (' + pmStart.slice(0, 7) + ')';
-          const cols = [...lineCols.slice(0, 3), ...(sameAsPrev ? [] : [COL.money('prev', 'Previous period')]), COL.money('pm', pmLabel), { key: 'chg', label: 'Change vs previous month', fmt: 'pct' }, lineCols[3]];
+          const c = await calc();
+          const cols = [...lineCols.slice(0, 2), COL.money('amount', 'This period: ' + span(s, e)), ...(sameAsPrev ? [] : [COL.money('prev', 'Compared period: ' + span(ps, pe))]), COL.money('pm', 'Previous month: ' + span(pmStart, pmEnd)), { key: 'chg', label: 'Change vs previous month', fmt: 'pct' }, lineCols[3]];
           const row = (style, code, name, now, prev, pm) => ({ style, code, name, amount: now, prev, pm, chg: pm ? ((now - pm) / Math.abs(pm)) * 100 : null, share: c.I.now ? pct(now, c.I.now) : null });
           const lines = (list, f, f0, fm) => list.map((r) => row('line', r.code, r.name, f(r), f0(r), fm(r))).filter((r) => Math.abs(r.amount) >= 0.5 || Math.abs(r.prev) >= 0.5 || Math.abs(r.pm) >= 0.5).sort((x, y) => Math.abs(y.amount) - Math.abs(x.amount));
           const head = (name, t) => row('head', '', name, t.now, t.prev, t.pm), total = (name, t) => row('total', '', name, t.now, t.prev, t.pm);
