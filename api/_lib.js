@@ -239,12 +239,14 @@ export function allow(req, methods) {
 }
 
 /* ---------- short-lived response cache for the Overview's headline requests (?only=...) ---------- */
-const cacheKey = (ns, req) => ns + ':' + Object.entries(req.query || {}).filter(([k]) => k !== 'refresh').sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => k + '=' + v).join('&');
+const cacheKey = (ns, req) => ns + ':' + Object.entries(req.query || {}).filter(([k]) => k !== 'refresh' && k !== 'stale').sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => k + '=' + v).join('&');
 /** Sends a stored answer when there is a fresh one. Returns true when it did. */
 export async function serveCached(req, res, ns, ttlMs) {
   if (req.method !== 'GET' || !req.query.only || req.query.refresh === '1') return false;
   const rows = await db()`SELECT fetched_at, payload FROM api_cache WHERE key = ${cacheKey(ns, req)}`;
-  if (rows[0] && Date.now() - Number(rows[0].fetched_at) < ttlMs) { res.setHeader('X-Cache', 'hit'); res.json(rows[0].payload); return true; }
+  // ?stale=1 means "give me whatever you saved, however old, right now" (the page then refreshes it in the background)
+  const limit = req.query.stale === '1' ? Infinity : ttlMs;
+  if (rows[0] && Date.now() - Number(rows[0].fetched_at) < limit) { res.setHeader('X-Cache', 'hit'); res.json({ ...rows[0].payload, _cachedAt: Number(rows[0].fetched_at) }); return true; }
   return false;
 }
 /** Sends the answer, and keeps a copy for the next person when it was a headline request. */

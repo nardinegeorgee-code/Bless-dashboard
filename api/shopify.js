@@ -1,4 +1,4 @@
-import { route, allow, db, requireAdmin, requireViewer } from './_lib.js';
+import { route, allow, db, requireAdmin, requireViewer, serveCached, sendCached } from './_lib.js';
 import { ensureShopSchema, shopConfig, getState, shopifyql } from './_shopify.js';
 import { parsePeriod, monthPeriod, startMs, endMs } from './_period.js';
 
@@ -33,6 +33,7 @@ export default route(async (req, res) => {
   const cfg = shopConfig();
   if (cfg.missing.length) return res.json({ configured: false, missing: cfg.missing });
   await ensureShopSchema();
+  if (await serveCached(req, res, 'shop', 10 * 60 * 1000)) return;
   const q = db();
   const keyOf = monthKeyer(cfg.tz);
 
@@ -157,7 +158,7 @@ export default route(async (req, res) => {
   const sc = await getState('checkouts');
   const currency = (orders.find((o) => o.currency) || {}).currency || '';
 
-  res.json({
+  await sendCached(req, res, 'shop', {
     configured: true,
     currency,
     tz: cfg.tz,

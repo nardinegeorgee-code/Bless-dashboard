@@ -850,3 +850,13 @@ input[type=checkbox],input[type=radio]{accent-color:var(--accent)}
 @keyframes sptwinkle{0%,100%{transform:scale(.4) rotate(0);opacity:0}50%{transform:scale(1) rotate(45deg);opacity:1}}
 @keyframes spslide{0%{transform:translateX(-110%)}100%{transform:translateX(300%)}}
 @media (prefers-reduced-motion:reduce){.sp-logo,.sp-orb,.sp-spark,.sp-bar i{animation:none}.sp-spark{opacity:.8}}
+.pv-sub{color:var(--muted);font-size:.92rem}
+.pv-foot2{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--line)}
+.pv-upd{font-size:.78rem;display:inline-flex;align-items:center;gap:6px}
+.pv-spin{width:10px;height:10px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:pvrot .8s linear infinite;display:inline-block}
+@keyframes pvrot{to{transform:rotate(360deg)}}
+.pv-msg{line-height:1.5}
+.kgrid .kcard:not(.kbtn){cursor:default}
+.kgrid.k3{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:900px){.kgrid.k3{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:520px){.kgrid.k3{grid-template-columns:minmax(0,1fr)}}

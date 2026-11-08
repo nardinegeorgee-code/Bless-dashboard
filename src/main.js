@@ -283,34 +283,41 @@ function pvSpark(vals,color){
   return `<svg class="pv-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="pvg${color.replace(/\W/g,'')}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity=".35"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs><polygon points="${P},${H} ${pts} ${W-P},${H}" fill="url(#pvg${color.replace(/\W/g,'')})"/><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>`;
 }
 const PV_KEY='bless-pulse-v2';
-function pvSave(){try{const P=S.pulse;localStorage.setItem(PV_KEY,JSON.stringify({day:pvDay(),at:P.at,shop:P.shop&&{currency:P.shop.currency,summary:P.shop.summary,months:(P.shop.months||[]).map(m=>({revenue:m.revenue}))},odoo:P.odoo,stock:P.stock,meta:P.meta,trend:P.trend}))}catch(e){}}
+function pvSave(){try{const P=S.pulse;localStorage.setItem(PV_KEY,JSON.stringify({day:pvDay(),at:P.at,shop:P.shop&&{currency:P.shop.currency,summary:P.shop.summary,months:(P.shop.months||[]).map(m=>({revenue:m.revenue}))},odoo:P.odoo,stock:P.stock,meta:P.meta,trend:P.trend,upd:P.upd||{}}))}catch(e){}}
 function pvHydrate(){
   const P=S.pulse;if(P.hydrated)return 0;P.hydrated=1;
   try{const c=JSON.parse(localStorage.getItem(PV_KEY)||'null');if(!c||c.day!==pvDay())return 0;
-    ['shop','odoo','stock','meta','trend'].forEach(k=>{if(c[k]){P[k]=c[k];P.done[k]=1}});P.cachedAt=c.at;return Date.now()-c.at}catch(e){return 0}
+    P.upd=c.upd||{};['shop','odoo','stock','meta','trend'].forEach(k=>{if(c[k]){P[k]=c[k];P.done[k]=1;if(!P.upd[k])P.upd[k]=c.at}});P.cachedAt=c.at;return Date.now()-c.at}catch(e){return 0}
 }
 function pvJob(key){
   const P=S.pulse,r=pvRange(),q='from='+r.from+'&to='+r.to+'&kind=month';
-  return {shop:['/api/shopify?'+q,d=>P.shop=d],odoo:['/api/odoo?tab=profit&only=kpi&'+q,d=>P.odoo=d],stock:['/api/odoo?tab=finished&only=kpi&'+q,d=>P.stock=d],
-    meta:['/api/meta?tab=overview&only=kpi&'+q,d=>P.meta=d],ev:['/api/evaluation',d=>P.ev=d],act:['/api/auth?action=activity&days=7',d=>P.act=d],
-    trend:['/api/odoo?tab=profit&only=trend&'+q,d=>P.trend=d]}[key];
+  return {shop:['/api/shopify?only=summary&'+q,d=>P.shop=d,1],odoo:['/api/odoo?tab=profit&only=kpi&'+q,d=>P.odoo=d,1],stock:['/api/odoo?tab=finished&only=kpi&'+q,d=>P.stock=d,1],
+    meta:['/api/meta?tab=overview&only=kpi&'+q,d=>P.meta=d,1],ev:['/api/evaluation',d=>P.ev=d,0],act:['/api/auth?action=activity&days=7',d=>P.act=d,0],
+    trend:['/api/odoo?tab=profit&only=trend&'+q,d=>P.trend=d,1]}[key];
 }
-function pvRun(key){
-  const P=S.pulse,[url,set]=pvJob(key),t0=Date.now();delete P.err[key];if(!P[key]){delete P.done[key];pvFill()}
-  return api('GET',url,null,50000).then(d=>{if(d&&d.configured===false)throw new Error('Not connected yet. Add its keys in Vercel, then reload.');set(d);P.took=P.took||{};P.took[key]=Math.round((Date.now()-t0)/100)/10}).catch(e=>{if(!P[key])P.err[key]=e.message||'Could not load'}).finally(()=>{P.done[key]=1;pvFill()});
+const pvAgo=t=>{if(!t)return '';const m=Math.round((Date.now()-t)/6e4);return m<1?'just now':m<60?m+' min ago':m<1440?Math.round(m/60)+' h ago':Math.round(m/1440)+' d ago'};
+/** Show whatever was saved last (instantly), then refresh it behind the scenes when it is older than 10 minutes. */
+async function pvRun(key,force){
+  const P=S.pulse,[url,set,cacheable]=pvJob(key);delete P.err[key];P.upd=P.upd||{};P.busy=P.busy||{};
+  let at=force?0:(P.upd[key]||0);
+  if(!P[key]&&cacheable&&!force){
+    try{const d=await api('GET',url+'&stale=1',null,50000);if(d&&d.configured===false)throw new Error('Not connected yet. Add its keys in Vercel, then reload.');set(d);at=P.upd[key]=d._cachedAt||Date.now();P.done[key]=1;pvFill()}catch(e){if(!P[key]){P.err[key]=e.message||'Could not load';P.done[key]=1;pvFill();return}}
+  }
+  if(at&&Date.now()-at<10*60e3){P.done[key]=1;pvFill();return}
+  P.busy[key]=1;pvFill();
+  try{const d=await api('GET',url+(force?'&refresh=1':''),null,50000);if(d&&d.configured===false)throw new Error('Not connected yet. Add its keys in Vercel, then reload.');set(d);P.upd[key]=Date.now()}
+  catch(e){if(!P[key])P.err[key]=e.message||'Could not load'}
+  delete P.busy[key];P.done[key]=1;pvFill();
 }
+const PV_KEYS=['shop','odoo','stock','meta','ev','act','trend'];
 async function loadPulse(force){
   const P=S.pulse;if(P.loading)return;
-  const age=pvHydrate()||(P.cachedAt?Date.now()-P.cachedAt:Infinity);
-  if(!force&&(Date.now()-P.at<5*60e3||age<2*60e3)){pvFill();return}
+  pvHydrate();
+  if(!force&&Date.now()-P.at<60e3){pvFill();return}
   P.loading=true;P.at=Date.now();P.err={};
-  const warm=!force&&Object.keys(P.done).length>0;   // we already show saved numbers: refresh quietly behind them
-  if(!warm)P.done={};
-  pvFill();
   const iv=setInterval(pvFill,1000);
-  await Promise.all(['shop','odoo','stock','meta','ev','act','trend'].map(pvRun));
-  clearInterval(iv);
-  P.loading=false;pvSave();pvFill();
+  await Promise.all(PV_KEYS.map(k=>pvRun(k,force)));
+  clearInterval(iv);P.loading=false;pvSave();pvFill();
 }
 function pvFill(){
   if(S.route!=='home'||!isAdmin())return;
@@ -338,34 +345,33 @@ function pvAttention(){
   const sc=P.shop&&P.shop.summary&&P.shop.summary.change;if(sc&&sc.revenue!==null&&sc.revenue<=-20)add('bad','trend',sc.revenue+'%','Shopify revenue vs previous period',`data-act="go" data-route="shop"`);
   const loading=Object.keys(P.done).length<6&&P.loading;
   const body=items.length?items.map(x=>`<button type="button" class="pv-al ${x.sev}" ${x.attrs}><span class="pv-ai"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${ICON[x.ico]||ICON.alert}</svg></span><b>${x.n}</b><span>${x.text}</span><svg class="pv-ar" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></button>`).join(''):`<div class="pv-ok"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON.check}</svg>${loading?'Checking everything…':'All clear. Nothing needs your attention right now.'}</div>`;
-  return `<div class="pv-head"><div><h2>Needs your attention</h2><p class="muted">Sorted by what is most urgent. Click one to go straight to it.</p></div><button class="btn sm ghost" data-act="pv-refresh" title="Reload the numbers on this page">${S.pulse.loading?'Refreshing…':'↻ Refresh'}</button></div><div class="pv-alerts">${body}</div>`;
+  return `<div class="pv-head"><div><h2>Needs your attention</h2><p class="muted">Sorted by what is most urgent. Click one to go straight to it.</p></div></div><div class="pv-alerts">${body}</div>`;
 }
 function pvCard(o){
-  const {key,ico,color,name,route,hero,heroLabel,delta,goodDown,spark,mini,note}=o,P=S.pulse;
+  const {key,ico,color,name,route,hero,heroLabel,delta,goodDown,spark,sub,note,dep}=o,P=S.pulse;
   const head=`<div class="pv-top"><span class="kico" style="--kc:${color}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${ICON[ico]||NAV_ICON[ico]||''}</svg></span><b>${name}</b><span class="eyebrow">${note||''}</span></div>`;
-  if(P.err[key])return `<section class="pv-card err">${head}<p class="pv-msg"><b>Could not load ${name}.</b><br><span class="muted">${esc(P.err[key])}</span></p><div class="row"><button class="btn sm primary" data-act="pv-retry" data-k="${key}${key==='odoo'?',stock,trend':''}">Try again</button><button class="btn sm" data-act="go" data-route="${route}">Open ${name}</button></div></section>`;
-  if(!P.done[key])return `<section class="pv-card">${head}<div class="pv-sk"><i></i><i></i><i></i></div>${Date.now()-P.at>=3000?`<p class="muted pv-foot">Waiting for ${name}… ${Math.round((Date.now()-P.at)/1000)}s${Date.now()-P.at>=15000?'. It can take up to a minute the first time; after that it is saved for 10 minutes.':''}</p>`:''}</section>`;
-  return `<section class="pv-card" style="--pc:${color}">${head}<div class="pv-hero"><div><span class="eyebrow">${heroLabel}</span><div class="pv-n">${hero}</div></div>${delta===null||delta===undefined?'':chip(delta,goodDown)}</div>${spark}<div class="pv-mini">${mini.map(([l,v,d,gd])=>`<div><span class="eyebrow">${l}</span><b>${v}</b>${d===null||d===undefined?'':chip(d,gd)}</div>`).join('')}</div><button class="pv-open" data-act="go" data-route="${route}">Open full report <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></button></section>`;
+  const keys=[].concat(dep||key);
+  if(P.err[key])return `<section class="pv-card err">${head}<p class="pv-msg"><b>Could not load ${name}.</b><br><span class="muted">${esc(P.err[key])}</span></p><div class="row"><button class="btn sm primary" data-act="pv-retry" data-k="${keys.join(',')}">Try again</button><button class="btn sm" data-act="go" data-route="${route}">Open ${name}</button></div></section>`;
+  if(!P.done[key]||!P[key]){const w=Math.round((Date.now()-P.at)/1000);return `<section class="pv-card">${head}<div class="pv-sk"><i></i><i></i><i></i></div>${w>=3?`<p class="muted pv-foot">Waiting for ${name}… ${w}s${w>=15?'. The first time can take up to a minute. After that it is saved.':''}</p>`:''}</section>`}
+  const upd=Math.min(...keys.map(k=>(P.upd||{})[k]||Date.now())),busy=keys.some(k=>(P.busy||{})[k]);
+  return `<section class="pv-card" style="--pc:${color}">${head}<div class="pv-hero"><div><span class="eyebrow">${heroLabel}</span><div class="pv-n">${hero}</div></div>${delta===null||delta===undefined?'':chip(delta,goodDown)}</div>${spark}<p class="pv-sub">${sub}</p><div class="pv-foot2"><button class="pv-open" data-act="go" data-route="${route}">Open full report <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></button><span class="muted pv-upd">${busy?'<i class="pv-spin"></i> refreshing…':'updated '+pvAgo(upd)}</span></div></section>`;
 }
 function pvBusiness(){
   const P=S.pulse,r=pvRange(),rng=new Date(r.to+'T12:00:00Z').toLocaleDateString('en-GB',{month:'short',timeZone:'UTC'}),per='1–'+Number(r.to.slice(8))+' '+rng;
-  // Shopify
   const sh=P.shop,ss=sh&&sh.summary,cur=sh&&sh.currency;
   const shop=pvCard({key:'shop',ico:'bag',color:'#2DD4BF',name:'Shopify',route:'shop',note:per,heroLabel:'Revenue',
     hero:ss?pvCur(ss.revenue,cur):'',delta:ss&&ss.change.revenue,spark:ss?pvSpark((sh.months||[]).map(m=>m.revenue),'#2DD4BF'):'',
-    mini:ss?[['Orders',ss.orders.toLocaleString(),ss.change.orders],['Avg order',pvCur(ss.aov,cur),pvPct(ss.aov,ss.previous.aov)],['Refund rate',ss.refundRate.toFixed(1)+'%',null]]:[]});
-  // Odoo
-  const od=P.odoo,pt=pvTile(od,'kpi',['Profit after ads','Profit after delivery','Gross profit']),rev=pvTile(od,'kpi','Net revenue'),gp=pvTile(od,'kpi','Gross profit'),ra=pvTile(od,'kpi','Revenue per 1 spent on ads');
-  const oc=od&&od.currency,trend=(P.trend&&(P.trend.sections||[]).find(x=>x.id==='trend'))||(od&&(od.sections||[]).find(x=>x.id==='trend')),oos=pvTile(P.stock,'kpi','Out of stock'),low=pvTile(P.stock,'kpi','Running low');
+    sub:ss?`${ss.orders.toLocaleString()} orders · ${pvCur(ss.aov,cur)} average order`:''});
+  const od=P.odoo,pt=pvTile(od,'kpi',['Profit after ads','Profit after delivery','Gross profit']),rev=pvTile(od,'kpi','Net revenue'),oc=od&&od.currency;
+  const trend=(P.trend&&(P.trend.sections||[]).find(x=>x.id==='trend'))||(od&&(od.sections||[]).find(x=>x.id==='trend'));
   const odoo=pvCard({key:'odoo',ico:'odoo',color:'#A78BFA',name:'Odoo',route:'odoo',note:per,heroLabel:pt?pt.label:'Profit',
     hero:pt?pvCur(pt.value,oc):'–',delta:pt?pvPct(pt.value,pt.prev):null,spark:trend?pvSpark(trend.rows.map(x=>x.values.profit),'#A78BFA'):'',
-    mini:[['Net revenue',rev?pvCur(rev.value,oc):'–',rev?pvPct(rev.value,rev.prev):null],['Gross profit',gp?pvCur(gp.value,oc):'–',gp?pvPct(gp.value,gp.prev):null],['Stock alerts',P.stock?((oos?oos.value:0)+(low?low.value:0))+' item'+(((oos?oos.value:0)+(low?low.value:0))===1?'':'s'):'–',null]]});
-  // Meta
-  const mt=P.meta,sp=pvTile(mt,'kpi','Amount spent'),pu=pvTile(mt,'kpi','Purchases'),ro=pvTile(mt,'kpi','Return on ad spend'),cp=pvTile(mt,'kpi','Cost per purchase'),mc=mt&&mt.currency;
+    sub:rev?`${pvCur(rev.value,oc)} net revenue this month`:''});
+  const mt=P.meta,sp=pvTile(mt,'kpi','Amount spent'),pu=pvTile(mt,'kpi','Purchases'),ro=pvTile(mt,'kpi','Return on ad spend'),mc=mt&&mt.currency;
   const meta=pvCard({key:'meta',ico:'meta',color:'#FF8A3D',name:'Meta Ads',route:'meta',note:per,heroLabel:'Ad spend',
     hero:sp?pvCur(sp.value,mc):'–',delta:sp?pvPct(sp.value,sp.prev):null,goodDown:true,spark:sp&&sp.daily?pvSpark(sp.daily,'#FF8A3D'):'',
-    mini:[['Return on ad spend',ro?ro.value.toFixed(2)+'×':'–',ro?pvPct(ro.value,ro.prev):null],['Purchases',pu?pu.value.toLocaleString():'–',pu?pvPct(pu.value,pu.prev):null],['Cost / purchase',cp?pvCur(cp.value,mc):'–',cp?pvPct(cp.value,cp.prev):null,true]]});
-  return `<div class="pv-head"><div><h2>Business at a glance</h2><p class="muted">This month so far, compared with the previous period. Revenue first, then profit, then ad spend.</p></div></div><div class="pv-grid">${shop}${odoo}${meta}</div>`;
+    sub:`${ro?ro.value.toFixed(2)+'× return on ad spend':'–'}${pu?' · '+pu.value.toLocaleString()+' purchases':''}`});
+  return `<div class="pv-head"><div><h2>Business today</h2><p class="muted">This month so far. One number per area, with the change against the previous period.</p></div><button class="btn sm ghost" data-act="pv-refresh">${S.pulse.loading?'Refreshing…':'↻ Refresh'}</button></div><div class="pv-grid">${shop}${odoo}${meta}</div>`;
 }
 function pvPerf(){
   const P=S.pulse,e=P.ev,a=P.act;
@@ -385,38 +391,43 @@ function pvPerf(){
     ${on.length?`<div class="pv-who">${on.slice(0,6).map(u=>`<span class="pv-pp"><i class="act-dot on"></i>${esc(u.username)}</span>`).join('')}</div>`:'<p class="muted pv-foot">Nobody is using the hub at the moment.</p>'}
     ${pg?`<p class="muted pv-foot">Most opened page this week: <b>${esc(actPage(pg.page))}</b> (${pg.visits} views)</p>`:''}`}
   const acc=`<section class="pv-card"><div class="pv-top"><span class="kico" style="--kc:#4ADE9A"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${NAV_ICON.act}</svg></span><b>Hub usage</b><span class="eyebrow">last 7 days</span></div>${acb}<button class="pv-open" data-act="go" data-route="act">Open activity <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></button></section>`;
-  return `<div class="pv-head"><div><h2>Team performance &amp; usage</h2><p class="muted">Who is performing best, and who is using the hub.</p></div></div><div class="pv-grid two">${evc}${acc}</div>`;
+  return `<div class="pv-head"><div><h2>Top performers</h2><p class="muted">The best scores this month, and who is using the hub right now.</p></div></div><div class="pv-grid two">${evc}${acc}</div>`;
 }
 
+function ovTeamStats(team,ins,subs){
+  const fr=S.ov.role,rec=i=>recipients(i).filter(u=>!fr||u.role===fr),roles=ROLES.filter(r=>r.key!=='super_admin'&&r.key!=='ceo'&&team.some(u=>u.role===r.key));
+  const first=new Map();S.subs.forEach(x=>{if(!x.instructionId)return;const k=x.instructionId+'|'+x.userId,c=first.get(k);if(c===undefined||x.createdAt<c)first.set(k,x.createdAt)});
+  const by={},all=[];roles.forEach(r=>by[r.key]={label:r.label,ms:[]});let sent=0,done=0;
+  ins.forEach(i=>rec(i).forEach(u=>{sent++;const f=first.get(i.id+'|'+u.id);if(f!==undefined){done++;const d=Math.max(0,f-i.createdAt);all.push(d);if(by[u.role])by[u.role].ms.push(d)}}));
+  const med=a=>{if(!a.length)return null;const q=[...a].sort((x,y)=>x-y),m=q.length>>1;return q.length%2?q[m]:(q[m-1]+q[m])/2};
+  const teams=Object.values(by).filter(t=>t.ms.length).map(t=>({label:t.label,avg:t.ms.reduce((x,y)=>x+y,0)/t.ms.length})).sort((a,b)=>a.avg-b.avg);
+  const W=7*864e5,now=Date.now(),thisW=S.subs.filter(x=>x.createdAt>=now-W&&(!fr||x.role===fr)).length,lastW=S.subs.filter(x=>x.createdAt>=now-2*W&&x.createdAt<now-W&&(!fr||x.role===fr)).length;
+  return {sent,done,rate:sent?Math.round(done/sent*100):null,mid:med(all),fast:teams[0],slow:teams.length>1?teams[teams.length-1]:null,thisW,lastW};
+}
 function overviewHTML(){
   const cut=ovCut(),fr=S.ov.role;
   const team=S.users.filter(u=>u.role!=='super_admin'&&(!fr||u.role===fr));
   const insAll=S.instructions.filter(i=>i.createdAt>=cut&&(!fr||recipients(i).some(u=>u.role===fr))),subsF=S.subs.filter(x=>x.createdAt>=cut&&(!fr||x.role===fr));
   let open=0,total=0;insAll.forEach(i=>recipients(i).filter(u=>!fr||u.role===fr).forEach(u=>{total++;if(!responded(i.id,u.id))open++}));
-  const answered=total-open,rate=total?Math.round(answered/total*100):0;
-  const files=subsF.reduce((n,s)=>n+(s.files||[]).length,0);
   const today=new Date().toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'});
   const hero=`<section class="hero"><div class="hero-top"><div><span class="eyebrow">${esc(today)}</span><div class="hero-n sm">${greeting()}, ${esc(S.me.username)}</div>
     <p class="hero-sub">${open?`<b>${open}</b> response${open===1?'':'s'} still waiting from your team.`:(S.instructions.length?'Everyone has responded. Nothing is waiting on you.':'Send your first instruction to get the team moving.')}</p></div>
-    <div class="hero-actions"><button class="btn dark" data-act="go" data-route="send">New instruction</button><button class="btn light" data-act="go" data-route="content">All content</button><button class="btn light" data-act="go" data-route="shop">Shopify</button></div></div></section>`;
+    <div class="hero-actions"><button class="btn dark" data-act="go" data-route="send">New instruction</button><button class="btn light" data-act="go" data-route="content">All content</button></div></div></section>`;
+  const st=ovTeamStats(team,insAll,subsF);
   const kpi=(k,c,l,v,sub,key)=>`<button type="button" class="kcard kbtn${S.ov.open===key?' on':''}" style="--kc:${c}" data-act="ov-kpi" data-k="${key}" aria-expanded="${S.ov.open===key}">${ico(k,c)}<div><span class="eyebrow">${l}</span><div class="kn">${v}</div><small class="muted">${sub}</small></div><svg class="kcaret" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>`;
-  const kpis=`<div class="kgrid">${kpi('users','#7B4FA0','Team members',team.length,ROLES.filter(r=>r.key!=='super_admin'&&team.some(u=>u.role===r.key)).length+' roles in use','team')}
-    ${kpi('send','#F28D3A','Instructions sent',insAll.length,'briefs to the team','sent')}
-    ${kpi('clock',open?'#C2410C':'#2C7A4B','Awaiting response',open,open?'across '+insAll.filter(i=>recipients(i).some(u=>(!fr||u.role===fr)&&!responded(i.id,u.id))).length+' instructions':'all caught up','waiting')}
-    ${kpi('file','#0F766E','Files received',files,subsF.length+' submissions','files')}</div>${S.ov.open?ovDetail(S.ov.open,team,insAll,subsF):''}`;
-  const maxR=Math.max(1,...ROLES.map(r=>S.users.filter(u=>u.role===r.key&&u.role!=='super_admin').length));
-  const roles=ROLES.filter(r=>r.key!=='super_admin').map(r=>{const n=S.users.filter(u=>u.role===r.key).length;return `<div class="rolebar"><span class="rdot" style="background:var(${r.tok})"></span><span class="rl">${r.label}</span><span class="rbar"><i style="width:${Math.max(n?6:0,n/maxR*100)}%;background:var(${r.tok})"></i></span><b class="mono">${n}</b></div>`}).join('');
-  const side=`<div class="two"><section class="panel"><h2>Team response rate</h2>${total?`<div class="cust">${donut([{v:answered,c:'#F28D3A',l:'Responded'},{v:open,c:'#CBB7D8',l:'Waiting'}],rate+'%','responded')}<div class="legend"><div><i style="background:#F28D3A"></i><b>${answered}</b> responses received</div><div><i style="background:#CBB7D8"></i><b>${open}</b> still waiting</div><p class="muted" style="font-size:.82rem;margin:6px 0 0">Counted across every person each instruction was sent to.</p></div></div>`:'<p class="muted">Send an instruction to start tracking responses.</p>'}</section>
-    <section class="panel"><div class="item-top"><h2>Your team</h2><button class="btn sm" data-act="go" data-route="team">View all</button></div>${team.length?`<div class="rolebars">${roles}</div>`:'<p class="muted">Add team members on the Users page.</p>'}</section></div>`;
-  const waiting=S.instructions.map(i=>({i,w:recipients(i).filter(u=>!responded(i.id,u.id))})).filter(x=>x.w.length).sort((x,y)=>y.w.length-x.w.length).slice(0,4);
-  const attn=waiting.length?`<section class="panel"><div><h2>Needs a nudge</h2><p class="muted">Instructions with the most people still to respond.</p></div><div class="attn">${waiting.map(({i,w})=>`<button class="arow" data-act="go" data-route="ins" data-param="${i.id}"><b>${esc(i.title)}</b><span class="muted">${w.slice(0,4).map(u=>esc(u.username)).join(', ')}${w.length>4?' +'+(w.length-4)+' more':''}</span><span class="pill new">${w.length} waiting</span></button>`).join('')}</div></section>`:'';
-  const secs=[['ov-priority','Priorities'],['ov-business','Business'],['ov-summary','Team'],['ov-perf','Performance'],['ov-insights','Insights'],...(attn?[['ov-nudge','Needs a nudge']]:[]),['ov-latest','Latest instructions'],['ov-files','From the team']];
+  const plain=(k,c,l,v,sub,chipHTML)=>`<div class="kcard" style="--kc:${c}">${ico(k,c)}<div><span class="eyebrow">${l}</span><div class="kn">${v}</div><small class="muted">${sub}</small></div>${chipHTML||''}</div>`;
+  const wk=pvPct(st.thisW,st.lastW);
+  const kpis=`<div class="kgrid k3">
+    ${kpi('clock',open?'#C2410C':'#2C7A4B','Awaiting response',open,open?'people still to respond':'all caught up','waiting')}
+    ${plain('check','#F28D3A','Response rate',st.rate===null?'–':st.rate+'%',st.sent?`${st.done} of ${st.sent} requests answered`:'no instructions yet')}
+    ${plain('clock','#7B4FA0','Typical response time',st.mid===null?'–':ovcDur(st.mid),'median, instruction to first response')}
+    ${kpi('file','#0F766E','Uploads this week',st.thisW,st.lastW?`${st.lastW} the week before`:'files and responses','files')}
+    ${plain('trend','#2C7A4B','Fastest team',st.fast?esc(st.fast.label):'–',st.fast?'about '+ovcDur(st.fast.avg)+' on average':'no responses yet')}
+    ${plain('alert','#C2410C','Slowest team',st.slow?esc(st.slow.label):'–',st.slow?'about '+ovcDur(st.slow.avg)+' on average':'not enough data')}</div>${S.ov.open?ovDetail(S.ov.open,team,insAll,subsF):''}`;
+  const secs=[['ov-priority','Needs attention'],['ov-business','Business today'],['ov-summary','Team pulse'],['ov-perf','Top performers']];
   const tabs=`<nav class="ovtabs" aria-label="Sections">${secs.map(([id,l])=>`<button type="button" data-act="ov-tab" data-sec="${id}"${S.ovSec===id?' class="on" aria-current="true"':''}>${l}</button>`).join('')}</nav>`;
-  return `<div style="display:grid;gap:18px">${hero}${tabs}<div id="ov-priority" class="ovsec pv-sec">${pvAttention()}</div><div id="ov-business" class="ovsec pv-sec">${pvBusiness()}</div><div id="ov-summary" class="ovsec pv-sec"><div class="pv-head"><div><h2>Team operations</h2><p class="muted">Instructions, responses and files. The filters below only change this section and the charts.</p></div></div>${ovFilters()}${kpis}${side}</div><div id="ov-perf" class="ovsec pv-sec">${pvPerf()}</div><div id="ov-insights" class="ovsec">${ovInsights(team,insAll,subsF)}</div>${attn?`<div id="ov-nudge" class="ovsec">${attn}</div>`:''}
-    <section id="ov-latest" class="ovsec" style="display:grid;gap:12px"><div class="item-top"><h2>Latest instructions</h2><button class="btn sm" data-act="go" data-route="send">See all</button></div>${S.instructions.length?`<div class="list">${S.instructions.slice(0,5).map(insRowAdmin).join('')}</div>`:empty('No instructions yet','Send your first brief from Send instruction.')}</section>
-    <section id="ov-files" class="ovsec" style="display:grid;gap:12px"><div class="item-top"><h2>Latest from the team</h2><button class="btn sm" data-act="go" data-route="content">See all</button></div>${listOrEmpty(S.subs.slice(0,6),'Nothing received yet','Responses and uploads from your team land here.')}</section></div>`;
+  return `<div style="display:grid;gap:22px">${hero}${tabs}<div id="ov-priority" class="ovsec pv-sec">${pvAttention()}</div><div id="ov-business" class="ovsec pv-sec">${pvBusiness()}</div><div id="ov-summary" class="ovsec pv-sec"><div class="pv-head"><div><h2>Team pulse</h2><p class="muted">How fast the team responds and how much it sends in.</p></div></div>${ovFilters()}${kpis}</div><div id="ov-perf" class="ovsec pv-sec">${pvPerf()}</div></div>`;
 }
-
 
 /* ---------- Overview insights: charts from the team's own activity ---------- */
 const OVC={orange:'#F28D3A',purple:'#7B4FA0',teal:'#0F766E',soft:'#CBB7D8',red:'#C2410C'};
@@ -1510,7 +1521,7 @@ document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
   if(a==='go'){e.preventDefault();go(b.dataset.route,b.dataset.param)}
   else if(a==='side-toggle')toggleSide();
-  else if(a==='pv-retry')b.dataset.k.split(',').forEach(pvRun);
+  else if(a==='pv-retry')b.dataset.k.split(',').forEach(k=>pvRun(k,true));
   else if(a==='pv-refresh')loadPulse(true).then(()=>{});
   else if(a==='act-days'){S.act.days=Number(b.dataset.n);S.act.data=null;loadAct()}
   else if(a==='act-refresh'){S.act.data=null;loadAct()}
