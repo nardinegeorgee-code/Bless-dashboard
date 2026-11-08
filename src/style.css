@@ -1173,3 +1173,4 @@ body.zoomed{overflow:hidden}
 .rt.rtp>span:last-child{min-width:0}
 .rrow:has(.rtp){grid-template-columns:22px minmax(0,1.6fr) minmax(40px,.8fr) auto;padding:2px 0}
 .ranks{align-content:start}
+.panel{align-content:start}
