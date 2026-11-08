@@ -15,7 +15,7 @@ async function activityReport(q, days) {
   const since = Date.now() - days * 864e5;
   const rows = await q`SELECT * FROM activity WHERE started_at >= ${since} ORDER BY started_at DESC LIMIT 30000`;
   const users = await q`SELECT id, username, role FROM users`;
-  const byU = new Map(users.map((u) => [u.id, { id: u.id, username: u.username, role: u.role, logins: 0, visits: 0, secs: 0, lastSeen: 0, firstSeen: 0, days: new Set(), pages: {}, devices: {} }]));
+  const byU = new Map(users.map((u) => [u.id, { id: u.id, username: u.username, role: u.role, logins: 0, visits: 0, secs: 0, lastSeen: 0, firstSeen: 0, days: new Set(), pages: {}, devices: {}, recent: [] }]));
   const pages = {}, daily = {}, hours = Array(24).fill(0);
   const now = Date.now();
   for (const r of rows) {
@@ -23,6 +23,7 @@ async function activityReport(q, days) {
     const t = Number(r.started_at), last = Number(r.last_at), secs = r.secs;
     u.lastSeen = Math.max(u.lastSeen, last); u.firstSeen = u.firstSeen ? Math.min(u.firstSeen, t) : t;
     const dk = dayKey(t); u.days.add(dk);
+    if (u.recent.length < 80) u.recent.push({ kind: r.kind, page: r.page, device: r.device, at: t, secs });
     const d = (daily[dk] ||= { day: dk, users: new Set(), visits: 0, logins: 0, secs: 0 });
     d.users.add(u.id);
     if (r.kind === 'login') { u.logins++; d.logins++; u.devices[r.device] = (u.devices[r.device] || 0) + 1; continue; }
@@ -31,7 +32,7 @@ async function activityReport(q, days) {
     const g = (pages[r.page] ||= { page: r.page, visits: 0, secs: 0, users: new Set() }); g.visits++; g.secs += secs; g.users.add(u.id);
   }
   const list = [...byU.values()].map((u) => ({ id: u.id, username: u.username, role: u.role, logins: u.logins, visits: u.visits, secs: u.secs, lastSeen: u.lastSeen, firstSeen: u.firstSeen, activeDays: u.days.size, devices: u.devices,
-    avgVisit: u.visits ? Math.round(u.secs / u.visits) : 0, online: u.lastSeen > now - 3 * 60 * 1000,
+    recent: u.recent, avgVisit: u.visits ? Math.round(u.secs / u.visits) : 0, online: u.lastSeen > now - 3 * 60 * 1000,
     pages: Object.entries(u.pages).map(([page, v]) => ({ page, ...v })).sort((a, b) => b.secs - a.secs) }));
   return {
     days, now,
