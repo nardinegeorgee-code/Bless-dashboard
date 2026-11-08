@@ -1294,3 +1294,14 @@ h1{font-weight:600;font-size:1.95rem}h2,h3{font-weight:600}
 .sh-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:8px}
 .sh-log ul{list-style:none;margin:0;padding:4px 16px 14px;display:grid;gap:8px;border-top:1px solid var(--line);padding-top:12px;font-size:.86rem}
 .sh-log li{display:flex;gap:10px;flex-wrap:wrap;align-items:baseline}
+
+/* Courier sheet names */
+.sh-nm{max-width:420px;margin:6px 0 10px}.sh-nm label{display:flex;gap:6px;align-items:baseline}
+.sh-src{display:inline-block;max-width:200px;padding:2px 9px;border-radius:999px;background:var(--surface-2,rgba(127,127,127,.12));border:1px solid var(--line);font-size:.78rem;font-weight:600;white-space:normal;overflow-wrap:anywhere}
+.sh-lib{border:1px solid var(--line);border-radius:14px;background:var(--surface);padding:14px 16px;display:grid;gap:10px;align-content:start}
+.sh-libh{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.sh-libg{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;align-items:start}
+.sh-sc{border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:grid;gap:8px;background:var(--bg,transparent)}
+.sh-sc.on{border-color:var(--accent,#b76e79);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent,#b76e79) 25%,transparent)}
+.sh-scb{all:unset;cursor:pointer;display:grid;gap:2px}.sh-scb b{overflow-wrap:anywhere}.sh-scb small{color:var(--muted);font-size:.78rem}
+.sh-scb:focus-visible{outline:2px solid var(--accent,#b76e79);outline-offset:3px;border-radius:6px}

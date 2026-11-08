@@ -5,7 +5,7 @@ import { parsePeriod, monthPeriod, dayList } from './_period.js';
 import { odooConfig, sr as odooSearch } from './_odoo.js';
 import { adSpend } from './_profit.js';
 import { buildDelivery } from './_delivery.js';
-import { saveSheet, clearSheet, loadSheet, editRow, removeRows, sheetLog } from './_sheet.js';
+import { saveSheet, clearSheet, loadSheet, editRow, removeRows, sheetLog, removeSource, renameSource } from './_sheet.js';
 
 const DAY = 86400000;
 const TABS = ['sales', 'profit', 'funnel', 'products', 'experience', 'retention', 'delivery', 'undelivered'];
@@ -247,7 +247,7 @@ function buildShopifyTabs(tab, ctx, run) {
         const sh = await sheet();
         const L = sh.list, cnt = (k) => L.filter((x) => x.kind === k).length;
         return { total: L.length, returned: cnt('returned'), delivered: cnt('delivered'), other: cnt('other'), unmatched: L.filter((x) => !x.matched).length, ignoredStatuses: Object.entries(L.filter((x) => x.kind === 'other').reduce((m, x) => { const k = x.status || '(empty)'; m[k] = (m[k] || 0) + 1; return m; }, {})).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([status, n]) => ({ status, n })), fees: L.filter((x) => x.kind !== 'other' && x.matched).reduce((a, x) => a + x.fee, 0),
-          rows: L.slice(0, 3000).map((x) => ({ id: x.no, no: x.label, status: x.status || '', kind: x.kind, matched: x.matched, result: x.kind === 'returned' ? 'Returned' : x.kind === 'delivered' ? 'Delivered' : 'Ignored', fee: x.fee, date: x.date || '', by: x.by, at: x.updatedAt })), more: Math.max(0, L.length - 3000), log: await sheetLog(15),
+          rows: L.slice(0, 3000).map((x) => ({ id: x.no, no: x.label, status: x.status || '', kind: x.kind, matched: x.matched, result: x.kind === 'returned' ? 'Returned' : x.kind === 'delivered' ? 'Delivered' : 'Ignored', fee: x.fee, date: x.date || '', by: x.by, at: x.updatedAt, src: x.src })), more: Math.max(0, L.length - 3000), sheets: Object.values(L.reduce((m, x) => { const g = (m[x.src] ||= { name: x.src, n: 0, at: 0, by: '' }); g.n++; if (x.updatedAt >= g.at) { g.at = x.updatedAt; g.by = x.by; } return m; }, {})).sort((a, b) => b.at - a.at), log: await sheetLog(15),
           returnedFees: L.filter((x) => x.kind === 'returned' && x.matched).reduce((a, x) => a + x.fee, 0), deliveredFees: L.filter((x) => x.kind === 'delivered' && x.matched).reduce((a, x) => a + x.fee, 0) };
       }, 'Paste or upload the sheet from your courier. Column A is the order number, column B the status, column E the shipping fee.'),
       section('cost', `Cost per product (${monthLabel})`, 'table', async () => {
@@ -703,7 +703,9 @@ export default route(async (req, res) => {
     if (b.clear) { await clearSheet(who); return res.json({ ok: true }); }
     if (b.edit) { await editRow(b.edit.id, { label: b.edit.label, status: b.edit.status, fee: b.edit.fee }, who); return res.json({ ok: true }); }
     if (Array.isArray(b.remove)) return res.json({ ok: true, removed: await removeRows(b.remove, who) });
-    const n = await saveSheet(b.rows, who, !!b.replace);
+    if (b.removeSheet !== undefined) return res.json({ ok: true, removed: await removeSource(b.removeSheet, who) });
+    if (b.renameSheet) { await renameSource(b.renameSheet.from, b.renameSheet.to, who); return res.json({ ok: true }); }
+    const n = await saveSheet(b.rows, who, !!b.replace, b.name);
     return res.json({ ok: true, saved: n });
   }
   if (req.method === 'POST') {

@@ -10,6 +10,7 @@ export function ensureSheet() {
       const q = db();
       await q`CREATE TABLE IF NOT EXISTS ship_sheet (order_no TEXT PRIMARY KEY, label TEXT, status TEXT NOT NULL DEFAULT '', fee NUMERIC NOT NULL DEFAULT 0, updated_at BIGINT NOT NULL)`;
       await q`ALTER TABLE ship_sheet ADD COLUMN IF NOT EXISTS updated_by TEXT NOT NULL DEFAULT ''`;
+      await q`ALTER TABLE ship_sheet ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT ''`;
       await q`CREATE TABLE IF NOT EXISTS ship_sheet_log (id TEXT PRIMARY KEY, at BIGINT NOT NULL, who TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '')`;
     })();
     ready.catch(() => { ready = null; });
@@ -29,7 +30,8 @@ const money = (v) => { const n = Number(String(v ?? '').replace(/[^0-9.\-]/g, ''
 
 /** rows: [[A, B, C, D, E], ...] exactly as in the sheet. A header row (no digits in column A) is skipped.
  *  replace = true swaps the whole saved sheet for these rows. */
-export async function saveSheet(rows, who = '', replace = false) {
+export async function saveSheet(rows, who = '', replace = false, source = '') {
+  source = String(source || '').trim().slice(0, 80);
   await ensureSheet();
   const out = new Map();
   for (const r of (Array.isArray(rows) ? rows : []).slice(0, 20000)) {
@@ -41,10 +43,10 @@ export async function saveSheet(rows, who = '', replace = false) {
   const q = db(), now = Date.now();
   if (replace) await q`DELETE FROM ship_sheet`;
   for (const x of out.values()) {
-    await q`INSERT INTO ship_sheet (order_no, label, status, fee, updated_at, updated_by) VALUES (${x.no}, ${x.label}, ${x.status}, ${x.fee}, ${now}, ${who})
-      ON CONFLICT (order_no) DO UPDATE SET label = EXCLUDED.label, status = EXCLUDED.status, fee = EXCLUDED.fee, updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by`;
+    await q`INSERT INTO ship_sheet (order_no, label, status, fee, updated_at, updated_by, source) VALUES (${x.no}, ${x.label}, ${x.status}, ${x.fee}, ${now}, ${who}, ${source})
+      ON CONFLICT (order_no) DO UPDATE SET label = EXCLUDED.label, status = EXCLUDED.status, fee = EXCLUDED.fee, updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by, source = CASE WHEN EXCLUDED.source = '' THEN ship_sheet.source ELSE EXCLUDED.source END`;
   }
-  await logSheet(who, replace ? 'Replaced the sheet' : 'Added orders', `${out.size} order${out.size === 1 ? '' : 's'}`);
+  await logSheet(who, replace ? 'Replaced the sheet' : 'Added orders', `${out.size} order${out.size === 1 ? '' : 's'}${source ? ' from "' + source + '"' : ''}`);
   return out.size;
 }
 export async function clearSheet(who = '') {
@@ -80,6 +82,23 @@ export async function removeRows(ids, who = '') {
   await logSheet(who, 'Deleted orders', keys.length === 1 ? keys[0] : `${keys.length} orders`);
   return keys.length;
 }
+/** Delete every order that came from one named sheet. */
+export async function removeSource(name, who = '') {
+  await ensureSheet();
+  const n = String(name ?? '').trim();
+  const [{ c }] = await db()`SELECT COUNT(*)::int AS c FROM ship_sheet WHERE source = ${n}`;
+  if (!c) throw new HttpError(404, 'That sheet has no orders left.');
+  await db()`DELETE FROM ship_sheet WHERE source = ${n}`;
+  await logSheet(who, 'Deleted a sheet', `"${n || 'Unnamed'}" · ${c} order${c === 1 ? '' : 's'}`);
+  return c;
+}
+export async function renameSource(from, to, who = '') {
+  await ensureSheet();
+  const a = String(from ?? '').trim(), b = String(to ?? '').trim().slice(0, 80);
+  if (!b) throw new HttpError(400, 'Type a name for the sheet.');
+  await db()`UPDATE ship_sheet SET source = ${b} WHERE source = ${a}`;
+  await logSheet(who, 'Renamed a sheet', `"${a || 'Unnamed'}" → "${b}"`);
+}
 export async function logSheet(who, action, detail) {
   try { await db()`INSERT INTO ship_sheet_log (id, at, who, action, detail) VALUES (${'l' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)}, ${Date.now()}, ${who || ''}, ${action}, ${detail || ''})`; } catch (e) { /* the log is an extra */ }
 }
@@ -93,14 +112,14 @@ const localDay = (ms, tz) => { try { return new Date(Number(ms)).toLocaleDateStr
 /** Every sheet row matched with its Shopify order. unit(row) = cost per unit from Odoo (or null). */
 export async function loadSheet(tz, unit) {
   await ensureSheet();
-  const rows = await db()`SELECT s.order_no, s.label, s.status, s.fee, s.updated_at, s.updated_by, o.name, o.created_at, o.items
+  const rows = await db()`SELECT s.order_no, s.label, s.status, s.fee, s.updated_at, s.updated_by, s.source, o.name, o.created_at, o.items
     FROM ship_sheet s LEFT JOIN shop_orders o ON regexp_replace(lower(o.name), '[^0-9a-z]', '', 'g') = s.order_no ORDER BY s.updated_at DESC, s.order_no`;
   const list = rows.map((r) => {
     const kind = kindOf(r.status), matched = r.created_at !== null && r.created_at !== undefined, items = r.items || [];
     const rev = matched ? items.reduce((a, i) => a + (Number(i.q) || 0) * (Number(i.p) || 0), 0) : 0;
     let cost = 0;
     if (matched && unit) for (const i of items) { const u = unit({ product_variant_sku: i.s, product_title: i.t }); if (u !== null && u !== undefined) cost += u * (Number(i.q) || 0); }
-    return { no: r.order_no, updatedAt: Number(r.updated_at) || 0, by: r.updated_by || '', label: r.label || r.name || r.order_no, status: r.status, kind, fee: Number(r.fee) || 0, matched, date: matched ? localDay(r.created_at, tz) : null, rev, cost };
+    return { no: r.order_no, updatedAt: Number(r.updated_at) || 0, by: r.updated_by || '', src: r.source || '', label: r.label || r.name || r.order_no, status: r.status, kind, fee: Number(r.fee) || 0, matched, date: matched ? localDay(r.created_at, tz) : null, rev, cost };
   });
   const range = (a, b) => {
     const t = { fee: 0, rev: 0, cost: 0, returned: 0, delivered: 0, list: [] };
