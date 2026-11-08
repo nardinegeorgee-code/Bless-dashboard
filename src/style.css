@@ -831,3 +831,22 @@ input[type=checkbox],input[type=radio]{accent-color:var(--accent)}
 .pv-mini .dchip,.pv-hero .dchip{justify-self:start;width:max-content}
 :root:not([data-theme="light"]) .dchip.up{background:rgba(74,222,154,.15);color:#6EE7B7}
 :root:not([data-theme="light"]) .dchip.down{background:rgba(255,107,122,.16);color:#FF9AA5}
+
+/* branded loading screen */
+.splash{flex-direction:column;gap:22px;display:flex;align-items:center;justify-content:center}
+.sp-stage{position:relative;display:grid;place-items:center;width:min(400px,86vw);height:220px}
+.sp-logo{position:relative;z-index:2;width:min(290px,68vw);height:auto;animation:spfloat 4.5s ease-in-out infinite}
+.sp-orb{position:absolute;border-radius:50%;filter:blur(34px);opacity:.75;animation:spbreath 5s ease-in-out infinite}
+.sp-orb.a{width:190px;height:190px;left:6%;top:4%;background:radial-gradient(circle,#C9A6F0,transparent 68%)}
+.sp-orb.b{width:170px;height:170px;right:4%;bottom:0;background:radial-gradient(circle,#FFB98A,transparent 68%);animation-delay:-2.5s}
+.sp-spark{position:absolute;z-index:3;fill:#FFD9B8;filter:drop-shadow(0 0 6px rgba(255,185,138,.9));animation:sptwinkle 2.8s ease-in-out infinite}
+.sp-spark.s1{width:16px;left:12%;top:16%}.sp-spark.s2{width:11px;right:10%;top:10%;animation-delay:-.9s;fill:#E7D3FF}.sp-spark.s3{width:13px;right:18%;bottom:12%;animation-delay:-1.8s}
+.sp-bar{width:min(200px,50vw);height:4px;border-radius:999px;background:color-mix(in srgb,var(--muted) 25%,transparent);overflow:hidden}
+.sp-bar i{display:block;height:100%;width:40%;border-radius:999px;background:linear-gradient(90deg,#C9A6F0,#FFB98A,#F28D3A);animation:spslide 1.5s cubic-bezier(.6,0,.4,1) infinite}
+.sp-txt{font-family:var(--f-display);font-size:.95rem;letter-spacing:.03em;color:var(--muted)}.sp-txt span{opacity:.5;margin:0 4px}
+:root[data-theme="light"] .sp-orb{opacity:.55}
+@keyframes spfloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+@keyframes spbreath{0%,100%{transform:scale(.9);opacity:.5}50%{transform:scale(1.12);opacity:.85}}
+@keyframes sptwinkle{0%,100%{transform:scale(.4) rotate(0);opacity:0}50%{transform:scale(1) rotate(45deg);opacity:1}}
+@keyframes spslide{0%{transform:translateX(-110%)}100%{transform:translateX(300%)}}
+@media (prefers-reduced-motion:reduce){.sp-logo,.sp-orb,.sp-spark,.sp-bar i{animation:none}.sp-spark{opacity:.8}}
