@@ -117,6 +117,9 @@ const NAV_ICON={
   ins:'<rect x="6" y="4.500" width="12" height="16" rx="2"/><path d="M9.500 4.500h5v2.500h-5zM9 11h6M9 14.500h6M9 18h3.500"/>'
 };
 const navIco=k=>`<svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${NAV_ICON[k]||NAV_ICON.home}</svg>`;
+const DASH_TABS=[['dash','All together'],['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads']];
+const dashSys=()=>!!S.inDash&&['shop','odoo','meta'].includes(S.route);
+function dashTabs(){const cur=S.route;return `<div class="dtbar"><div class="dtabs" role="tablist" aria-label="Dashboards sections">${DASH_TABS.map(([k,l])=>`<button class="dtab${cur===k?' on':''}" role="tab" aria-selected="${cur===k}" data-act="dtab" data-t="${k}">${l}</button>`).join('')}</div><button class="btn sm ghost" data-act="go" data-route="hub">← All reports</button></div>`}
 const SIDE_MIN_KEY='hub_side_min';
 const THEME_KEY='bless-theme';
 function theme(){try{return localStorage.getItem(THEME_KEY)==='light'?'light':'dark'}catch(e){return document.documentElement.dataset.theme==='light'?'light':'dark'}}
@@ -142,9 +145,9 @@ function showApp(){
 }
 function renderNav(){
   document.body.classList.toggle('on-hub',S.route==='hub');
-  $('#nav').innerHTML=navItems().map(([k,l,c])=>`<button data-act="go" data-route="${k}" title="${esc(l)}" ${S.route===k||(S.route==='ins'&&k===(isAdmin()?'send':'home'))?'aria-current="page"':''}>${navIco(k==='home'&&!isAdmin()?'ins':k)}<span class="nl">${l}</span>${c?`<span class="count">${c}</span>`:''}</button>`).join('');
+  $('#nav').innerHTML=navItems().map(([k,l,c])=>`<button data-act="go" data-route="${k}" title="${esc(l)}" ${(dashSys()?k==='dash':S.route===k||(S.route==='ins'&&k===(isAdmin()?'send':'home')))?'aria-current="page"':''}>${navIco(k==='home'&&!isAdmin()?'ins':k)}<span class="nl">${l}</span>${c?`<span class="count">${c}</span>`:''}</button>`).join('');
 }
-function go(route,param){S.route=route;S.param=param||null;mount();window.scrollTo(0,0);try{history.replaceState(null,'','#'+(route==='ins'?'ins-'+param:route))}catch(e){}}
+function go(route,param,inDash){S.route=route;S.param=param||null;S.inDash=!!inDash;mount();window.scrollTo(0,0);try{history.replaceState(null,'','#'+(route==='ins'?'ins-'+param:route))}catch(e){}}
 
 /* ---------- derived ---------- */
 function myInstructions(){return S.instructions.filter(i=>(i.roles||[]).includes(S.me.role)||(i.userIds||[]).includes(S.me.id))}
@@ -193,6 +196,8 @@ function mount(){
       <div class="field"><label for="nu-p">Password</label><input class="input" id="nu-p" type="text" autocomplete="off" minlength="4" required></div>
       <div class="field"><label for="nu-r">Role</label><select class="select" id="nu-r">${ROLES.map(r=>`<option value="${r.key}" ${r.key==='graphic_designer'?'selected':''}>${r.label}</option>`).join('')}</select></div></div>
       <div class="row" style="justify-content:space-between"><span class="err" id="nu-err"></span><button class="btn primary" type="submit">Add user</button></div></form><div id="live"></div>`;
+  v.classList.toggle('indash',dashSys());
+  if(dashSys())v.insertAdjacentHTML('afterbegin',dashTabs());
   update();
 }
 
@@ -722,7 +727,7 @@ function dtile(o){
 function dashPanel(name,color,route,body,keys){
   const D=S.dash,bad=keys.find(k=>D.err[k]);
   const inner=bad?`<p class="muted">${esc(D.err[bad])}</p><button class="btn sm" data-act="dash-retry" data-k="${keys.join(',')}">Try again</button>`:keys.every(k=>D.done[k]&&D.d[k])?body:`<div class="pv-sk"><i></i><i></i><i></i></div>`;
-  return `<section class="dh-p" style="--pc:${color}"><div class="dh-ph"><h3>${name}</h3><button class="btn sm ghost" data-act="go" data-route="${route}">Open ${name} →</button></div>${inner}</section>`;
+  return `<section class="dh-p" style="--pc:${color}"><div class="dh-ph"><h3>${name}</h3><button class="btn sm ghost" data-act="dtab" data-t="${route}">Full ${name} →</button></div>${inner}</section>`;
 }
 function dashList(rows){return rows.length?`<ul class="dh-l">${rows.map(r=>`<li><span class="dh-n">${esc(r[0])}</span><b>${r[1]}</b></li>`).join('')}</ul>`:'<p class="muted">Nothing in this period.</p>'}
 function dashHTML(){
@@ -752,7 +757,7 @@ function dashHTML(){
   const tr=(rows,k,color,label,c)=>rows&&rows.length?`<div class="dh-tr"><span class="eyebrow">${label}</span>${pvSpark(rows.map(r=>r[k]),color)}<div class="dh-ax"><span>${esc(rows[0].label||'')}</span><span>${esc(rows[rows.length-1].label||'')}</span></div></div>`:'';
   const otr=od&&(od.sections||[]).find(x=>x.id==='trend'),mtr=mt&&(mt.sections||[]).find(x=>x.id==='trend');
   const trends=[tr((sh&&sh.months)||[],'revenue','#2DD4BF','Shopify revenue by month'),tr(otr?otr.rows.map(r=>({label:r.label,v:r.values.profit})):[],'v','#A78BFA','Odoo profit by month'),tr(mtr?mtr.rows.map(r=>({label:r.label,v:r.values.spend})):[],'v','#FF8A3D','Meta spend by month')].join('');
-  return `<div class="head"><div><h1>Dashboards</h1><p>Shopify, Odoo and Meta Ads together. Pick a period; every number below follows it.</p></div><div class="row"><button class="btn ghost" data-act="go" data-route="hub">← All reports</button><button class="btn" data-act="dash-refresh">${D.busy?'Refreshing…':'↻ Refresh'}</button></div></div>
+  return `${dashTabs()}<div class="head"><div><h1>Dashboards</h1><p>Shopify, Odoo and Meta Ads together. Pick a period; every number below follows it.</p></div><div class="row"><button class="btn" data-act="dash-refresh">${D.busy?'Refreshing…':'↻ Refresh'}</button></div></div>
   ${dateBar(sh)}
   <h2 class="dh-sec">Key numbers</h2><div class="dh-grid g3">${main}</div>
   <h2 class="dh-sec">How the three work together</h2><div class="dh-grid">${bl}</div>
@@ -1626,6 +1631,7 @@ document.addEventListener('click',async e=>{
   if(a==='go'){e.preventDefault();go(b.dataset.route,b.dataset.param)}
   else if(a==='side-toggle')toggleSide();
   else if(a==='pv-retry')b.dataset.k.split(',').forEach(k=>pvRun(k,true));
+  else if(a==='dtab'){const t=b.dataset.t;go(t,null,t!=='dash')}
   else if(a==='dash-retry')b.dataset.k.split(',').forEach(k=>dashRun(k,true,S.dash.tok));
   else if(a==='dash-refresh')loadDash(true,false);
   else if(a==='pv-refresh')loadPulse(true).then(()=>{});

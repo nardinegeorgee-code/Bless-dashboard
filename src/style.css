@@ -892,3 +892,7 @@ body.on-hub .side{display:none}
 body.on-hub .wrap{max-width:1200px;margin:0 auto}
 .hub-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:22px}
 .hub-bar .brand{margin:0}
+.dtbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:18px}.dtabs{display:flex;gap:6px;flex-wrap:wrap;padding:5px;border-radius:14px;border:1px solid var(--line);background:var(--card);width:fit-content;max-width:100%}
+.dtab{border:0;background:transparent;color:var(--muted);font:inherit;font-weight:600;padding:9px 16px;border-radius:10px;cursor:pointer}
+.dtab:hover{color:var(--ink)}.dtab.on{background:var(--accent);color:#1a0d02}
+.indash>.head{display:none}
