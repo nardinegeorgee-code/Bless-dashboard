@@ -765,3 +765,16 @@ input[type=checkbox],input[type=radio]{accent-color:var(--accent)}
 .wrap{grid-template-columns:minmax(0,1fr)}
 .wrap>*{min-width:0;max-width:100%}
 @media (max-width:520px){.kgrid{grid-template-columns:minmax(0,1fr)}}
+
+/* activity page */
+.acttable td,.acttable th{white-space:nowrap}
+.acttable td.num,.dt th.num{text-align:right;font-variant-numeric:tabular-nums}
+.actrow{cursor:pointer}.actrow:hover td{background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.actrow.open td{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.actdet td{white-space:normal;padding:14px 18px}
+.act-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--muted);margin-right:7px;opacity:.7}
+.act-dot.on{background:var(--ok);opacity:1;box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent),0 0 10px var(--ok)}
+.act-dot.off{background:transparent;border:1px solid var(--muted)}
+.oi-big{font-family:var(--f-display);font-size:1.5rem;line-height:1.1}
+.oi-ht i{display:block;height:100%;border-radius:999px;min-width:3px}
+.actdet .oi-hbs{max-width:640px;position:sticky;left:18px}

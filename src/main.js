@@ -108,6 +108,7 @@ const NAV_ICON={
   team:'<circle cx="9" cy="8.5" r="3"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><path d="M16 6a3 3 0 0 1 0 5.5M18.5 14.3c1.7.7 2.5 2.200 2.5 4.700"/>',
   notes:'<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16Z"/><path d="M10 20.500a2.200 2.200 0 0 0 4 0"/>',
   users:'<circle cx="12" cy="8" r="3.500"/><path d="M5 20c0-3.500 3-6 7-6s7 2.500 7 6"/>',
+  act:'<path d="M3 12h3.500l2-6 4 12 2.500-8 1.500 2H21"/>',
   uploads:'<path d="M12 16V5M7.500 9.500 12 5l4.500 4.500"/><path d="M5 15v3.500a1.500 1.500 0 0 0 1.500 1.500h11a1.500 1.500 0 0 0 1.500-1.500V15"/>',
   ins:'<rect x="6" y="4.500" width="12" height="16" rx="2"/><path d="M9.500 4.500h5v2.500h-5zM9 11h6M9 14.500h6M9 18h3.500"/>'
 };
@@ -123,7 +124,7 @@ function applySideMin(){document.body.classList.toggle('side-min',sideMin())}
 function toggleSide(){try{localStorage.setItem(SIDE_MIN_KEY,sideMin()?'0':'1')}catch(e){document.body.classList.toggle('side-min')}applySideMin()}
 function navItems(){
   const nu=unreadNotes().length;
-  if(isAdmin())return [['home','Overview'],['send','Send instruction'],['content','All content'],['eval','Evaluation'],['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads'],['team','Team by role'],['notes','Notifications',nu],['users','Users']];
+  if(isAdmin())return [['home','Overview'],['send','Send instruction'],['content','All content'],['eval','Evaluation'],['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads'],['team','Team by role'],['notes','Notifications',nu],['act','Activity'],['users','Users']];
   if(isCeo())return [['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads']];
   const pending=myInstructions().filter(i=>!responded(i.id)).length;
   return [['home','Instructions',pending],['uploads','My uploads'],['notes','Notifications',nu],['team','Team by role']];
@@ -154,7 +155,7 @@ function targetChips(ins){
 function mount(){
   const v=$('#view');const r=S.route;
   if(isCeo()){if(!['shop','odoo','meta'].includes(S.route))S.route='shop'}
-  else if(!isAdmin()&&['send','content','users','shop','eval','odoo','meta'].includes(r)){S.route='home'}
+  else if(!isAdmin()&&['send','content','users','shop','eval','odoo','meta','act'].includes(r)){S.route='home'}
   if(S.route==='home')v.innerHTML=isAdmin()?`<div id="live"></div>`
     :`<div class="head"><div><h1>Instructions</h1><p>Briefs from your Super Admin. Open one to send back your files.</p></div><button class="btn" data-act="go" data-route="uploads">Upload without an instruction</button></div><div id="live"></div>`;
   else if(S.route==='ins')v.innerHTML=`<button class="btn ghost back" data-act="go" data-route="${isAdmin()?'send':'home'}">← Back</button><div id="live"></div>${isAdmin()?'':`<div class="panel"><div><h2>Respond</h2><p class="muted">Attach your files and add a note if needed.</p></div>${uploadForm('resp')}</div>`}<div id="live2"></div>`;
@@ -178,6 +179,7 @@ function mount(){
   else if(S.route==='odoo'){v.innerHTML=`<div class="head"><div><h1>Odoo</h1><p>Supply, sales and finance, read live from Odoo.</p></div></div><div id="live"></div>`;if(!S.od.cache[S.od.tab+'|'+(S.od.month||'')]&&!S.od.loading)loadOdoo();else renderOdoo()}
   else if(S.route==='meta'){v.innerHTML=`<div class="head"><div><h1>Meta Ads</h1><p>Facebook and Instagram advertising, read live from Meta. Pause campaigns and change budgets from here.</p></div></div><div id="live"></div>`;if(!S.meta.cache[S.meta.tab+'|'+(S.meta.month||'')]&&!S.meta.loading)loadMeta();else renderMeta()}
   else if(S.route==='shop'){v.innerHTML=`<div class="head"><div><h1>Shopify</h1><p>Sales, funnel, products, customer experience and retention, one tab each.</p></div></div><div id="live"></div>`;if(S.an.tab==='overview'){if(!S.shop.data&&!S.shop.loading)loadShop()}else loadAn();}
+  else if(S.route==='act')v.innerHTML=`<div id="live"></div>`;
   else if(S.route==='users')v.innerHTML=`<div class="head"><div><h1>Users</h1><p>Add people, change their role, or set a new password.</p></div></div>
     <form class="panel" data-form="adduser"><h2>Add a user</h2><div class="grid2">
       <div class="field"><label for="nu-u">Username</label><input class="input" id="nu-u" autocomplete="off" required></div>
@@ -199,6 +201,7 @@ function update(){
   else if(r==='send')updateSend();
   else if(r==='content')updateContent();
   else if(r==='users')L.innerHTML=usersHTML();
+  else if(r==='act')renderAct();
   else if(r==='shop')renderShop();
   else if(r==='odoo')renderOdoo();
   else if(r==='meta')renderMeta();
@@ -1292,6 +1295,69 @@ function renderMeta(){
   window.scrollTo(0,y);
 }
 
+
+/* ---------- activity: tracking (every signed-in user) + report (admin) ---------- */
+const AT={id:'',key:'',acc:0,mark:Date.now(),sent:-1,sentAt:0,act:Date.now()};
+function atKey(){if(!S.me)return '';const r=S.route,t=r==='shop'?S.an.tab:r==='odoo'?S.od&&S.od.tab:r==='meta'?S.meta.tab:'';return t?r+':'+t:r}
+function atSend(){
+  if(!AT.id||!AT.key)return;const secs=Math.round(AT.acc);if(secs===AT.sent)return;AT.sent=secs;AT.sentAt=Date.now();
+  try{fetch('/api/auth?action=ping',{method:'POST',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify({id:AT.id,page:AT.key,secs}),credentials:'same-origin'}).catch(()=>{})}catch(e){}
+}
+function atTick(){
+  if(!S.me){AT.id='';AT.key='';return}
+  const now=Date.now(),dt=Math.min(now-AT.mark,15000);AT.mark=now;
+  const key=atKey();
+  if(key!==AT.key){atSend();AT.key=key;AT.id='v'+now.toString(36)+Math.random().toString(36).slice(2,7);AT.acc=0;AT.sent=-1;atSend();return}
+  if(!document.hidden&&now-AT.act<60000)AT.acc+=dt/1000;
+  if(now-AT.sentAt>=15000)atSend();
+}
+['mousemove','keydown','click','scroll','touchstart'].forEach(ev=>addEventListener(ev,()=>{AT.act=Date.now()},{passive:true,capture:true}));
+document.addEventListener('visibilitychange',()=>{if(document.hidden){atTick();atSend()}else{AT.mark=Date.now();AT.act=Date.now()}});
+addEventListener('pagehide',()=>{atTick();atSend()});
+setInterval(atTick,4000);
+
+S.act={days:30,data:null,loading:false,err:'',open:'',log:'20'};
+const ACT_PAGES={home:'Overview',send:'Send instruction',content:'All content',eval:'Evaluation',shop:'Shopify',odoo:'Odoo',meta:'Meta Ads',team:'Team by role',notes:'Notifications',users:'Users',act:'Activity',ins:'Instruction',uploads:'My uploads',login:'Signed in'};
+function actPage(k){const [r,t]=String(k).split(':');const nm=ACT_PAGES[r]||r;if(!t)return nm;const tab=r==='shop'?(AN_TABS.find(x=>x[0]===t)||[])[1]:({pnl:'Profit & loss',trial:'Trial balance',balance:'Balance sheet',hr:'HR',in:'Stock in',out:'Stock out'})[t]||t;return nm+' · '+(tab||t).toString().replace(/^./,c=>c.toUpperCase())}
+function actDur(sec){sec=Math.round(sec||0);if(sec<60)return sec+'s';const m=Math.floor(sec/60);if(m<60)return m+'m '+String(sec%60).padStart(2,'0')+'s';const h=Math.floor(m/60);return h+'h '+String(m%60).padStart(2,'0')+'m'}
+function actAgo(t){if(!t)return 'Never';const d=Date.now()-t;if(d<90e3)return 'Just now';if(d<36e5)return Math.round(d/6e4)+' min ago';if(d<864e5)return Math.round(d/36e5)+' h ago';return Math.round(d/864e5)+' days ago'}
+function actAt(t){return new Date(t).toLocaleString('en-GB',{timeZone:'Africa/Cairo',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:false})}
+async function loadAct(){
+  if(S.act.loading)return;S.act.loading=true;S.act.err='';if(S.route==='act')renderAct();
+  try{S.act.data=await api('GET','/api/auth?action=activity&days='+S.act.days)}catch(e){S.act.err=e.message}
+  S.act.loading=false;if(S.route==='act')renderAct();
+}
+function actBars(items,w,h,fmt){
+  const mx=Math.max(1,...items.map(i=>i.v)),n=items.length,bw=(w-30)/n;
+  return `<svg class="oi-chart" viewBox="0 0 ${w} ${h}" role="img">${[0,.5,1].map(f=>`<line class="oi-gl" x1="30" x2="${w}" y1="${(h-22)*(1-f)+4}" y2="${(h-22)*(1-f)+4}"/>`).join('')}<text class="oi-axis" x="26" y="${10}" text-anchor="end">${mx}</text><text class="oi-axis" x="26" y="${h-18}" text-anchor="end">0</text>${items.map((i,k)=>{const bh=Math.max(i.v?2:0,(h-26)*i.v/mx);return `<rect class="oi-bar" x="${30+k*bw+bw*.15}" y="${h-22-bh}" width="${bw*.7}" height="${bh}" rx="3" fill="var(--accent)" data-tip="${esc(i.tip)}"/>`}).join('')}${items.map((i,k)=>i.l&&(n<=14||k%Math.ceil(n/12)===0)?`<text class="oi-axis" x="${30+k*bw+bw/2}" y="${h-6}" text-anchor="middle">${esc(i.l)}</text>`:'').join('')}</svg>`;
+}
+function renderAct(){
+  const L=$('#live');if(!L)return;const A=S.act,d=A.data;
+  const head=`<div class="head"><div><h1>Activity</h1><p>Who is using the hub, which pages they open and for how long. Times are Cairo time.</p></div><div class="row"><div class="seg" role="group" aria-label="Range">${[[7,'7 days'],[30,'30 days'],[90,'90 days']].map(([n,l])=>`<button type="button" class="segb${A.days===n?' on':''}" data-act="act-days" data-n="${n}">${l}</button>`).join('')}</div><button class="btn" data-act="act-refresh">Refresh</button></div></div>`;
+  if(!d){L.innerHTML=head+(A.err?`<div class="empty"><b>Could not load activity</b><p>${esc(A.err)}</p><button class="btn" data-act="act-refresh">Try again</button></div>`:`<div class="empty"><p>Loading activity…</p></div>`);if(!A.loading&&!A.err)loadAct();return}
+  const tot=d.users.reduce((a,u)=>({v:a.v+u.visits,s:a.s+u.secs,l:a.l+u.logins}),{v:0,s:0,l:0});
+  const active=d.users.filter(u=>u.visits||u.logins).length,online=d.users.filter(u=>u.online).length;
+  const strip=`<div class="oi-strip">${[['Online now',online,online?'seen in the last 3 minutes':'nobody right now'],['Active people',active+' / '+d.users.length,'opened the hub in '+d.days+' days'],['Page views',tot.v,tot.l+' sign-ins'],['Time spent',actDur(tot.s),'active time on pages'],['Avg per visit',actDur(tot.v?tot.s/tot.v:0),'per page opened']].map(([l,v,sub])=>`<div class="oi-st"><span class="eyebrow">${l}</span><b class="oi-big">${v}</b><span class="muted">${sub}</span></div>`).join('')}</div>`;
+  // daily chart over the full range
+  const days=[];const dk=t=>new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Cairo'}).format(t);
+  const map=new Map(d.daily.map(x=>[x.day,x]));
+  for(let i=d.days-1;i>=0;i--){const k=dk(d.now-i*864e5),x=map.get(k)||{visits:0,users:0,secs:0};days.push({v:x.visits,l:k.slice(5).replace('-','/'),tip:k+' · '+x.visits+' page views · '+x.users+' people · '+actDur(x.secs)})}
+  const hrs=d.hours.map((v,h)=>({v,l:String(h).padStart(2,'0'),tip:String(h).padStart(2,'0')+':00 · '+v+' page views'}));
+  const mxP=Math.max(1,...d.pages.map(p=>p.visits));
+  const pagesHB=d.pages.length?`<div class="oi-hbs">${d.pages.slice(0,10).map(p=>`<div class="oi-hb"><span class="oi-hl" title="${esc(actPage(p.page))}">${esc(actPage(p.page))}</span><span class="oi-ht"><i style="width:${p.visits/mxP*100}%;background:var(--accent)"></i></span><span class="oi-hv">${p.visits} · ${actDur(p.secs)}</span></div>`).join('')}</div>`:'<p class="muted">No page views yet.</p>';
+  const card=(t,sub,body)=>`<section class="viz oi-card"><div><h3>${t}</h3><p class="muted">${sub}</p></div>${body}</section>`;
+  const charts=`<div class="oi-grid wide">${card('Page views per day','Every page opened, by day.',actBars(days,520,190))}${card('Busiest hours','When the hub is used, across the whole range.',actBars(hrs,520,190))}</div><div class="oi-grid wide">${card('Most opened pages','Page views and total time spent.',pagesHB)}${card('Who spends the most time','Total active time per person.',(()=>{const t=d.users.filter(u=>u.secs).sort((a,b)=>b.secs-a.secs).slice(0,8),mx=Math.max(1,...t.map(u=>u.secs));return t.length?`<div class="oi-hbs">${t.map(u=>`<div class="oi-hb"><span class="oi-hl" title="${esc(u.username)}">${esc(u.username)}</span><span class="oi-ht"><i style="width:${u.secs/mx*100}%;background:var(--role-${({super_admin:'sa',graphic_designer:'gd',media_buyer:'mb',content_creator:'cc',moderator:'mo',pr:'pr',ecommerce:'ec',ceo:'ceo'})[u.role]||'sa'})"></i></span><span class="oi-hv">${actDur(u.secs)}</span></div>`).join('')}</div>`:'<p class="muted">No time recorded yet.</p>'})())}</div>`;
+  const rows=d.users.map(u=>{
+    const top=u.pages[0],dev=Object.entries(u.devices).sort((a,b)=>b[1]-a[1])[0],open=A.open===u.id;
+    const st=u.online?'<span class="act-dot on"></span>Online':u.lastSeen?`<span class="act-dot"></span>${actAgo(u.lastSeen)}`:'<span class="act-dot off"></span>Never opened';
+    return `<tr class="actrow${open?' open':''}" data-act="act-open" data-id="${u.id}" tabindex="0"><td><b>${esc(u.username)}</b> ${roleChip(u.role)}</td><td>${st}</td><td class="num">${u.logins}</td><td class="num">${u.visits}</td><td class="num">${actDur(u.secs)}</td><td class="num">${u.visits?actDur(u.avgVisit):'–'}</td><td class="num">${u.activeDays}</td><td>${top?esc(actPage(top.page)):'–'}</td><td>${dev?dev[0]:'–'}</td></tr>`+(open?`<tr class="actdet"><td colspan="9">${u.pages.length?`<div class="oi-hbs">${u.pages.map(p=>`<div class="oi-hb"><span class="oi-hl">${esc(actPage(p.page))}</span><span class="oi-ht"><i style="width:${p.secs/Math.max(1,u.pages[0].secs)*100}%;background:var(--accent)"></i></span><span class="oi-hv">${p.visits} visits · ${actDur(p.secs)}</span></div>`).join('')}</div>`:'<span class="muted">No pages opened in this range.</span>'}</td></tr>`:'');
+  }).join('');
+  const users=`<section class="viz"><div><h3>People</h3><p class="muted">Click a person to see every page they opened.</p></div><div class="tablewrap"><table class="dt acttable"><thead><tr><th>Person</th><th>Status</th><th class="num">Sign-ins</th><th class="num">Page views</th><th class="num">Time spent</th><th class="num">Avg / visit</th><th class="num">Active days</th><th>Favourite page</th><th>Device</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
+  const nlog=Number(A.log),log=d.recent.slice(0,nlog);
+  const logT=`<section class="viz"><div class="row" style="justify-content:space-between"><div><h3>Latest activity</h3><p class="muted">Most recent sign-ins and pages opened.</p></div><div class="seg" role="group">${['20','50','150'].map(n=>`<button type="button" class="segb${A.log===n?' on':''}" data-act="act-log" data-n="${n}">${n}</button>`).join('')}</div></div><div class="tablewrap"><table class="dt"><thead><tr><th>When</th><th>Person</th><th>What</th><th class="num">Time on page</th><th>Device</th></tr></thead><tbody>${log.map(r=>`<tr><td class="mono">${actAt(r.at)}</td><td>${esc(r.username)}</td><td>${r.kind==='login'?'<b>Signed in</b>':'Opened '+esc(actPage(r.page))}</td><td class="num">${r.kind==='login'?'–':actDur(r.secs)}</td><td>${esc(r.device)}</td></tr>`).join('')||'<tr><td colspan="5" class="muted">Nothing recorded yet.</td></tr>'}</tbody></table></div></section>`;
+  L.innerHTML=head+strip+charts+users+logT+(d.truncated?'<p class="muted">Showing the most recent 30,000 events.</p>':'');
+}
+
 /* ---------- events ---------- */
 function arm(btn){if(btn.dataset.armed)return true;btn.dataset.armed='1';btn.classList.add('armed');const t=btn.textContent;btn.textContent='Click again to confirm';setTimeout(()=>{if(btn.isConnected){delete btn.dataset.armed;btn.classList.remove('armed');btn.textContent=t}},4000);return false}
 
@@ -1302,6 +1368,10 @@ document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
   if(a==='go'){e.preventDefault();go(b.dataset.route,b.dataset.param)}
   else if(a==='side-toggle')toggleSide();
+  else if(a==='act-days'){S.act.days=Number(b.dataset.n);S.act.data=null;loadAct()}
+  else if(a==='act-refresh'){S.act.data=null;loadAct()}
+  else if(a==='act-open'){S.act.open=S.act.open===b.dataset.id?'':b.dataset.id;renderAct()}
+  else if(a==='act-log'){S.act.log=b.dataset.n;renderAct()}
   else if(a==='theme-toggle')toggleTheme();
   else if(a==='ov-kpi'){S.ov.open=S.ov.open===b.dataset.k?'':b.dataset.k;S.ov.q='';S.ov.f='';S.ov.who='';S.ov.d='';S.ov.sk='';ovRender()}
   else if(a==='ov-sort'){const i=b.dataset.i;if(String(S.ov.sk)===i)S.ov.sd=S.ov.sd==='asc'?'desc':'asc';else{S.ov.sk=i;S.ov.sd='asc'}ovRender()}

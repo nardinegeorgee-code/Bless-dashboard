@@ -77,6 +77,13 @@ export function ensureSchema() {
       )`;
       await q`CREATE INDEX IF NOT EXISTS sub_revisions_sub ON sub_revisions (submission_id)`;
       await q`CREATE TABLE IF NOT EXISTS notif_reads (user_id TEXT NOT NULL, comment_id TEXT NOT NULL, PRIMARY KEY (user_id, comment_id))`;
+      await q`CREATE TABLE IF NOT EXISTS activity (
+        id TEXT PRIMARY KEY, user_id TEXT NOT NULL, username TEXT NOT NULL, role TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'view', page TEXT NOT NULL DEFAULT '', device TEXT NOT NULL DEFAULT '',
+        started_at BIGINT NOT NULL, last_at BIGINT NOT NULL, secs INTEGER NOT NULL DEFAULT 0
+      )`;
+      await q`CREATE INDEX IF NOT EXISTS activity_t ON activity (started_at)`;
+      await q`CREATE INDEX IF NOT EXISTS activity_u ON activity (user_id, started_at)`;
       await q`CREATE TABLE IF NOT EXISTS eval_settings (key TEXT PRIMARY KEY, value JSONB NOT NULL)`;
     })();
     ready.catch(() => { ready = null; });
