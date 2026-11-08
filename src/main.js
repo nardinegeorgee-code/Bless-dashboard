@@ -141,6 +141,7 @@ function showApp(){
   mount();
 }
 function renderNav(){
+  document.body.classList.toggle('on-hub',S.route==='hub');
   $('#nav').innerHTML=navItems().map(([k,l,c])=>`<button data-act="go" data-route="${k}" title="${esc(l)}" ${S.route===k||(S.route==='ins'&&k===(isAdmin()?'send':'home'))?'aria-current="page"':''}>${navIco(k==='home'&&!isAdmin()?'ins':k)}<span class="nl">${l}</span>${c?`<span class="count">${c}</span>`:''}</button>`).join('');
 }
 function go(route,param){S.route=route;S.param=param||null;mount();window.scrollTo(0,0);try{history.replaceState(null,'','#'+(route==='ins'?'ins-'+param:route))}catch(e){}}
@@ -686,7 +687,7 @@ function hubHTML(){
   const list=REPORTS.filter(r=>isAdmin()||(isCeo()&&r.ceo));
   const t=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric',timeZone:'Africa/Cairo'});
   const tile=r=>`<button class="hub-t${r.feat?' feat':''}" style="--hc:${r.c}" data-act="go" data-route="${r.k}"><span class="kico" style="--kc:${r.c}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[r.ico]||NAV_ICON[r.ico]||''}</svg></span><span class="hub-tt">${r.t}</span><span class="hub-td">${r.d}</span><span class="hub-go">Open report <i>→</i></span></button>`;
-  return `<div class="head"><div><h1>Welcome, ${esc(S.me.username)}</h1><p>${t}. Choose a report to open.</p></div></div><div class="hub-grid">${list.map(tile).join('')}</div>`;
+  return `<div class="hub-bar">${brandHTML}<div class="row"><span class="muted">${esc(S.me.username)}</span>${roleChip(S.me.role)}<button class="btn sm ghost" data-act="theme-toggle">${theme()==='light'?'Dark':'Light'} mode</button><button class="btn sm so" data-act="logout">Sign out</button></div></div><div class="head"><div><h1>Welcome, ${esc(S.me.username)}</h1><p>${t}. Choose a report to open.</p></div></div><div class="hub-grid">${list.map(tile).join('')}</div>`;
 }
 S.dash={d:{},err:{},done:{},busy:false,tok:0};
 function dashJobs(){
