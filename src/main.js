@@ -97,6 +97,25 @@ function showLogin(){
 const validName=u=>u.length>=2&&u.length<=40;
 
 /* ---------- app shell ---------- */
+const NAV_ICON={
+  home:'<path d="M4 11.5 12 5l8 6.5"/><path d="M6 10v9h12v-9"/><path d="M10 19v-5h4v5"/>',
+  send:'<path d="M21 4 3 10.5l7 3 3 7L21 4Z"/><path d="m10 13.5 5-5"/>',
+  content:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/><path d="M3 11h18"/>',
+  eval:'<path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9 6.8 19.6l1-5.8-4.3-4.1 5.9-.9L12 3.5Z"/>',
+  shop:'<path d="M5 8h14l-1.1 12H6.1L5 8Z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/><path d="M9.5 12.5c.6 1 1.4 1.5 2.5 1.5s1.9-.5 2.5-1.5"/>',
+  odoo:'<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3"/><path d="M12 3.5v5.5M12 15v5.5M3.5 12H9M15 12h5.5"/>',
+  meta:'<path d="M4 14V10l11-5v14L4 14Z"/><path d="M7 14.5 8.2 19h2.6L9.6 15"/><path d="M18.5 9.5a3.5 3.5 0 0 1 0 5"/>',
+  team:'<circle cx="9" cy="8.5" r="3"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><path d="M16 6a3 3 0 0 1 0 5.5M18.5 14.3c1.7.7 2.5 2.200 2.5 4.700"/>',
+  notes:'<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16Z"/><path d="M10 20.500a2.200 2.200 0 0 0 4 0"/>',
+  users:'<circle cx="12" cy="8" r="3.500"/><path d="M5 20c0-3.500 3-6 7-6s7 2.500 7 6"/>',
+  uploads:'<path d="M12 16V5M7.500 9.500 12 5l4.500 4.500"/><path d="M5 15v3.500a1.500 1.500 0 0 0 1.500 1.500h11a1.500 1.500 0 0 0 1.500-1.500V15"/>',
+  ins:'<rect x="6" y="4.500" width="12" height="16" rx="2"/><path d="M9.500 4.500h5v2.500h-5zM9 11h6M9 14.500h6M9 18h3.500"/>'
+};
+const navIco=k=>`<svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${NAV_ICON[k]||NAV_ICON.home}</svg>`;
+const SIDE_MIN_KEY='hub_side_min';
+function sideMin(){try{return localStorage.getItem(SIDE_MIN_KEY)==='1'}catch(e){return false}}
+function applySideMin(){document.body.classList.toggle('side-min',sideMin())}
+function toggleSide(){try{localStorage.setItem(SIDE_MIN_KEY,sideMin()?'0':'1')}catch(e){document.body.classList.toggle('side-min')}applySideMin()}
 function navItems(){
   const nu=unreadNotes().length;
   if(isAdmin())return [['home','Overview'],['send','Send instruction'],['content','All content'],['eval','Evaluation'],['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads'],['team','Team by role'],['notes','Notifications',nu],['users','Users']];
@@ -105,14 +124,14 @@ function navItems(){
   return [['home','Instructions',pending],['uploads','My uploads'],['notes','Notifications',nu],['team','Team by role']];
 }
 function showApp(){
-  S.screen='app';
+  S.screen='app';applySideMin();
   $('#app').innerHTML=`<div class="shell"><aside class="side">${brandHTML}<nav class="nav" id="nav" aria-label="Pages"></nav>
-    <div class="me"><div class="who"><b>${esc(S.me.username)}</b>${roleChip(S.me.role)}</div><button class="btn sm" data-act="logout">Sign out</button></div></aside>
+    <div class="me"><div class="who"><b>${esc(S.me.username)}</b>${roleChip(S.me.role)}</div><button class="btn sm so" data-act="logout" title="Sign out"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10"/></svg><span class="nl">Sign out</span></button></div><button class="sidetog" data-act="side-toggle" title="Make the menu smaller or larger" aria-label="Toggle menu size"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m14.500 7-5 5 5 5"/></svg><span class="nl">Make smaller</span></button></aside>
     <main class="main"><div class="wrap" id="view"></div></main></div>`;
   mount();
 }
 function renderNav(){
-  $('#nav').innerHTML=navItems().map(([k,l,c])=>`<button data-act="go" data-route="${k}" ${S.route===k||(S.route==='ins'&&k===(isAdmin()?'send':'home'))?'aria-current="page"':''}><span>${l}</span>${c?`<span class="count">${c}</span>`:''}</button>`).join('');
+  $('#nav').innerHTML=navItems().map(([k,l,c])=>`<button data-act="go" data-route="${k}" title="${esc(l)}" ${S.route===k||(S.route==='ins'&&k===(isAdmin()?'send':'home'))?'aria-current="page"':''}>${navIco(k==='home'&&!isAdmin()?'ins':k)}<span class="nl">${l}</span>${c?`<span class="count">${c}</span>`:''}</button>`).join('');
 }
 function go(route,param){S.route=route;S.param=param||null;mount();window.scrollTo(0,0);try{history.replaceState(null,'','#'+(route==='ins'?'ins-'+param:route))}catch(e){}}
 
@@ -1150,6 +1169,7 @@ document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.tar
 document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
   if(a==='go'){e.preventDefault();go(b.dataset.route,b.dataset.param)}
+  else if(a==='side-toggle')toggleSide();
   else if(a==='logout')logout();
   else if(a==='shop-sync')runSync();
   else if(a==='ev-reload')loadEval();

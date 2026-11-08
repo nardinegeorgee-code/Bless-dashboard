@@ -68,7 +68,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .me{margin-top:auto;border-top:1px solid var(--line);padding-top:14px;display:grid;gap:8px}
 .me b{font-size:.95rem;overflow:hidden;text-overflow:ellipsis}
 .main{padding-block:28px 60px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));min-width:0}
-.wrap{max-width:980px;margin:0 auto;display:grid;gap:24px}
+.wrap{max-width:1800px;margin:0 auto;display:grid;gap:24px}
 .head{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap}
 .head p{color:var(--muted);margin-top:4px;max-width:60ch}
 
@@ -565,3 +565,30 @@ aside.viz .viz-t{cursor:grab;touch-action:none;user-select:none}
 .an .dt tr.stm-total td{font-weight:800;font-size:1.02rem;border-top:2px solid var(--ink,#2a1a3a);border-bottom:2px solid var(--ink,#2a1a3a);background:color-mix(in srgb,var(--ok,#0F766E) 10%,transparent)}
 
 .tgbox{margin:4px 0 14px;padding:12px 14px;border:1px solid var(--paper-line,var(--line));border-radius:12px}
+
+/* menu icons and the smaller menu */
+.nav button{justify-content:flex-start}
+.nav button .nl{flex:1}
+.ni{width:20px;height:20px;flex:none}
+.nav button[aria-current="page"] .ni{color:var(--accent,#C05A1F)}
+.nav .count{margin-left:auto}
+.so,.sidetog{display:flex;align-items:center;gap:9px;justify-content:flex-start}
+.sidetog{border:0;background:none;color:var(--muted);font-weight:600;font-size:.85rem;padding:8px 11px;border-radius:8px;cursor:pointer}
+.sidetog:hover{background:var(--surface-2);color:var(--ink)}
+.sidetog .ni{transition:transform .2s}
+body.side-min .shell{grid-template-columns:68px minmax(0,1fr)}
+body.side-min .side{padding:16px 8px;align-items:center}
+body.side-min .nl,body.side-min .who,body.side-min .brand small{display:none}
+body.side-min .brand .logo{height:34px;width:34px;object-fit:cover;object-position:left center}
+body.side-min .nav{width:100%}
+body.side-min .nav button{justify-content:center;padding:10px 0;position:relative}
+body.side-min .nav .count{position:absolute;top:2px;right:6px;margin:0;padding:0 5px;font-size:.62rem}
+body.side-min .me{border-top:0;width:100%}
+body.side-min .so,body.side-min .sidetog{justify-content:center;padding:9px 0;width:100%}
+body.side-min .sidetog .ni{transform:rotate(180deg)}
+@media (max-width:760px){.sidetog{display:none}body.side-min .shell{grid-template-columns:1fr}body.side-min .nl{display:inline}}
+
+/* make the data fill bigger screens */
+@media (min-width:1400px){.main{zoom:1.12}}
+@media (min-width:1700px){.main{zoom:1.25}}
+@media (min-width:2100px){.main{zoom:1.45}}
