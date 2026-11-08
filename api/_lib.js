@@ -2,6 +2,8 @@ import { neon } from '@neondatabase/serverless';
 import { SignJWT, jwtVerify } from 'jose';
 import bcrypt from 'bcryptjs';
 
+/** Reports the Super Admin can switch on for any individual user (User privileges). */
+export const GRANTABLE = ['dash', 'shop', 'odoo', 'meta', 'act'];
 export const ROLES = ['super_admin', 'graphic_designer', 'media_buyer', 'content_creator', 'moderator', 'pr', 'ecommerce', 'ceo'];
 export const COOKIE = 'hub_session';
 const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
@@ -55,6 +57,7 @@ export function ensureSchema() {
         files JSONB NOT NULL DEFAULT '[]',
         created_at BIGINT NOT NULL
       )`;
+      await q`ALTER TABLE users ADD COLUMN IF NOT EXISTS reports JSONB NOT NULL DEFAULT '[]'`;
       await q`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS rating INTEGER`;
       await q`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS rated_at BIGINT`;
       await q`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS edited_at BIGINT`;
@@ -100,6 +103,7 @@ export const mapUser = (r) => ({
   username: r.username,
   usernameLower: r.username_lower,
   role: r.role,
+  reports: Array.isArray(r.reports) ? r.reports : [],
   createdAt: Number(r.created_at),
 });
 export const mapInstruction = (r) => ({
@@ -196,10 +200,21 @@ export async function requireAdmin(req) {
   return u;
 }
 
-/** The CEO can look at every analysis page but cannot change anything. */
-export async function requireViewer(req) {
+/** Read-only access to an analysis page. Super Admin and CEO always; anyone else only when the
+ *  Super Admin ticked that report for them (or Dashboards, which includes Shopify, Odoo and Meta). */
+export async function requireViewer(req, key) {
   const u = await requireUser(req);
-  if (u.role !== 'super_admin' && u.role !== 'ceo') throw new HttpError(403, 'You do not have access to that page.');
+  if (u.role === 'super_admin' || u.role === 'ceo') return u;
+  const have = Array.isArray(u.reports) ? u.reports : [];
+  const ok = key ? have.includes(key) || have.includes('dash') : have.some((k) => ['dash', 'shop', 'odoo', 'meta'].includes(k));
+  if (!ok) throw new HttpError(403, 'You do not have access to that page.');
+  return u;
+}
+/** A report only the Super Admin has by default (Activity): allowed for users it was granted to. */
+export async function requireReport(req, key) {
+  const u = await requireUser(req);
+  if (u.role === 'super_admin') return u;
+  if (!(Array.isArray(u.reports) ? u.reports : []).includes(key)) throw new HttpError(403, 'You do not have access to that page.');
   return u;
 }
 

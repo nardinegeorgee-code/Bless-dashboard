@@ -28,7 +28,7 @@ const top = (map, n, by) => [...map.values()].sort((a, b) => b[by] - a[by]).slic
 
 export default route(async (req, res) => {
   allow(req, ['GET']);
-  await requireViewer(req);
+  await requireViewer(req, 'shop');
   res.setHeader('Cache-Control', 'no-store');
   const cfg = shopConfig();
   if (cfg.missing.length) return res.json({ configured: false, missing: cfg.missing });

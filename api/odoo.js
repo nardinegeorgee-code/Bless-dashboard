@@ -917,7 +917,7 @@ export default route(async (req, res) => {
     await saveTarget(req.body.rep, req.body.amount);
     return res.json({ ok: true });
   }
-  await requireViewer(req);
+  await requireViewer(req, 'odoo');
   if (await serveCached(req, res, 'odoo', 10 * 60 * 1000)) return;
   res.setHeader('Cache-Control', 'no-store');
   const cfg = odooConfig();

@@ -244,7 +244,7 @@ async function write(req, res, cfg, user) {
 
 export default route(async (req, res) => {
   allow(req, ['GET', 'POST']);
-  const user = req.method === 'POST' ? await requireAdmin(req) : await requireViewer(req);
+  const user = req.method === 'POST' ? await requireAdmin(req) : await requireViewer(req, 'meta');
   res.setHeader('Cache-Control', 'no-store');
   const cfg = metaConfig();
   if (req.method === 'POST') return write(req, res, cfg, user);

@@ -1,5 +1,5 @@
 import {
-  route, allow, db, rid, HttpError, mapUser, getUser, setSession, clearSession, requireUser, requireAdmin,
+  route, allow, db, rid, HttpError, mapUser, getUser, setSession, clearSession, requireUser, requireAdmin, requireReport,
   hashPassword, checkPassword, cleanName, cleanPassword,
 } from './_lib.js';
 
@@ -53,7 +53,7 @@ export default route(async (req, res) => {
 
   if (req.method === 'GET') {
     if (action !== 'activity') throw new HttpError(400, 'Unknown action.');
-    await requireAdmin(req);
+    await requireReport(req, 'act');
     const days = Math.min(365, Math.max(1, Number(req.query.days) || 30));
     return res.json(await activityReport(q, days));
   }

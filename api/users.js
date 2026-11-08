@@ -1,6 +1,6 @@
 import {
   route, allow, db, rid, HttpError, requireAdmin, mapUser, setSession,
-  hashPassword, cleanName, cleanPassword, cleanRole,
+  hashPassword, cleanName, cleanPassword, cleanRole, GRANTABLE,
 } from './_lib.js';
 
 export default route(async (req, res) => {
@@ -45,6 +45,11 @@ export default route(async (req, res) => {
       throw new HttpError(400, 'The hub needs at least one Super Admin.');
     }
     await q`UPDATE users SET role = ${role} WHERE id = ${id}`;
+  }
+  if (req.body?.reports !== undefined) {
+    if (!Array.isArray(req.body.reports)) throw new HttpError(400, 'Reports must be a list.');
+    const list = [...new Set(req.body.reports.map(String))].filter((k) => GRANTABLE.includes(k));
+    await q`UPDATE users SET reports = ${JSON.stringify(list)}::jsonb WHERE id = ${id}`;
   }
   if (req.body?.password !== undefined) {
     const pw = cleanPassword(req.body.password);

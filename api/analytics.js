@@ -77,6 +77,20 @@ async function pool(tasks, size = 4) {
   return out;
 }
 
+/** Finds a product picture for a name like "Satin pillowcase – Black": exact, then ignoring case, dashes and spacing, then without the variant part, then by containment. */
+const picNorm = (t) => String(t || '').replace(/^\s*\[[^\]]*\]\s*/, '').toLowerCase().replace(/[\u2013\u2014]/g, '-').replace(/\s*-\s*/g, ' - ').replace(/\s+/g, ' ').trim();
+function picMatcher(pics) {
+  const map = new Map(), list = [];
+  for (const [k, v] of Object.entries(pics || {})) { const n = picNorm(k); if (!map.has(n)) { map.set(n, v); list.push([n, v]); } }
+  return (name) => {
+    const n = picNorm(name); if (!n) return '';
+    if (map.has(n)) return map.get(n);
+    const parts = n.split(' - ');
+    for (let i = parts.length - 1; i > 0; i--) { const h = parts.slice(0, i).join(' - '); if (map.has(h)) return map.get(h); }
+    const hit = list.find(([k]) => k.length > 6 && n.length > 6 && (n.startsWith(k) || k.startsWith(n))) || list.find(([k]) => k.length > 8 && (n.includes(k) || k.includes(n)));
+    return hit ? hit[1] : '';
+  };
+}
 /** A section never throws: a failed query becomes an error card so the rest of the tab still loads. */
 /* Tables whose first column is a product (or a product variant) get a picture from Shopify. */
 const PICTURE_TABLES = new Set(['products', 'best', 'sku', 'slow', 'stockout', 'low', 'cost']);
@@ -87,7 +101,8 @@ const section = (id, title, kind, fn, note) => async () => {
     const r = await fn();
     if (PICTURE_TABLES.has(id) && r && Array.isArray(r.rows) && pictureLoader) {
       const pics = await pictureLoader();
-      for (const row of r.rows) { const u = pics[String(row.name || '').trim().toLowerCase()]; if (u) row.img = u; }
+      const find = picMatcher(pics);
+      for (const row of r.rows) { const u = find(row.name); if (u) row.img = u; }
     }
     return { id, title, kind, note, ...r };
   }

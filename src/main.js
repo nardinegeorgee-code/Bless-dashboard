@@ -24,6 +24,10 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const rid=p=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 const isAdmin=()=>S.me&&S.me.role==='super_admin';
 const isCeo=()=>S.me&&S.me.role==='ceo';
+const GRANT=[['dash','Dashboards','Shopify, Odoo and Meta Ads together'],['shop','Shopify','Sales, funnel, products, customers'],['odoo','Odoo','Supply, sales, stock and finance'],['meta','Meta Ads','Facebook and Instagram ad results'],['act','Activity','Who used the hub and for how long']];
+const myReports=()=>(S.me&&Array.isArray(S.me.reports)?S.me.reports:[]);
+const canSee=k=>isAdmin()||(isCeo()&&['dash','shop','odoo','meta'].includes(k))||(!isCeo()&&myReports().includes(k))||(isCeo()&&k==='act'&&myReports().includes('act'));
+const hasGrants=()=>!isAdmin()&&!isCeo()&&GRANT.some(g=>myReports().includes(g[0]));
 const roleChip=k=>{const r=ROLE[k]||{label:k,tok:'--muted'};return `<span class="chip" style="--rc:var(${r.tok})">${esc(r.label)}</span>`};
 const fmtDate=ms=>{if(!ms)return'';const d=new Date(ms);return d.toLocaleDateString(undefined,{month:'short',day:'numeric'})+', '+d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})};
 const fmtSize=b=>b<1024?b+' B':b<1048576?(b/1024).toFixed(0)+' KB':(b/1048576).toFixed(1)+' MB';
@@ -131,10 +135,11 @@ function applySideMin(){document.body.classList.toggle('side-min',sideMin())}
 function toggleSide(){try{localStorage.setItem(SIDE_MIN_KEY,sideMin()?'0':'1')}catch(e){document.body.classList.toggle('side-min')}applySideMin()}
 function navItems(){
   const nu=unreadNotes().length;
-  if(isAdmin())return [['hub','Home'],['dash','Dashboards'],['home','Team overview'],['send','Send instruction'],['content','All content'],['eval','Evaluation'],['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads'],['team','Team by role'],['notes','Notifications',nu],['act','Activity'],['users','Users']];
-  if(isCeo())return [['hub','Home'],['dash','Dashboards'],['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads']];
+  if(isAdmin())return [['hub','Home'],['dash','Dashboards'],['home','Team overview'],['send','Send instruction'],['content','All content'],['eval','Evaluation'],['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads'],['team','Team by role'],['notes','Notifications',nu],['act','Activity'],['users','Users'],['priv','User privileges']];
+  if(isCeo())return [['hub','Home'],['dash','Dashboards'],['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads'],...(myReports().includes('act')?[['act','Activity']]:[])];
   const pending=myInstructions().filter(i=>!responded(i.id)).length;
-  return [['home','Instructions',pending],['uploads','My uploads'],['notes','Notifications',nu],['team','Team by role']];
+  const base=[['home','Instructions',pending],['uploads','My uploads'],['notes','Notifications',nu],['team','Team by role']];
+  return hasGrants()?[...base,['hub','Reports'],...GRANT.filter(g=>myReports().includes(g[0])).map(g=>[g[0],g[1]])]:base;
 }
 function showApp(){
   S.screen='app';applySideMin();
@@ -162,8 +167,8 @@ function targetChips(ins){
 /* ---------- views: mount builds static parts (forms), update fills live parts ---------- */
 function mount(){
   const v=$('#view');const r=S.route;
-  if(isCeo()){if(!['hub','dash','shop','odoo','meta'].includes(S.route))S.route='hub'}
-  else if(!isAdmin()&&['hub','dash','send','content','users','shop','eval','odoo','meta','act'].includes(r)){S.route='home'}
+  if(isCeo()){if(!['hub','dash','shop','odoo','meta'].includes(S.route)&&!(S.route==='act'&&canSee('act')))S.route='hub'}
+  else if(!isAdmin()&&['hub','dash','send','content','users','priv','shop','eval','odoo','meta','act'].includes(r)){if(!(r==='hub'?hasGrants():canSee(r)))S.route='home'}
   if(S.route==='hub')v.innerHTML=`<div id="live"></div>`;
   else if(S.route==='dash'){v.innerHTML=`<div id="live"></div>`;if(!S.dash.d.shop&&!S.dash.busy)loadDash(false,true)}
   else if(S.route==='home')v.innerHTML=isAdmin()?`<div id="live"></div>`
@@ -190,6 +195,7 @@ function mount(){
   else if(S.route==='meta'){v.innerHTML=`<div class="head"><div><h1>Meta Ads</h1><p>Facebook and Instagram advertising, read live from Meta. Pause campaigns and change budgets from here.</p></div></div><div id="live"></div>`;if(!S.meta.cache[S.meta.tab+'|'+(S.meta.month||'')]&&!S.meta.loading)loadMeta();else renderMeta()}
   else if(S.route==='shop'){v.innerHTML=`<div class="head"><div><h1>Shopify</h1><p>Sales, funnel, products, customer experience and retention, one tab each.</p></div></div><div id="live"></div>`;if(S.an.tab==='overview'){if(!S.shop.data&&!S.shop.loading)loadShop()}else loadAn();}
   else if(S.route==='act')v.innerHTML=`<div id="live"></div>`;
+  else if(S.route==='priv')v.innerHTML=`<div class="head"><div><h1>User privileges</h1><p>Choose exactly which reports each person can open. Changes save at once and apply the next time they open the hub or reload.</p></div></div><div id="live"></div>`;
   else if(S.route==='users')v.innerHTML=`<div class="head"><div><h1>Users</h1><p>Add people, change their role, or set a new password.</p></div></div>
     <form class="panel" data-form="adduser"><h2>Add a user</h2><div class="grid2">
       <div class="field"><label for="nu-u">Username</label><input class="input" id="nu-u" autocomplete="off" required></div>
@@ -215,6 +221,7 @@ function update(){
   else if(r==='send')updateSend();
   else if(r==='content')updateContent();
   else if(r==='users')L.innerHTML=usersHTML();
+  else if(r==='priv')L.innerHTML=privHTML();
   else if(r==='act')renderAct();
   else if(r==='shop')renderShop();
   else if(r==='odoo')renderOdoo();
@@ -579,6 +586,19 @@ function updateContent(){
   const list=S.subs.filter(s=>(!S.fRole||s.role===S.fRole)&&(!S.fUser||s.userId===S.fUser)&&(!S.fKind||(S.fKind==='resp'?!!s.instructionId:!s.instructionId)));
   $('#live').innerHTML=listOrEmpty(list,'Nothing matches','Change the filters, or wait for your team to upload.');
 }
+function privHTML(){
+  const people=S.users.filter(u=>u.role!=='super_admin');
+  if(!people.length)return empty('No users yet','Add people in Users, then choose what they can open here.');
+  const inherent=(u,k)=>u.role==='ceo'&&['dash','shop','odoo','meta'].includes(k);
+  return `<p class="muted pv-note">Super Admins always see everything. Team overview, Evaluation and All content stay Super Admin only because they hold everyone's files and ratings. Everyone with a report can only view it, never change anything.</p><div class="pv-list">${people.map(u=>{
+    const have=Array.isArray(u.reports)?u.reports:[];const n=GRANT.filter(g=>inherent(u,g[0])||have.includes(g[0])).length;
+    return `<section class="pv-card"><div class="pv-top"><div class="row" style="gap:8px"><span class="mono">${esc(u.username)}</span>${roleChip(u.role)}</div><div class="row" style="gap:6px"><span class="muted">${n} of ${GRANT.length} reports</span><button class="btn sm ghost" data-act="priv-all" data-id="${u.id}">Select all</button><button class="btn sm ghost" data-act="priv-none" data-id="${u.id}">Clear</button></div></div>
+    <div class="pv-grid">${GRANT.map(g=>{const on=inherent(u,g[0])||have.includes(g[0]);return `<label class="pv-opt${on?' on':''}"><input type="checkbox" data-priv="${u.id}" data-k="${g[0]}" ${on?'checked':''} ${inherent(u,g[0])?'disabled':''}><span><b>${g[1]}</b><small>${inherent(u,g[0])?'Included with the CEO role':g[2]}</small></span></label>`}).join('')}</div></section>`}).join('')}</div>`;
+}
+async function privSave(id,list){
+  const u=userById(id);if(!u)return;const old=u.reports;u.reports=list;update();
+  try{await api('PATCH','/api/users',{id,reports:list});await sync();toast(`Saved for ${u.username}`)}catch(x){u.reports=old;update();toast(x.message||'Could not save')}
+}
 function usersHTML(){
   const admins=S.users.filter(u=>u.role==='super_admin').length;
   return `<div class="tablewrap"><table><thead><tr><th>Username</th><th>Role</th><th>Password</th><th></th></tr></thead><tbody>${S.users.map(u=>{
@@ -707,10 +727,11 @@ const REPORTS=[
   {k:'home',t:'Team overview',d:'Needs attention, deliveries, and who is waiting.',ico:'home',c:'#F472B6'},
   {k:'eval',t:'Evaluation',d:'Monthly KPIs and team ranking.',ico:'eval',c:'#FBBF24'},
   {k:'content',t:'All content',d:'Every file and note your team added.',ico:'content',c:'#60A5FA'},
-  {k:'act',t:'Activity',d:'Who used the hub, which pages and for how long.',ico:'act',c:'#34D399'}
+  {k:'act',t:'Activity',d:'Who used the hub, which pages and for how long.',ico:'act',c:'#34D399'},
+  {k:'priv',t:'User privileges',d:'Choose exactly which reports each person can open.',ico:'users',c:'#C084FC',admin:1}
 ];
 function hubHTML(){
-  const list=REPORTS.filter(r=>isAdmin()||(isCeo()&&r.ceo));
+  const list=REPORTS.filter(r=>r.admin?isAdmin():(isAdmin()||(isCeo()&&r.ceo)||canSee(r.k)&&GRANT.some(g=>g[0]===r.k)));
   const t=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric',timeZone:'Africa/Cairo'});
   const tile=r=>`<button class="hub-t${r.feat?' feat':''}" style="--hc:${r.c}" data-act="go" data-route="${r.k}"><span class="kico" style="--kc:${r.c}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[r.ico]||NAV_ICON[r.ico]||''}</svg></span><span class="hub-tt">${r.t}</span><span class="hub-td">${r.d}</span><span class="hub-go">Open report <i>→</i></span></button>`;
   return `<div class="hub-bar">${brandHTML}<div class="row"><span class="muted">${esc(S.me.username)}</span>${roleChip(S.me.role)}<button class="btn sm so" data-act="theme-toggle">${theme()==='light'?'Dark':'Light'} mode</button><button class="btn sm so" data-act="logout">Sign out</button></div></div><div class="head"><div><h1>Welcome, ${esc(S.me.username)}</h1><p>${t}. Choose a report to open.</p></div></div><div class="hub-grid">${list.map(tile).join('')}</div>`;
@@ -1977,6 +1998,7 @@ document.addEventListener('click',async e=>{
   else if(a==='dtab'){const t=b.dataset.t;go(t,null,t!=='dash')}
   else if(a==='dash-retry')b.dataset.k.split(',').forEach(k=>dashRun(k,true,S.dash.tok));
   else if(a==='dash-refresh')loadDash(true,false);
+  else if(a==='priv-all'||a==='priv-none'){const u=userById(b.dataset.id);if(u)privSave(u.id,a==='priv-all'?GRANT.map(g=>g[0]):[])}
   else if(a==='zoom'){e.preventDefault();e.stopPropagation();zoomOpen(b.dataset.src,b.dataset.cap)}
   else if(a==='zoom-close')zoomClose();
   else if(a==='dx-all')dAllModal(b.dataset.k);
@@ -2087,6 +2109,7 @@ document.addEventListener('change',async e=>{
   else if(t.id==='f-role'){S.fRole=t.value;update()}
   else if(t.id==='f-user'){S.fUser=t.value;update()}
   else if(t.id==='f-kind'){S.fKind=t.value;update()}
+  else if(t.dataset.priv){const u=userById(t.dataset.priv);if(u){const set=new Set(Array.isArray(u.reports)?u.reports:[]);t.checked?set.add(t.dataset.k):set.delete(t.dataset.k);privSave(u.id,[...set])}}
   else if(t.dataset.act==='set-role'){const u=userById(t.dataset.id);try{await api('PATCH','/api/users',{id:t.dataset.id,role:t.value});await sync();toast(`${u.username} is now ${ROLE[t.value].label}`)}catch(x){toast(x.message||'Could not change the role');update()}}
 });
 ['dragover','dragleave','drop'].forEach(ev=>document.addEventListener(ev,e=>{const d=e.target.closest&&e.target.closest('.drop');if(!d)return;e.preventDefault();
