@@ -193,7 +193,7 @@ function mount(){
 function update(){
   if(S.screen!=='app')return;renderNav();notifyNew();
   const L=$('#live');if(!L)return;const r=S.route;
-  if(r==='home'&&isAdmin()){L.innerHTML=overviewHTML();ovSpy()}
+  if(r==='home'&&isAdmin()){L.innerHTML=overviewHTML();ovSpy();loadPulse()}
   else if(r==='home')L.innerHTML=inboxHTML();
   else if(r==='ins')updateIns();
   else if(r==='uploads')L.innerHTML=listOrEmpty(S.subs.filter(s=>s.userId===S.me.id),'Nothing uploaded yet','Files you upload, with or without an instruction, appear here.');
@@ -267,6 +267,111 @@ function ovDetail(k,team,ins,subs){
       ${sel('f','data-ovf',OV_STATUS[k])}${sel('who','data-ovw',[['','All people'],...people.map(u=>[u.id,u.username])])}${k==='team'?'':sel('d','data-ovd',OV_DATES)}${active?'<button class="btn sm ghost" data-act="ov-clear-sub">Clear all</button>':''}</div>
     <div class="ovtbl">${t.html}</div></section>`;
 }
+
+/* ---------- Overview command center: the most important report from each area ---------- */
+S.pulse={at:0,loading:false,shop:null,odoo:null,stock:null,meta:null,ev:null,act:null,err:{},done:{}};
+const pvDay=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Cairo'}).format(new Date());
+function pvRange(){const t=pvDay();return {from:t.slice(0,8)+'01',to:t}}
+function pvCur(n,c){n=Number(n)||0;try{return new Intl.NumberFormat('en-US',c?{style:'currency',currency:c,notation:Math.abs(n)>=1e5?'compact':'standard',maximumFractionDigits:Math.abs(n)>=1e5?1:0}:{maximumFractionDigits:0}).format(n)}catch(e){return Math.round(n).toLocaleString()}}
+const pvPct=(a,b)=>b?Math.round((a-b)/Math.abs(b)*1000)/10:null;
+const pvTile=(d,sec,labels)=>{const t=((((d&&d.sections)||[]).find(x=>x.id===sec)||{}).tiles)||[];for(const l of [].concat(labels)){const x=t.find(y=>y.label===l);if(x)return x}return null};
+function pvSpark(vals,color){
+  vals=(vals||[]).map(Number);if(vals.length<2||!vals.some(v=>v))return '<div class="pv-spark empty"></div>';
+  const W=240,H=56,P=3,mx=Math.max(...vals),mn=Math.min(0,...vals),n=vals.length,x=i=>P+(W-2*P)*i/(n-1),y=v=>H-P-(H-2*P)*((v-mn)/((mx-mn)||1));
+  const pts=vals.map((v,i)=>x(i).toFixed(1)+','+y(v).toFixed(1)).join(' ');
+  return `<svg class="pv-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="pvg${color.replace(/\W/g,'')}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity=".35"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs><polygon points="${P},${H} ${pts} ${W-P},${H}" fill="url(#pvg${color.replace(/\W/g,'')})"/><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>`;
+}
+async function loadPulse(force){
+  const P=S.pulse;if(P.loading||(!force&&Date.now()-P.at<5*60e3))return;
+  P.loading=true;P.at=Date.now();P.err={};P.done={};pvFill();
+  const r=pvRange(),q='from='+r.from+'&to='+r.to+'&kind=month';
+  const job=(key,url,set)=>api('GET',url).then(d=>{if(d&&d.configured===false)throw new Error('Not connected yet');set(d)}).catch(e=>{P.err[key]=e.message||'Could not load'}).finally(()=>{P.done[key]=1;pvFill()});
+  await Promise.all([
+    job('shop','/api/shopify?'+q,d=>P.shop=d),
+    job('odoo','/api/odoo?tab=profit&'+q,d=>P.odoo=d),
+    job('stock','/api/odoo?tab=finished&'+q,d=>P.stock=d),
+    job('meta','/api/meta?tab=overview&'+q,d=>P.meta=d),
+    job('ev','/api/evaluation',d=>P.ev=d),
+    job('act','/api/auth?action=activity&days=7',d=>P.act=d)
+  ]);
+  P.loading=false;pvFill();
+}
+function pvFill(){
+  if(S.route!=='home'||!isAdmin())return;
+  const a=$('#ov-priority'),b=$('#ov-business'),c=$('#ov-perf');
+  if(a)a.innerHTML=pvAttention();if(b)b.innerHTML=pvBusiness();if(c)c.innerHTML=pvPerf();
+}
+function pvOverdue(){
+  const out=[];S.instructions.forEach(i=>{const age=(Date.now()-i.createdAt)/864e5;if(age<3)return;recipients(i).forEach(u=>{if(!responded(i.id,u.id))out.push({i,u,age})})});
+  return out.sort((a,b)=>b.age-a.age);
+}
+function pvAttention(){
+  const P=S.pulse,items=[],od=pvOverdue();
+  const add=(sev,ico,n,text,attrs)=>items.push({sev,ico,n,text,attrs});
+  if(od.length)add(od.length>=5?'bad':'warn','alert',od.length,`overdue response${od.length===1?'':'s'}`,`data-act="ov-kpi" data-k="waiting"`);
+  const unrev=S.subs.filter(x=>x.instructionId&&(x.rating===null||x.rating===undefined)).length;
+  if(unrev)add('warn','eye',unrev,`submission${unrev===1?'':'s'} to rate`,`data-act="go" data-route="eval"`);
+  const un=unreadNotes().length;if(un)add('info','chat',un,`unread comment${un===1?'':'s'}`,`data-act="go" data-route="notes"`);
+  const cut14=Date.now()-14*864e5,team=S.users.filter(u=>u.role!=='super_admin'&&u.role!=='ceo');
+  const quiet=team.filter(u=>!S.subs.some(x=>x.userId===u.id&&x.createdAt>=cut14)&&S.instructions.some(i=>recipients(i).some(r=>r.id===u.id)));
+  if(quiet.length)add('info','moon',quiet.length,`people with no upload in 14 days`,`data-act="ov-kpi" data-k="team"`);
+  const oos=pvTile(P.stock,'kpi','Out of stock'),low=pvTile(P.stock,'kpi','Running low');
+  if(oos&&oos.value)add('bad','box',oos.value,`product${oos.value===1?'':'s'} out of stock`,`data-act="go" data-route="odoo"`);
+  if(low&&low.value)add('warn','box',low.value,`product${low.value===1?'':'s'} running low`,`data-act="go" data-route="odoo"`);
+  const roas=pvTile(P.meta,'kpi','Return on ad spend');if(roas&&roas.value>0&&roas.value<1.5)add(roas.value<1?'bad':'warn','trend',roas.value.toFixed(1)+'×','return on ad spend this month',`data-act="go" data-route="meta"`);
+  const sc=P.shop&&P.shop.summary&&P.shop.summary.change;if(sc&&sc.revenue!==null&&sc.revenue<=-20)add('bad','trend',sc.revenue+'%','Shopify revenue vs previous period',`data-act="go" data-route="shop"`);
+  const loading=Object.keys(P.done).length<6&&P.loading;
+  const body=items.length?items.map(x=>`<button type="button" class="pv-al ${x.sev}" ${x.attrs}><span class="pv-ai"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${ICON[x.ico]||ICON.alert}</svg></span><b>${x.n}</b><span>${x.text}</span><svg class="pv-ar" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></button>`).join(''):`<div class="pv-ok"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON.check}</svg>${loading?'Checking everything…':'All clear. Nothing needs your attention right now.'}</div>`;
+  return `<div class="pv-head"><div><h2>Needs your attention</h2><p class="muted">Sorted by what is most urgent. Click one to go straight to it.</p></div><button class="btn sm ghost" data-act="pv-refresh" title="Reload the numbers on this page">${S.pulse.loading?'Refreshing…':'↻ Refresh'}</button></div><div class="pv-alerts">${body}</div>`;
+}
+function pvCard(o){
+  const {key,ico,color,name,route,hero,heroLabel,delta,goodDown,spark,mini,note}=o,P=S.pulse;
+  const head=`<div class="pv-top"><span class="kico" style="--kc:${color}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${ICON[ico]||NAV_ICON[ico]||''}</svg></span><b>${name}</b><span class="eyebrow">${note||''}</span></div>`;
+  if(P.err[key])return `<section class="pv-card err">${head}<p class="muted">${esc(P.err[key])}</p><button class="btn sm" data-act="go" data-route="${route}">Open ${name}</button></section>`;
+  if(!P.done[key])return `<section class="pv-card">${head}<div class="pv-sk"><i></i><i></i><i></i></div></section>`;
+  return `<section class="pv-card" style="--pc:${color}">${head}<div class="pv-hero"><div><span class="eyebrow">${heroLabel}</span><div class="pv-n">${hero}</div></div>${delta===null||delta===undefined?'':chip(delta,goodDown)}</div>${spark}<div class="pv-mini">${mini.map(([l,v,d,gd])=>`<div><span class="eyebrow">${l}</span><b>${v}</b>${d===null||d===undefined?'':chip(d,gd)}</div>`).join('')}</div><button class="pv-open" data-act="go" data-route="${route}">Open full report <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></button></section>`;
+}
+function pvBusiness(){
+  const P=S.pulse,r=pvRange(),rng=new Date(r.to+'T12:00:00Z').toLocaleDateString('en-GB',{month:'short',timeZone:'UTC'}),per='1–'+Number(r.to.slice(8))+' '+rng;
+  // Shopify
+  const sh=P.shop,ss=sh&&sh.summary,cur=sh&&sh.currency;
+  const shop=pvCard({key:'shop',ico:'bag',color:'#2DD4BF',name:'Shopify',route:'shop',note:per,heroLabel:'Revenue',
+    hero:ss?pvCur(ss.revenue,cur):'',delta:ss&&ss.change.revenue,spark:ss?pvSpark((sh.months||[]).map(m=>m.revenue),'#2DD4BF'):'',
+    mini:ss?[['Orders',ss.orders.toLocaleString(),ss.change.orders],['Avg order',pvCur(ss.aov,cur),pvPct(ss.aov,ss.previous.aov)],['Refund rate',ss.refundRate.toFixed(1)+'%',null]]:[]});
+  // Odoo
+  const od=P.odoo,pt=pvTile(od,'kpi',['Profit after ads','Profit after delivery','Gross profit']),rev=pvTile(od,'kpi','Net revenue'),gp=pvTile(od,'kpi','Gross profit'),ra=pvTile(od,'kpi','Revenue per 1 spent on ads');
+  const oc=od&&od.currency,trend=od&&(od.sections||[]).find(x=>x.id==='trend'),oos=pvTile(P.stock,'kpi','Out of stock'),low=pvTile(P.stock,'kpi','Running low');
+  const odoo=pvCard({key:'odoo',ico:'odoo',color:'#A78BFA',name:'Odoo',route:'odoo',note:per,heroLabel:pt?pt.label:'Profit',
+    hero:pt?pvCur(pt.value,oc):'–',delta:pt?pvPct(pt.value,pt.prev):null,spark:trend?pvSpark(trend.rows.map(x=>x.values.profit),'#A78BFA'):'',
+    mini:[['Net revenue',rev?pvCur(rev.value,oc):'–',rev?pvPct(rev.value,rev.prev):null],['Gross profit',gp?pvCur(gp.value,oc):'–',gp?pvPct(gp.value,gp.prev):null],['Stock alerts',P.stock?((oos?oos.value:0)+(low?low.value:0))+' item'+(((oos?oos.value:0)+(low?low.value:0))===1?'':'s'):'–',null]]});
+  // Meta
+  const mt=P.meta,sp=pvTile(mt,'kpi','Amount spent'),pu=pvTile(mt,'kpi','Purchases'),ro=pvTile(mt,'kpi','Return on ad spend'),cp=pvTile(mt,'kpi','Cost per purchase'),mc=mt&&mt.currency;
+  const meta=pvCard({key:'meta',ico:'meta',color:'#FF8A3D',name:'Meta Ads',route:'meta',note:per,heroLabel:'Ad spend',
+    hero:sp?pvCur(sp.value,mc):'–',delta:sp?pvPct(sp.value,sp.prev):null,goodDown:true,spark:sp&&sp.daily?pvSpark(sp.daily,'#FF8A3D'):'',
+    mini:[['Return on ad spend',ro?ro.value.toFixed(2)+'×':'–',ro?pvPct(ro.value,ro.prev):null],['Purchases',pu?pu.value.toLocaleString():'–',pu?pvPct(pu.value,pu.prev):null],['Cost / purchase',cp?pvCur(cp.value,mc):'–',cp?pvPct(cp.value,cp.prev):null,true]]});
+  return `<div class="pv-head"><div><h2>Business at a glance</h2><p class="muted">This month so far, compared with the previous period. Revenue first, then profit, then ad spend.</p></div></div><div class="pv-grid">${shop}${odoo}${meta}</div>`;
+}
+function pvPerf(){
+  const P=S.pulse,e=P.ev,a=P.act;
+  // Evaluation
+  let evb;
+  if(P.err.ev)evb=`<p class="muted">${esc(P.err.ev)}</p>`;
+  else if(!P.done.ev)evb='<div class="pv-sk"><i></i><i></i><i></i></div>';
+  else{const rows=(e.rows||[]).filter(r=>r.final!==null).slice(0,5),mx=100;
+    evb=rows.length?`<div class="pv-rank">${rows.map((r,i)=>`<div class="pv-rr"><span class="pv-rk r${i+1}">${r.rank||i+1}</span><span class="pv-rn"><b>${esc(r.username)}</b>${roleChip(r.role)}</span><span class="oi-ht"><i style="width:${Math.min(100,r.final/mx*100)}%;background:${i===0?'var(--accent)':'var(--cmp)'}"></i></span><b class="pv-rs">${Math.round(r.final)}</b></div>`).join('')}</div>${(e.rows||[]).some(r=>r.unrated)?`<p class="muted pv-foot">${(e.rows||[]).reduce((n,r)=>n+r.unrated,0)} submission(s) still need a rating.</p>`:''}`:'<p class="muted">No scores yet. Rate submissions on the Evaluation page.</p>';}
+  const evc=`<section class="pv-card"><div class="pv-top"><span class="kico" style="--kc:#FBBF24"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${NAV_ICON.eval}</svg></span><b>Team ranking</b><span class="eyebrow">${e&&e.month?esc(e.month):''}</span></div>${evb}<button class="pv-open" data-act="go" data-route="eval">Open evaluation <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></button></section>`;
+  // Activity
+  let acb;
+  if(P.err.act)acb=`<p class="muted">${esc(P.err.act)}</p>`;
+  else if(!P.done.act)acb='<div class="pv-sk"><i></i><i></i><i></i></div>';
+  else{const today=pvDay(),td=(a.daily||[]).find(x=>x.day===today)||{users:0,visits:0,secs:0},on=a.users.filter(u=>u.online),pg=(a.pages||[])[0];
+    acb=`<div class="pv-mini three"><div><span class="eyebrow">Online now</span><b>${on.length}</b></div><div><span class="eyebrow">Active today</span><b>${td.users}</b></div><div><span class="eyebrow">Page views today</span><b>${td.visits}</b></div></div>
+    ${on.length?`<div class="pv-who">${on.slice(0,6).map(u=>`<span class="pv-pp"><i class="act-dot on"></i>${esc(u.username)}</span>`).join('')}</div>`:'<p class="muted pv-foot">Nobody is using the hub at the moment.</p>'}
+    ${pg?`<p class="muted pv-foot">Most opened page this week: <b>${esc(actPage(pg.page))}</b> (${pg.visits} views)</p>`:''}`}
+  const acc=`<section class="pv-card"><div class="pv-top"><span class="kico" style="--kc:#4ADE9A"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${NAV_ICON.act}</svg></span><b>Hub usage</b><span class="eyebrow">last 7 days</span></div>${acb}<button class="pv-open" data-act="go" data-route="act">Open activity <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></button></section>`;
+  return `<div class="pv-head"><div><h2>Team performance &amp; usage</h2><p class="muted">Who is performing best, and who is using the hub.</p></div></div><div class="pv-grid two">${evc}${acc}</div>`;
+}
+
 function overviewHTML(){
   const cut=ovCut(),fr=S.ov.role;
   const team=S.users.filter(u=>u.role!=='super_admin'&&(!fr||u.role===fr));
@@ -289,9 +394,9 @@ function overviewHTML(){
     <section class="panel"><div class="item-top"><h2>Your team</h2><button class="btn sm" data-act="go" data-route="team">View all</button></div>${team.length?`<div class="rolebars">${roles}</div>`:'<p class="muted">Add team members on the Users page.</p>'}</section></div>`;
   const waiting=S.instructions.map(i=>({i,w:recipients(i).filter(u=>!responded(i.id,u.id))})).filter(x=>x.w.length).sort((x,y)=>y.w.length-x.w.length).slice(0,4);
   const attn=waiting.length?`<section class="panel"><div><h2>Needs a nudge</h2><p class="muted">Instructions with the most people still to respond.</p></div><div class="attn">${waiting.map(({i,w})=>`<button class="arow" data-act="go" data-route="ins" data-param="${i.id}"><b>${esc(i.title)}</b><span class="muted">${w.slice(0,4).map(u=>esc(u.username)).join(', ')}${w.length>4?' +'+(w.length-4)+' more':''}</span><span class="pill new">${w.length} waiting</span></button>`).join('')}</div></section>`:'';
-  const secs=[['ov-summary','Summary'],['ov-insights','Insights'],['ov-team','Response & team'],...(attn?[['ov-nudge','Needs a nudge']]:[]),['ov-latest','Latest instructions'],['ov-files','From the team']];
+  const secs=[['ov-priority','Priorities'],['ov-business','Business'],['ov-summary','Team'],['ov-perf','Performance'],['ov-insights','Insights'],...(attn?[['ov-nudge','Needs a nudge']]:[]),['ov-latest','Latest instructions'],['ov-files','From the team']];
   const tabs=`<nav class="ovtabs" aria-label="Sections">${secs.map(([id,l])=>`<button type="button" data-act="ov-tab" data-sec="${id}"${S.ovSec===id?' class="on" aria-current="true"':''}>${l}</button>`).join('')}</nav>`;
-  return `<div style="display:grid;gap:18px">${hero}${ovFilters()}${tabs}<div id="ov-summary" class="ovsec">${kpis}</div><div id="ov-insights" class="ovsec">${ovInsights(team,insAll,subsF)}</div><div id="ov-team" class="ovsec">${side}</div>${attn?`<div id="ov-nudge" class="ovsec">${attn}</div>`:''}
+  return `<div style="display:grid;gap:18px">${hero}${tabs}<div id="ov-priority" class="ovsec pv-sec">${pvAttention()}</div><div id="ov-business" class="ovsec pv-sec">${pvBusiness()}</div><div id="ov-summary" class="ovsec pv-sec"><div class="pv-head"><div><h2>Team operations</h2><p class="muted">Instructions, responses and files. The filters below only change this section and the charts.</p></div></div>${ovFilters()}${kpis}${side}</div><div id="ov-perf" class="ovsec pv-sec">${pvPerf()}</div><div id="ov-insights" class="ovsec">${ovInsights(team,insAll,subsF)}</div>${attn?`<div id="ov-nudge" class="ovsec">${attn}</div>`:''}
     <section id="ov-latest" class="ovsec" style="display:grid;gap:12px"><div class="item-top"><h2>Latest instructions</h2><button class="btn sm" data-act="go" data-route="send">See all</button></div>${S.instructions.length?`<div class="list">${S.instructions.slice(0,5).map(insRowAdmin).join('')}</div>`:empty('No instructions yet','Send your first brief from Send instruction.')}</section>
     <section id="ov-files" class="ovsec" style="display:grid;gap:12px"><div class="item-top"><h2>Latest from the team</h2><button class="btn sm" data-act="go" data-route="content">See all</button></div>${listOrEmpty(S.subs.slice(0,6),'Nothing received yet','Responses and uploads from your team land here.')}</section></div>`;
 }
@@ -342,6 +447,7 @@ function ovInsights(team,ins,subs){
     <div class="oi-grid">${card('How fast they respond','Average time from sending to the first response.',timeRows.length?ovcRows(timeRows,r=>ovcDur(r.v)):'<p class="muted">No responses yet.</p>')}${card('Instruction progress','How far each instruction has been answered.',completion)}${card('What comes in','Types of files received.',mix)}${card('Most active people','Responses sent, top five.',top.length?ovcRows(top):'<p class="muted">No responses yet.</p>')}</div></div>`;
 }
 function ovRender(){$('#view').innerHTML=overviewHTML();ovSpy()}
+
 function ovSetHash(id){try{history.replaceState(null,'','#home'+(id?':'+id:''))}catch(e){}}
 let ovLock=0;
 function ovMark(id){S.ovSec=id;document.querySelectorAll('.ovtabs button').forEach(b=>{const on=b.dataset.sec===id;b.classList.toggle('on',on);if(on){b.setAttribute('aria-current','true');const bar=b.parentNode;if(bar.scrollWidth>bar.clientWidth)bar.scrollTo({left:b.offsetLeft-bar.clientWidth/2+b.offsetWidth/2,behavior:'smooth'})}else b.removeAttribute('aria-current')})}
@@ -645,6 +751,13 @@ const ICON={
   send:'<path d="M21 3 3 10l7 3 3 7 8-17Z"/>',
   clock:'<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
   file:'<path d="M7 3h7l5 5v13H7V3Z"/><path d="M14 3v5h5"/>',
+  alert:'<path d="M12 4 2.5 20h19L12 4Z"/><path d="M12 10v4M12 17.200v.1"/>',
+  check:'<circle cx="12" cy="12" r="8.500"/><path d="m8.500 12.300 2.500 2.500 4.500-5"/>',
+  eye:'<path d="M2.500 12S6 5.500 12 5.500 21.500 12 21.500 12 18 18.500 12 18.500 2.500 12 2.500 12Z"/><circle cx="12" cy="12" r="2.800"/>',
+  star:'<path d="m12 3.500 2.600 5.300 5.900.9-4.300 4.100 1 5.800L12 16.900 6.800 19.600l1-5.800-4.300-4.100 5.900-.9L12 3.500Z"/>',
+  trend:'<path d="M3 17 9 11l4 4 8-8"/><path d="M15 7h6v6"/>',
+  moon:'<path d="M21 12.800A9 9 0 1 1 11.200 3a7 7 0 0 0 9.800 9.800z"/>',
+  chat:'<path d="M4 5h16v11H9l-5 4V5Z"/>',
   tag:'<path d="M3 12V4h8l10 10-8 8L3 12Z"/><circle cx="7.5" cy="8.5" r="1.3"/>',
 };
 const ico=(k,c)=>`<span class="kico" style="--kc:${c||'var(--accent)'}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg></span>`;
@@ -1381,6 +1494,7 @@ document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
   if(a==='go'){e.preventDefault();go(b.dataset.route,b.dataset.param)}
   else if(a==='side-toggle')toggleSide();
+  else if(a==='pv-refresh')loadPulse(true).then(()=>{});
   else if(a==='act-days'){S.act.days=Number(b.dataset.n);S.act.data=null;loadAct()}
   else if(a==='act-refresh'){S.act.data=null;loadAct()}
   else if(a==='act-open'){S.act.open=b.dataset.id;renderAct()}
