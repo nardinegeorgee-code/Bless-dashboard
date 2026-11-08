@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
-import { route, allow, db, HttpError, requireAdmin, requireViewer } from './_lib.js';
+import { route, allow, db, HttpError, requireAdmin, requireViewer, requireReport } from './_lib.js';
 import { ensureShopSchema, shopConfig, shopifyql, fetchProducts, fetchProductImages, fetchVariantCodes, gql, resetToken } from './_shopify.js';
 import { parsePeriod, monthPeriod, dayList } from './_period.js';
 import { odooConfig, sr as odooSearch } from './_odoo.js';
 import { adSpend } from './_profit.js';
 import { buildDelivery } from './_delivery.js';
-import { saveSheet, clearSheet, loadSheet } from './_sheet.js';
+import { saveSheet, clearSheet, loadSheet, editRow, removeRows, sheetLog } from './_sheet.js';
 
 const DAY = 86400000;
 const TABS = ['sales', 'profit', 'funnel', 'products', 'experience', 'retention', 'delivery', 'undelivered'];
@@ -247,7 +247,8 @@ function buildShopifyTabs(tab, ctx, run) {
         const sh = await sheet();
         const L = sh.list, cnt = (k) => L.filter((x) => x.kind === k).length;
         return { total: L.length, returned: cnt('returned'), delivered: cnt('delivered'), other: cnt('other'), unmatched: L.filter((x) => !x.matched).length, ignoredStatuses: Object.entries(L.filter((x) => x.kind === 'other').reduce((m, x) => { const k = x.status || '(empty)'; m[k] = (m[k] || 0) + 1; return m; }, {})).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([status, n]) => ({ status, n })), fees: L.filter((x) => x.kind !== 'other' && x.matched).reduce((a, x) => a + x.fee, 0),
-          rows: L.slice(0, 300).map((x) => ({ no: x.label, status: x.status || '–', result: x.kind === 'returned' ? 'Returned: order removed, fee deducted' : x.kind === 'delivered' ? 'Delivered: fee deducted' : 'Ignored', fee: x.fee, date: x.date || 'Order not found' })), more: Math.max(0, L.length - 300) };
+          rows: L.slice(0, 3000).map((x) => ({ id: x.no, no: x.label, status: x.status || '', kind: x.kind, matched: x.matched, result: x.kind === 'returned' ? 'Returned' : x.kind === 'delivered' ? 'Delivered' : 'Ignored', fee: x.fee, date: x.date || '', by: x.by, at: x.updatedAt })), more: Math.max(0, L.length - 3000), log: await sheetLog(15),
+          returnedFees: L.filter((x) => x.kind === 'returned' && x.matched).reduce((a, x) => a + x.fee, 0), deliveredFees: L.filter((x) => x.kind === 'delivered' && x.matched).reduce((a, x) => a + x.fee, 0) };
       }, 'Paste or upload the sheet from your courier. Column A is the order number, column B the status, column E the shipping fee.'),
       section('cost', `Cost per product (${monthLabel})`, 'table', async () => {
         const bk = await book();
@@ -685,7 +686,9 @@ async function buildRetention(ctx, keyOf, cfg) {
 /* ---------- route ---------- */
 export default route(async (req, res) => {
   allow(req, ['GET', 'POST']);
-  if (req.method === 'POST') await requireAdmin(req); else await requireViewer(req);
+  const isSheetWrite = req.method === 'POST' && req.body?.action === 'sheet';
+  let actor = null;
+  if (isSheetWrite) actor = await requireReport(req, 'sheet'); else if (req.method === 'POST') actor = await requireAdmin(req); else await requireViewer(req);
   res.setHeader('Cache-Control', 'no-store');
   const cfg = shopConfig();
   if (cfg.missing.length) return res.json({ configured: false, missing: cfg.missing });
@@ -695,9 +698,12 @@ export default route(async (req, res) => {
   const keyOf = monthKeyer(cfg.tz);
   const months = monthsBack(keyOf, 12);
 
-  if (req.method === 'POST' && req.body?.action === 'sheet') {
-    if (req.body.clear) { await clearSheet(); return res.json({ ok: true }); }
-    const n = await saveSheet(req.body.rows);
+  if (isSheetWrite) {
+    const b = req.body || {}, who = actor.username;
+    if (b.clear) { await clearSheet(who); return res.json({ ok: true }); }
+    if (b.edit) { await editRow(b.edit.id, { label: b.edit.label, status: b.edit.status, fee: b.edit.fee }, who); return res.json({ ok: true }); }
+    if (Array.isArray(b.remove)) return res.json({ ok: true, removed: await removeRows(b.remove, who) });
+    const n = await saveSheet(b.rows, who, !!b.replace);
     return res.json({ ok: true, saved: n });
   }
   if (req.method === 'POST') {

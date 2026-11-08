@@ -24,10 +24,11 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const rid=p=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 const isAdmin=()=>S.me&&S.me.role==='super_admin';
 const isCeo=()=>S.me&&S.me.role==='ceo';
-const GRANT=[['dash','Dashboards','Shopify, Odoo and Meta Ads together'],['shop','Shopify','Sales, funnel, products, customers'],['odoo','Odoo','Supply, sales, stock and finance'],['meta','Meta Ads','Facebook and Instagram ad results'],['act','Activity','Who used the hub and for how long']];
+const GRANT=[['dash','Dashboards','Shopify, Odoo and Meta Ads together'],['shop','Shopify','Sales, funnel, products, customers'],['odoo','Odoo','Supply, sales, stock and finance'],['meta','Meta Ads','Facebook and Instagram ad results'],['act','Activity','Who used the hub and for how long'],['sheet','Edit courier sheet','Add, change and delete orders in the courier sheet (Shopify profit)']];
 const myReports=()=>(S.me&&Array.isArray(S.me.reports)?S.me.reports:[]);
 const canSee=k=>isAdmin()||(isCeo()&&['dash','shop','odoo','meta'].includes(k))||(!isCeo()&&myReports().includes(k))||(isCeo()&&k==='act'&&myReports().includes('act'));
-const hasGrants=()=>!isAdmin()&&!isCeo()&&GRANT.some(g=>myReports().includes(g[0]));
+const hasGrants=()=>!isAdmin()&&!isCeo()&&GRANT.some(g=>g[0]!=='sheet'&&myReports().includes(g[0]));
+const canEditSheet=()=>isAdmin()||myReports().includes('sheet');
 const roleChip=k=>{const r=ROLE[k]||{label:k,tok:'--muted'};return `<span class="chip" style="--rc:var(${r.tok})">${esc(r.label)}</span>`};
 const fmtDate=ms=>{if(!ms)return'';const d=new Date(ms);return d.toLocaleDateString(undefined,{month:'short',day:'numeric'})+', '+d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})};
 const fmtSize=b=>b<1024?b+' B':b<1048576?(b/1024).toFixed(0)+' KB':(b/1048576).toFixed(1)+' MB';
@@ -1739,18 +1740,61 @@ function parseXlsx(buf){
 }
 async function sheetSend(rows){
   S.an.saving=true;renderShop();
-  try{const r=await api('POST','/api/analytics',{action:'sheet',rows});Object.keys(S.an.cache).forEach(k=>{if(k.startsWith('profit|'))delete S.an.cache[k]});S.an.saving=false;toast('Saved '+r.saved+' orders from the sheet');await loadAn(true)}
+  try{const r=await api('POST','/api/analytics',{action:'sheet',rows,replace:shS().replace});shS().replace=false;Object.keys(S.an.cache).forEach(k=>{if(k.startsWith('profit|'))delete S.an.cache[k]});S.an.saving=false;toast('Saved '+r.saved+' orders from the sheet');await loadAn(true)}
   catch(x){S.an.saving=false;toast(x.message||'Could not save the sheet');renderShop()}
 }
+async function shWrite(body,msg,done){
+  try{await api('POST','/api/analytics',{action:'sheet',...body});if(done)done();Object.keys(S.an.cache).forEach(k=>{if(k.startsWith('profit|'))delete S.an.cache[k]});toast(msg);await loadAn(true)}
+  catch(x){toast(x.message||'Could not save the change')}
+}
+const SH_FILTERS=[['all','All'],['delivered','Delivered'],['returned','Returned'],['other','Ignored'],['missing','Not in Shopify']];
+function shS(){return S.an.sh||(S.an.sh={q:'',f:'all',sel:new Set(),edit:'',n:50,imp:false,mode:'paste',replace:false,log:false})}
+function shRows(sec){
+  const H=shS(),q=H.q.trim().toLowerCase();
+  return (sec.rows||[]).filter(r=>(H.f==='all'||(H.f==='missing'?!r.matched:r.kind===H.f))&&(!q||(r.no+' '+r.status).toLowerCase().includes(q)));
+}
+function shPill(r){
+  const k=!r.matched?'miss':r.kind==='returned'?'ret':r.kind==='delivered'?'ok':'ign';
+  const t=!r.matched?'Not in Shopify':r.kind==='returned'?'Returned':r.kind==='delivered'?'Delivered':'Ignored';
+  return `<span class="sh-pill ${k}" title="${r.kind==='returned'?'Taken out of revenue and cost; the fee comes off profit':r.kind==='delivered'?'Counted; the fee comes off profit':r.matched?'Not counted in profit':'This order number was not found in Shopify, so it is not counted'}">${t}</span>`;
+}
+function shTable(sec){
+  const H=shS(),all=shRows(sec),rows=all.slice(0,H.n),ed=canEditSheet(),sts=[...new Set((sec.rows||[]).map(r=>r.status).filter(Boolean))].slice(0,40);
+  if(!all.length)return `<div class="empty"><b>No orders match</b><span>Try another word or choose All.</span></div>`;
+  const allSel=rows.length&&rows.every(r=>H.sel.has(r.id));
+  return `${ed&&H.sel.size?`<div class="sh-bulk"><b>${H.sel.size} selected</b><button class="btn sm danger" data-act="sh-del-sel">Delete selected</button><button class="btn sm ghost" data-act="sh-sel-none">Clear selection</button></div>`:''}
+  <div class="tablewrap"><table class="dt sh-t"><thead><tr>${ed?`<th class="sh-c"><input type="checkbox" data-act="sh-sel-all" ${allSel?'checked':''} aria-label="Select all shown"></th>`:''}<th>Order</th><th>Date</th><th>Courier status</th><th>Result</th><th class="num">Shipping fee</th>${ed?'<th class="num">Actions</th>':''}</tr></thead><tbody>${rows.map(r=>{
+    if(ed&&H.edit===r.id)return `<tr class="sh-edit"><td></td><td><input class="input" id="she-no" value="${esc(r.no)}" aria-label="Order number"></td><td class="muted">${esc(r.date||'–')}</td><td><input class="input" id="she-status" list="sh-sts" value="${esc(r.status)}" placeholder="Courier status" aria-label="Courier status"><datalist id="sh-sts">${sts.map(x=>`<option value="${esc(x)}">`).join('')}</datalist></td><td>${shPill(r)}</td><td class="num"><input class="input num" id="she-fee" type="number" min="0" step="0.01" value="${r.fee}" aria-label="Shipping fee"></td><td class="num"><div class="sh-act"><button class="btn sm primary" data-act="sh-edit-save" data-id="${esc(r.id)}">Save</button><button class="btn sm ghost" data-act="sh-edit-cancel">Cancel</button></div></td></tr>`;
+    return `<tr class="${H.sel.has(r.id)?'sel':''}">${ed?`<td class="sh-c"><input type="checkbox" data-act="sh-sel" data-id="${esc(r.id)}" ${H.sel.has(r.id)?'checked':''} aria-label="Select order ${esc(r.no)}"></td>`:''}<td><b>${esc(r.no)}</b></td><td class="muted">${esc(r.date||'Not found')}</td><td class="sh-st" dir="auto">${esc(r.status||'–')}</td><td>${shPill(r)}</td><td class="num">${esc(money(r.fee))}</td>${ed?`<td class="num"><div class="sh-act"><button class="btn sm" data-act="sh-edit" data-id="${esc(r.id)}">Edit</button><button class="btn sm danger" data-act="sh-del" data-id="${esc(r.id)}">Delete</button></div></td>`:''}</tr>`}).join('')}</tbody></table></div>
+  <div class="sh-foot"><span class="muted">Showing ${fmtNum(rows.length)} of ${fmtNum(all.length)}${all.length!==(sec.rows||[]).length?' matching':''} orders</span>${all.length>rows.length?`<button class="btn sm" data-act="sh-more">Show ${Math.min(50,all.length-rows.length)} more</button>`:''}</div>`;
+}
+function shRender(){const t=document.getElementById('sh-tbl');if(t&&S.an.shSec)t.innerHTML=shTable(S.an.shSec);const c=document.getElementById('sh-chips');if(c&&S.an.shSec)c.innerHTML=shChips(S.an.shSec)}
+function shChips(sec){
+  const H=shS(),rows=sec.rows||[],n={all:rows.length,delivered:0,returned:0,other:0,missing:0};
+  rows.forEach(r=>{if(r.kind in n)n[r.kind]++;if(!r.matched)n.missing++});
+  return SH_FILTERS.map(([k,l])=>`<button type="button" class="segb${H.f===k?' on':''}" data-act="sh-filter" data-f="${k}">${l} <small>${n[k]}</small></button>`).join('');
+}
 function anSheet(sec){
-  const rows=sec.rows||[],ro=!isAdmin();
-  return `<div class="sheetbox">
-  <p class="body-text" style="font-size:.9rem"><b>Returned to shipper</b>: the order is taken out of revenue and cost, and its shipping fee comes off profit. <b>Confirmed delivery</b>: the order stays and its shipping fee comes off profit. Column A = order number, column B = status, column E = shipping fee.</p>
-  ${ro?'':`<textarea id="sheet-text" class="input" rows="5" placeholder="Paste the sheet here (copy the cells from Excel or Google Sheets)" style="width:100%;font-family:var(--mono,monospace)"></textarea>
-  <div class="row" style="gap:10px;margin-top:8px;flex-wrap:wrap;align-items:center"><button class="btn primary" data-act="sheet-save" ${S.an.saving?'disabled':''}>${S.an.saving?'Saving…':'Add pasted sheet'}</button><label class="btn">Upload a file (.xlsx or .csv)<input id="sheet-file" type="file" accept=".xlsx,.csv,.tsv,.txt" hidden></label>${sec.total?`<button class="btn" data-act="sheet-clear">Clear the sheet</button>`:''}</div>
-  <p class="muted" style="font-size:.82rem;margin-top:8px">New uploads add to what is already saved. An order that appears again is updated.</p>`}
-  ${sec.total?`<div class="repsum" style="margin:10px 0"><span>${fmtNum(sec.total)} orders in the sheet</span> · <span>${fmtNum(sec.delivered)} delivered</span> · <span>${fmtNum(sec.returned)} returned</span> · <span>${fmtNum(sec.other)} ignored</span> · <span>Fees counted ${money(sec.fees)}</span>${sec.unmatched?` · <b style="color:var(--warn)">${fmtNum(sec.unmatched)} not found in Shopify</b>`:''}</div>
-  ${(sec.ignoredStatuses||[]).length?`<p class="muted" style="font-size:.82rem">Ignored statuses: ${sec.ignoredStatuses.map(x=>esc(x.status)+' ('+x.n+')').join(', ')}. Tell me if one of these should count.</p>`:''}<div class="tablewrap"><table class="dt"><thead><tr><th>Order</th><th>Date</th><th>Courier status</th><th>Result</th><th class="num">Shipping fee</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.no)}</td><td>${esc(r.date)}</td><td>${esc(r.status)}</td><td>${esc(r.result)}</td><td class="num">${esc(money(r.fee))}</td></tr>`).join('')}</tbody></table></div>${sec.more?`<p class="muted">Showing 300 of ${fmtNum(sec.total)}.</p>`:''}`:''}
+  const H=shS(),ed=canEditSheet();S.an.shSec=sec;
+  const T=sec.total||0,seg=(v,c)=>v?`<i style="flex:${v};background:${c}" title="${fmtNum(v)}"></i>`:'';
+  const kp=[['Orders in the sheet',fmtNum(T),'',DC.blue],['Delivered',fmtNum(sec.delivered||0),'fees '+money(sec.deliveredFees||0),DC.good],['Returned to shipper',fmtNum(sec.returned||0),'fees '+money(sec.returnedFees||0),DC.bad],['Ignored',fmtNum(sec.other||0),'not counted',DC.amber],['Fees taken off profit',money(sec.fees||0),'delivered + returned',DC.pink],['Not found in Shopify',fmtNum(sec.unmatched||0),sec.unmatched?'check the order numbers':'all matched',sec.unmatched?DC.amber:DC.good]];
+  const imp=!ed?'':`<section class="sh-imp"><button class="sh-imph" data-act="sh-imp" aria-expanded="${H.imp}"><span><b>Add or update orders</b><small>Paste from Excel or Google Sheets, upload a file, or type one order</small></span><i>${H.imp?'−':'+'}</i></button>${H.imp?`<div class="sh-impb">
+    <div class="seg" role="group">${[['paste','Paste'],['file','Upload file'],['one','One order']].map(([k,l])=>`<button type="button" class="segb${H.mode===k?' on':''}" data-act="sh-mode" data-k="${k}">${l}</button>`).join('')}</div>
+    ${H.mode==='paste'?`<textarea id="sheet-text" class="input" rows="5" placeholder="Paste the cells here. Column A order number, column B status, column E shipping fee." style="font-family:var(--f-mono)"></textarea>`:H.mode==='file'?`<label class="sh-drop" for="sheet-file"><b>Drop a file here or click to choose</b><span class="muted">.xlsx, .csv or .tsv · Column A order number, B status, E shipping fee</span><input id="sheet-file" type="file" accept=".xlsx,.csv,.tsv,.txt" hidden></label>`:`<div class="sh-one"><div class="field"><label for="sh1-no">Order number</label><input class="input" id="sh1-no" placeholder="#1234"></div><div class="field"><label for="sh1-status">Courier status</label><input class="input" id="sh1-status" list="sh-sts1" placeholder="Confirmed delivery"><datalist id="sh-sts1"><option value="Confirmed delivery"><option value="Returned to shipper confirmed">${[...new Set((sec.rows||[]).map(r=>r.status).filter(Boolean))].slice(0,30).map(x=>`<option value="${esc(x)}">`).join('')}</datalist></div><div class="field"><label for="sh1-fee">Shipping fee</label><input class="input" id="sh1-fee" type="number" min="0" step="0.01" placeholder="0"></div></div>`}
+    <div class="row" style="gap:12px;flex-wrap:wrap;align-items:center"><label class="sh-rep"><input type="checkbox" data-act="sh-replace" ${H.replace?'checked':''}> Replace the whole saved sheet</label><span class="muted" style="font-size:.82rem">${H.replace?'Everything saved now is removed first.':'Orders already saved are kept; an order that appears again is updated.'}</span></div>
+    <div class="row" style="gap:10px">${H.mode==='paste'?`<button class="btn primary" data-act="sheet-save" ${S.an.saving?'disabled':''}>${S.an.saving?'Saving…':'Save pasted sheet'}</button>`:H.mode==='one'?`<button class="btn primary" data-act="sh-one" ${S.an.saving?'disabled':''}>${S.an.saving?'Saving…':'Save order'}</button>`:''}</div>
+  </div>`:''}</section>`;
+  const log=(sec.log||[]).length?`<section class="sh-log"><button class="sh-imph" data-act="sh-log" aria-expanded="${H.log}"><span><b>Recent changes</b><small>Who changed the sheet and when</small></span><i>${H.log?'−':'+'}</i></button>${H.log?`<ul>${sec.log.map(l=>`<li><span class="mono">${actAt(l.at)}</span><b>${esc(l.who||'Someone')}</b> ${esc(l.action.toLowerCase())}${l.detail?` <span class="muted">· ${esc(l.detail)}</span>`:''}</li>`).join('')}</ul>`:''}</section>`:'';
+  return `<div class="sheetbox sh">
+  <div class="sh-rules"><div><i class="ok"></i><span><b>Confirmed delivery</b> The order stays. Its shipping fee comes off profit.</span></div><div><i class="bad"></i><span><b>Returned to shipper</b> The order leaves revenue and cost. Its shipping fee comes off profit.</span></div><div><i class="mut"></i><span><b>Anything else</b> Ignored, so cities and zones in column B never change your numbers.</span></div></div>
+  ${imp}
+  ${T?`<div class="sh-kpis">${kp.map(([l,v,sub,c])=>`<div class="sh-k" style="--kc:${c}"><span class="eyebrow">${l}</span><b>${v}</b><small>${sub}</small></div>`).join('')}</div>
+  <div class="sh-bar" role="img" aria-label="Delivered, returned and ignored orders">${seg(sec.delivered,DC.good)}${seg(sec.returned,DC.bad)}${seg(sec.other,DC.amber)}</div>
+  ${(sec.ignoredStatuses||[]).length?`<details class="sh-ign"><summary>${sec.other} ignored order${sec.other===1?'':'s'} · ${sec.ignoredStatuses.length} different status${sec.ignoredStatuses.length===1?'':'es'}</summary><p class="muted">${sec.ignoredStatuses.map(x=>esc(x.status)+' ('+x.n+')').join(' · ')}</p><p class="muted">If one of these should count, change its status to <b>Confirmed delivery</b> or <b>Returned to shipper confirmed</b> using Edit.</p></details>`:''}
+  <div class="sh-tools"><input class="input sh-q" id="sh-q" type="search" placeholder="Search order number or status" value="${esc(H.q)}" aria-label="Search the sheet"><div class="seg" id="sh-chips" role="group" aria-label="Filter">${shChips(sec)}</div><div class="row" style="gap:8px"><button class="btn sm" data-act="sh-export">⤓ Export CSV</button>${ed?`<button class="btn sm danger" data-act="sheet-clear">Clear all</button>`:''}</div></div>
+  <div id="sh-tbl">${shTable(sec)}</div>
+  ${sec.more?`<p class="muted">The sheet holds ${fmtNum(sec.total)} orders. The first 3,000 are listed.</p>`:''}
+  ${log}`:`<div class="empty"><b>No courier sheet saved yet</b><span>${ed?'Use Add or update orders above to paste or upload your courier sheet.':'Ask the Super Admin to add the courier sheet.'}</span></div>${log}`}
   </div>`;
 }
 function anSection(sec){
@@ -2118,7 +2162,23 @@ document.addEventListener('click',async e=>{
   else if(a==='meta-budget'){if(S.meta.busy)return;const i=document.querySelector('.mbud[data-id="'+b.dataset.id+'"]');if(!i||!(Number(i.value)>0)){toast('Enter a daily budget above zero');return}if(!arm(b))return;await metaWrite({action:'budget',id:b.dataset.id,amount:Number(i.value)},'Daily budget saved')}
   else if(a==='ov-seg'){S.shop[b.dataset.k]=b.dataset.v;const y=window.scrollY;renderShop();window.scrollTo(0,y)}
   else if(a==='sheet-save'){const t=(document.getElementById('sheet-text')||{}).value||'';if(!t.trim()){toast('Paste the sheet first');return}sheetSend(parseDelim(t))}
-  else if(a==='sheet-clear'){if(!confirm('Remove the saved courier sheet? Profit will go back to the Shopify figures.'))return;api('POST','/api/analytics',{action:'sheet',clear:true}).then(()=>{Object.keys(S.an.cache).forEach(k=>{if(k.startsWith('profit|'))delete S.an.cache[k]});loadAn(true)}).catch(x=>toast(x.message))}
+  else if(a==='sheet-clear'){if(!arm(b))return;shWrite({clear:true},'The sheet was cleared')}
+  else if(a==='sh-imp'){shS().imp=!shS().imp;renderShop()}
+  else if(a==='sh-log'){shS().log=!shS().log;renderShop()}
+  else if(a==='sh-mode'){shS().mode=b.dataset.k;renderShop()}
+  else if(a==='sh-replace'){shS().replace=b.checked;renderShop()}
+  else if(a==='sh-filter'){const H=shS();H.f=b.dataset.f;H.n=50;shRender()}
+  else if(a==='sh-more'){shS().n+=50;shRender()}
+  else if(a==='sh-sel'){const H=shS();b.checked?H.sel.add(b.dataset.id):H.sel.delete(b.dataset.id);shRender()}
+  else if(a==='sh-sel-all'){const H=shS();shRows(S.an.shSec).slice(0,H.n).forEach(r=>b.checked?H.sel.add(r.id):H.sel.delete(r.id));shRender()}
+  else if(a==='sh-sel-none'){shS().sel.clear();shRender()}
+  else if(a==='sh-edit'){shS().edit=b.dataset.id;shRender();const i=document.getElementById('she-status');if(i)i.focus()}
+  else if(a==='sh-edit-cancel'){shS().edit='';shRender()}
+  else if(a==='sh-edit-save'){const g=i=>(document.getElementById(i)||{}).value;shWrite({edit:{id:b.dataset.id,label:g('she-no'),status:g('she-status'),fee:g('she-fee')}},'Order updated',()=>{shS().edit=''})}
+  else if(a==='sh-del'){if(!arm(b))return;shWrite({remove:[b.dataset.id]},'Order deleted',()=>shS().sel.delete(b.dataset.id))}
+  else if(a==='sh-del-sel'){const ids=[...shS().sel];if(!ids.length)return;if(!arm(b))return;shWrite({remove:ids},ids.length===1?'Order deleted':ids.length+' orders deleted',()=>shS().sel.clear())}
+  else if(a==='sh-one'){const g=i=>((document.getElementById(i)||{}).value||'').trim();if(!g('sh1-no')){toast('Type the order number');return}sheetSend([[g('sh1-no'),g('sh1-status'),'','',g('sh1-fee')]])}
+  else if(a==='sh-export'){const rows=(S.an.shSec&&S.an.shSec.rows)||[];const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';const csv='﻿'+['Order,Date,Courier status,Result,Shipping fee,In Shopify',...rows.map(r=>[q(r.no),q(r.date),q(r.status),q(r.result),r.fee,r.matched?'yes':'no'].join(','))].join('\r\n');const u=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const l=document.createElement('a');l.href=u;l.download='courier-sheet.csv';document.body.appendChild(l);l.click();l.remove();setTimeout(()=>URL.revokeObjectURL(u),2000)}
   else if(a==='an-tab'){S.an.tab=b.dataset.tab;S.an.err='';if(S.an.tab==='overview'){if(!S.shop.data)loadShop();else renderShop()}else loadAn()}
   else if(a==='an-refresh')loadAn(true);
   else if(a==='sel-file'){b.checked?S.sel.add(b.dataset.url):S.sel.delete(b.dataset.url);syncChecks()}
@@ -2249,3 +2309,6 @@ document.addEventListener('input',e=>{const t=e.target;if(t&&t.dataset&&t.datase
 document.addEventListener('change',e=>{const t=e.target;if(!t||!t.dataset||S.route!=='home')return;if(t.dataset.ovf){S.ov.f=t.value;ovRefreshTable()}else if(t.dataset.ovw){S.ov.who=t.value;ovRefreshTable()}else if(t.dataset.ovd){S.ov.d=t.value;ovRefreshTable()}});
 
 setInterval(()=>{if(S.route==='act'&&S.me&&!document.hidden&&S.act.data&&!S.act.open)loadAct(true)},60000);
+
+document.addEventListener('input',e=>{const t=e.target;if(t&&t.id==='sh-q'){const H=shS();H.q=t.value;H.n=50;shRender()}});
+['dragover','dragleave','drop'].forEach(ev=>document.addEventListener(ev,e=>{const d=e.target.closest&&e.target.closest('.sh-drop');if(!d)return;e.preventDefault();if(ev==='dragover')d.classList.add('over');else d.classList.remove('over');if(ev==='drop'){const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];if(f)(async()=>{try{const rows=/\.xlsx$/i.test(f.name)?parseXlsx(await f.arrayBuffer()):parseDelim(await f.text());sheetSend(rows)}catch(x){toast(x.message||'Could not read that file')}})()}}));

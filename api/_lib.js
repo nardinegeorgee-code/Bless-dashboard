@@ -3,7 +3,7 @@ import { SignJWT, jwtVerify } from 'jose';
 import bcrypt from 'bcryptjs';
 
 /** Reports the Super Admin can switch on for any individual user (User privileges). */
-export const GRANTABLE = ['dash', 'shop', 'odoo', 'meta', 'act'];
+export const GRANTABLE = ['dash', 'shop', 'odoo', 'meta', 'act', 'sheet'];
 export const ROLES = ['super_admin', 'graphic_designer', 'media_buyer', 'content_creator', 'moderator', 'pr', 'ecommerce', 'ceo'];
 export const COOKIE = 'hub_session';
 const MAX_AGE = 60 * 60 * 24 * 30; // 30 days

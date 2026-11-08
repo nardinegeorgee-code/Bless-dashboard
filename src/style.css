@@ -1251,3 +1251,46 @@ h1{font-weight:600;font-size:1.95rem}h2,h3{font-weight:600}
 .dx-htip .n{color:#E39AAB}
 .dx-hchips span{background:color-mix(in srgb,#D9889A 9%,transparent);border-color:color-mix(in srgb,#D9889A 25%,var(--line))}
 .mark,.ac-av{background:linear-gradient(135deg,#E8B4A8,#C98BB0)}
+
+/* ---- Courier sheet ---- */
+.sh{display:grid;gap:14px}
+.sh-rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.sh-rules>div{display:flex;gap:10px;align-items:flex-start;padding:11px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:.86rem;line-height:1.4}
+.sh-rules span{display:grid;gap:2px}.sh-rules b{font-size:.88rem}
+.sh-rules i{width:10px;height:10px;border-radius:50%;margin-top:5px;flex:none;background:var(--muted)}
+.sh-rules i.ok{background:var(--good)}.sh-rules i.bad{background:var(--bad)}
+.sh-imp,.sh-log{border:1px solid var(--line);border-radius:14px;background:var(--surface);overflow:hidden}
+.sh-imph{width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:13px 16px;background:transparent;border:0;color:var(--ink);cursor:pointer;text-align:left;font:inherit}
+.sh-imph span{display:grid;gap:2px}.sh-imph small{color:var(--muted);font-size:.8rem}
+.sh-imph i{font-style:normal;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent-text);font-size:1.1rem;flex:none}
+.sh-imph:hover{background:color-mix(in srgb,var(--accent) 6%,transparent)}
+.sh-impb{display:grid;gap:12px;padding:4px 16px 16px;border-top:1px solid var(--line);padding-top:14px}
+.sh-drop{display:grid;gap:4px;place-items:center;text-align:center;padding:26px 16px;border:2px dashed var(--line);border-radius:14px;cursor:pointer;transition:border-color .15s,background .15s}
+.sh-drop:hover,.sh-drop.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.sh-one{display:grid;grid-template-columns:1fr 1.4fr .8fr;gap:10px}
+@media(max-width:640px){.sh-one{grid-template-columns:1fr}}
+.sh-rep{display:inline-flex;gap:8px;align-items:center;font-weight:600;font-size:.88rem;cursor:pointer}
+.sh-rep input{accent-color:var(--accent);width:16px;height:16px}
+.sh-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.sh-k{--kc:var(--accent);display:grid;gap:4px;padding:13px 15px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,color-mix(in srgb,var(--kc) 10%,var(--card)),var(--card));min-width:0}
+.sh-k b{font-family:var(--f-display);font-size:1.45rem;line-height:1.1;overflow-wrap:anywhere}
+.sh-k small{color:var(--muted);font-size:.76rem}
+.sh-bar{display:flex;height:10px;border-radius:99px;overflow:hidden;background:var(--surface-2);gap:2px}
+.sh-bar i{display:block;min-width:4px}
+.sh-ign{border:1px solid var(--line);border-radius:12px;padding:10px 14px;background:var(--surface);font-size:.86rem}
+.sh-ign summary{cursor:pointer;font-weight:600}.sh-ign p{margin:8px 0 0;line-height:1.5}
+.sh-tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.sh-q{max-width:280px;flex:1 1 200px}
+.sh-tools .segb small{opacity:.7;margin-left:3px}
+.sh-bulk{display:flex;gap:10px;align-items:center;padding:9px 14px;border-radius:12px;background:var(--accent-soft);margin-bottom:8px}
+.sh-t td{vertical-align:middle}.sh-c{width:34px}.sh-c input{accent-color:var(--accent);width:16px;height:16px}
+.sh-st{white-space:normal;max-width:340px;line-height:1.4}
+.sh-t tr.sel td{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+.sh-t tr.sh-edit td{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.sh-t .input{padding:6px 9px;min-width:90px}.sh-t .input.num{text-align:right;max-width:110px}
+.sh-act{display:inline-flex;gap:6px;justify-content:flex-end}
+.sh-pill{display:inline-flex;align-items:center;padding:3px 10px;border-radius:99px;font-size:.76rem;font-weight:700;white-space:nowrap;background:var(--surface-2);color:var(--muted)}
+.sh-pill.ok{background:var(--good-bg);color:var(--good)}.sh-pill.ret{background:var(--bad-bg);color:var(--bad)}.sh-pill.miss{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.sh-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:8px}
+.sh-log ul{list-style:none;margin:0;padding:4px 16px 14px;display:grid;gap:8px;border-top:1px solid var(--line);padding-top:12px;font-size:.86rem}
+.sh-log li{display:flex;gap:10px;flex-wrap:wrap;align-items:baseline}
