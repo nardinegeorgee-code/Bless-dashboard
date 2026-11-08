@@ -1149,3 +1149,7 @@ body.zoomed{overflow:hidden}
 .dx-two.top{align-items:start;gap:28px}
 @media (max-width:900px){.dx-two.top{grid-template-columns:1fr}}
 .dx-ol b{align-self:flex-start}
+.dx-all{margin-top:14px;display:flex;justify-content:center}
+.dx-all .btn{width:100%;justify-content:center}
+.dxm-body{margin-top:16px}.dxm-h{margin:20px 0 10px;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.dxm-body .dx-tr{grid-template-columns:minmax(0,2.4fr) minmax(0,1fr) minmax(0,.8fr) minmax(0,.8fr)}

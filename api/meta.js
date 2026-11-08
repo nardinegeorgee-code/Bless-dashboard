@@ -149,7 +149,7 @@ function build(tab, cfg, ctx, info) {
       const rows = now.map((r) => {
         const m = metrics(r), w = was.get(r.campaign_id);
         return { ...(cpics.get(r.campaign_id) ? { img: cpics.get(r.campaign_id) } : {}), name: r.campaign_name || 'Unnamed campaign', ...m, change: w && w.spend ? Math.round(((m.spend - w.spend) / w.spend) * 1000) / 10 : null, roasBefore: w ? w.roas : null };
-      }).filter((r) => r.spend > 0).sort((a, b) => b.spend - a.spend).slice(0, 10);
+      }).filter((r) => r.spend > 0).sort((a, b) => b.spend - a.spend).slice(0, 30);
       return { columns: [{ key: 'name', label: 'Campaign', fmt: 'str' }, { key: 'spend', label: 'Spent', fmt: 'money', bar: true }, { key: 'change', label: `Spend vs ${ctx.compareText}`, fmt: 'growth' }, { key: 'purchases', label: 'Purchases', fmt: 'int' }, { key: 'roas', label: 'Return', fmt: 'x' }, { key: 'roasBefore', label: `Return, ${ctx.compareText}`, fmt: 'x' }, { key: 'cpp', label: 'Per purchase', fmt: 'money2' }], rows, empty: 'No campaign spent anything in this period.' };
     }),
     section('ads', `Ads by spend (${ctx.periodLabel})`, 'table', async () => {
