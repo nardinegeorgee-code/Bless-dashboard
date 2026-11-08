@@ -17,14 +17,7 @@ export async function saveTarget(rep, monthly) {
   if (!amount) await q`DELETE FROM rep_targets WHERE rep = ${name}`;
   else await q`INSERT INTO rep_targets (rep, monthly, updated_at) VALUES (${name}, ${amount}, ${Date.now()}) ON CONFLICT (rep) DO UPDATE SET monthly = EXCLUDED.monthly, updated_at = EXCLUDED.updated_at`;
 }
-/** How many months a date range covers (a part month counts by its days). */
+/** How many calendar months a date range touches. A part month counts as a whole month, so a target is never cut down for a short range. */
 export function monthsIn(a, b) {
-  let t = 0, d = new Date(a.slice(0, 7) + '-01T12:00:00Z');
-  const from = Date.parse(a + 'T12:00:00Z'), to = Date.parse(b + 'T12:00:00Z');
-  for (let i = 0; i < 400 && d.getTime() <= to; i++) {
-    const y = d.getUTCFullYear(), m = d.getUTCMonth(), first = Date.UTC(y, m, 1, 12), dim = new Date(Date.UTC(y, m + 1, 0)).getUTCDate(), last = Date.UTC(y, m, dim, 12);
-    const days = Math.max(0, (Math.min(last, to) - Math.max(first, from)) / 86400000 + 1);
-    t += days / dim; d = new Date(Date.UTC(y, m + 1, 1, 12));
-  }
-  return t;
+  return (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + Number(b.slice(5, 7)) - Number(a.slice(5, 7)) + 1;
 }
