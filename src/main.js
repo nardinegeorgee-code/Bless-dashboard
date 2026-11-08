@@ -113,6 +113,11 @@ const NAV_ICON={
 };
 const navIco=k=>`<svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${NAV_ICON[k]||NAV_ICON.home}</svg>`;
 const SIDE_MIN_KEY='hub_side_min';
+const THEME_KEY='bless-theme';
+function theme(){try{return localStorage.getItem(THEME_KEY)==='light'?'light':'dark'}catch(e){return document.documentElement.dataset.theme==='light'?'light':'dark'}}
+function applyTheme(){document.documentElement.dataset.theme=theme()}
+function toggleTheme(){const n=theme()==='light'?'dark':'light';try{localStorage.setItem(THEME_KEY,n)}catch(e){document.documentElement.dataset.theme=n}applyTheme();try{renderNav()}catch(e){}}
+applyTheme();
 function sideMin(){try{return localStorage.getItem(SIDE_MIN_KEY)==='1'}catch(e){return false}}
 function applySideMin(){document.body.classList.toggle('side-min',sideMin())}
 function toggleSide(){try{localStorage.setItem(SIDE_MIN_KEY,sideMin()?'0':'1')}catch(e){document.body.classList.toggle('side-min')}applySideMin()}
@@ -126,7 +131,7 @@ function navItems(){
 function showApp(){
   S.screen='app';applySideMin();
   $('#app').innerHTML=`<div class="shell"><aside class="side">${brandHTML}<nav class="nav" id="nav" aria-label="Pages"></nav>
-    <div class="me"><div class="who"><b>${esc(S.me.username)}</b>${roleChip(S.me.role)}</div><button class="btn sm so" data-act="logout" title="Sign out"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10"/></svg><span class="nl">Sign out</span></button></div><button class="sidetog" data-act="side-toggle" title="Make the menu smaller or larger" aria-label="Toggle menu size"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m14.500 7-5 5 5 5"/></svg><span class="nl">Make smaller</span></button></aside>
+    <div class="me"><div class="who"><b>${esc(S.me.username)}</b>${roleChip(S.me.role)}</div><button class="btn sm so" data-act="logout" title="Sign out"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10"/></svg><span class="nl">Sign out</span></button></div><button class="sidetog" data-act="theme-toggle" title="Switch between dark and light" aria-label="Switch theme"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.800A9 9 0 1 1 11.200 3a7 7 0 0 0 9.800 9.800z"/></svg><span class="nl">${theme()==='light'?'Dark mode':'Light mode'}</span></button><button class="sidetog" data-act="side-toggle" title="Make the menu smaller or larger" aria-label="Toggle menu size"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m14.500 7-5 5 5 5"/></svg><span class="nl">Make smaller</span></button></aside>
     <main class="main"><div class="wrap" id="view"></div></main></div>`;
   mount();
 }
@@ -1297,6 +1302,7 @@ document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
   if(a==='go'){e.preventDefault();go(b.dataset.route,b.dataset.param)}
   else if(a==='side-toggle')toggleSide();
+  else if(a==='theme-toggle')toggleTheme();
   else if(a==='ov-kpi'){S.ov.open=S.ov.open===b.dataset.k?'':b.dataset.k;S.ov.q='';S.ov.f='';S.ov.who='';S.ov.d='';S.ov.sk='';ovRender()}
   else if(a==='ov-sort'){const i=b.dataset.i;if(String(S.ov.sk)===i)S.ov.sd=S.ov.sd==='asc'?'desc':'asc';else{S.ov.sk=i;S.ov.sd='asc'}ovRender()}
   else if(a==='ov-export'){const L=S.ovLast;if(!L)return;const csv=[L.head,...L.rows].map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n'),a2=document.createElement('a');a2.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv'}));a2.download='overview-'+L.name+'.csv';a2.click();setTimeout(()=>URL.revokeObjectURL(a2.href),2000)}
