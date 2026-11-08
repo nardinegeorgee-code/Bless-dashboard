@@ -1,6 +1,6 @@
 import { route, allow, db, requireAdmin, requireViewer, serveCached, sendCached } from './_lib.js';
 import { ensureShopSchema, shopConfig, getState, shopifyql } from './_shopify.js';
-import { parsePeriod, monthPeriod, startMs, endMs } from './_period.js';
+import { parsePeriod, monthPeriod, startMs, endMs, dayList } from './_period.js';
 
 const DAY = 86400000;
 
@@ -152,6 +152,19 @@ export default route(async (req, res) => {
   const monthCarts = checkouts.filter((c) => !c.completed && Number(c.created_at) >= startMs(per.from, cfg.tz) && Number(c.created_at) < endMs(per.to, cfg.tz));
   const cartsValueMonth = monthCarts.reduce((a, c) => a + Number(c.total), 0);
 
+  // Day by day for the chosen period (and the one it is compared with), plus when people order (weekday × hour).
+  const dayOf = new Intl.DateTimeFormat('en-CA', { timeZone: cfg.tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+  const whenOf = new Intl.DateTimeFormat('en-US', { timeZone: cfg.tz, weekday: 'short', hour: '2-digit', hourCycle: 'h23' });
+  const WD = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+  const perDay = (list, from, to) => {
+    const days = dayList(from, to), at = new Map(days.map((d, i) => [d, i])), rev = days.map(() => 0), ord = days.map(() => 0);
+    for (const o of list) { const i = at.get(dayOf.format(new Date(Number(o.created_at)))); if (i !== undefined) { rev[i] += Number(o.total); ord[i]++; } }
+    return { dates: days, revenue: rev, orders: ord };
+  };
+  const daily = cur.fromReports || per.days > 400 ? null : { cur: perDay(sales, per.from, per.to), prev: prev.fromReports ? null : perDay(prev.sold, cmp.from, cmp.to) };
+  const heat = Array.from({ length: 7 }, () => Array(24).fill(0));
+  for (const o of sales) { const parts = Object.fromEntries(whenOf.formatToParts(new Date(Number(o.created_at))).map((x) => [x.type, x.value])); const w = WD[parts.weekday], h = Number(parts.hour) % 24; if (w !== undefined && h >= 0) heat[w][h]++; }
+
   const [{ n: orderCount }] = await q`SELECT COUNT(*)::int AS n FROM shop_orders`;
   const [{ n: cartCount }] = await q`SELECT COUNT(*)::int AS n FROM shop_checkouts`;
   const so = await getState('orders');
@@ -178,6 +191,8 @@ export default route(async (req, res) => {
       change: { orders: pct(S.orders, prev.orders), revenue: pct(S.revenue, prev.revenue), units: pct(S.units, prev.units) },
       previous: { orders: prev.orders, revenue: prev.revenue, units: prev.units, refunds: prev.refunds, net: prev.revenue - prev.refunds, aov: prev.orders ? prev.revenue / prev.orders : 0 },
     },
+    daily,
+    heat: cur.fromReports ? null : heat,
     bestByUnits: top(products, 10, 'units'),
     bestByRevenue: top(products, 10, 'revenue'),
     countries: top(countries, 10, 'revenue'),

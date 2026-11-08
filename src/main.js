@@ -694,10 +694,14 @@ function hubHTML(){
   const tile=r=>`<button class="hub-t${r.feat?' feat':''}" style="--hc:${r.c}" data-act="go" data-route="${r.k}"><span class="kico" style="--kc:${r.c}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[r.ico]||NAV_ICON[r.ico]||''}</svg></span><span class="hub-tt">${r.t}</span><span class="hub-td">${r.d}</span><span class="hub-go">Open report <i>→</i></span></button>`;
   return `<div class="hub-bar">${brandHTML}<div class="row"><span class="muted">${esc(S.me.username)}</span>${roleChip(S.me.role)}<button class="btn sm so" data-act="theme-toggle">${theme()==='light'?'Dark':'Light'} mode</button><button class="btn sm so" data-act="logout">Sign out</button></div></div><div class="head"><div><h1>Welcome, ${esc(S.me.username)}</h1><p>${t}. Choose a report to open.</p></div></div><div class="hub-grid">${list.map(tile).join('')}</div>`;
 }
-S.dash={d:{},err:{},done:{},busy:false,tok:0};
+S.dash={d:{},err:{},done:{},busy:false,tok:0,at:0,focus:'all',trendM:'money',dayM:'revenue',dayCmp:true,off:{},prodBy:'revenue',prodQ:'',geo:'countries',campBy:'spend'};
+const DC={shop:'#2DD4BF',odoo:'#A78BFA',meta:'#FF8A3D',good:'#34D399',bad:'#F87171',pink:'#F472B6',blue:'#60A5FA',amber:'#FBBF24'};
+const DNAME={shop:'Shopify',meta:'Meta Ads',odoo:'Odoo profit',stock:'Odoo stock',sales:'Odoo sales',cash:'Odoo invoices'};
 function dashJobs(){
   const q=perQuery();
-  return [['shop','/api/shopify?only=summary&'+q],['meta','/api/meta?tab=overview&only=kpi,trend,campaigns&'+q],['odoo','/api/odoo?tab=profit&only=kpi,trend&'+q],['stock','/api/odoo?tab=finished&only=kpi&'+q]];
+  return [['shop','/api/shopify?only=summary&'+q],['meta','/api/meta?tab=overview&only=kpi,trend,campaigns,platform&'+q],
+    ['odoo','/api/odoo?tab=profit&only=kpi,trend,cost&'+q],['stock','/api/odoo?tab=finished&only=kpi,sold&'+q],
+    ['sales','/api/odoo?tab=sales&only=kpi&'+q],['cash','/api/odoo?tab=in&only=kpi,aging,overdue&'+q]];
 }
 async function dashGet(url,retry){
   try{const d=await api('GET',url,null,65000);if(d&&d.configured===false)throw new Error('Not connected yet. Add its keys in Vercel, then reload.');return d}
@@ -707,62 +711,308 @@ async function dashRun(key,force,tok){
   const D=S.dash,job=dashJobs().find(j=>j[0]===key);delete D.err[key];
   try{const d=await dashGet(job[1]+(force?'&refresh=1':''));if(tok!==D.tok)return;D.d[key]=d}
   catch(e){if(tok!==D.tok)return;D.err[key]=e.message||'Could not load'}
-  D.done[key]=1;dashFill();
+  D.done[key]=1;D.at=Date.now();dashFill();
 }
 async function loadDash(force,clear){
   const D=S.dash,tok=++D.tok;
   if(clear){D.d={};D.done={}}D.err={};D.busy=true;dashFill();
-  const seq=async()=>{await dashRun('odoo',force,tok);await dashRun('stock',force,tok)};
-  await Promise.all([dashRun('shop',force,tok),dashRun('meta',force,tok),seq()]);
+  const odooChain=async()=>{for(const k of ['odoo','stock','sales','cash'])await dashRun(k,force,tok)};
+  await Promise.all([dashRun('shop',force,tok),dashRun('meta',force,tok),odooChain()]);
   if(tok===D.tok){D.busy=false;dashFill()}
 }
-function dashFill(){if(S.screen!=='app'||S.route!=='dash')return;const L=$('#live');if(!L)return;const y=window.scrollY;L.innerHTML=dashHTML();window.scrollTo(0,y)}
-function dtile(o){
-  const D=S.dash,{key,label,val,delta,goodDown,sub,color}=o,keys=[].concat(key);
-  const bad=keys.find(k=>D.err[k]);
-  if(bad)return `<div class="dh-t err"><span class="eyebrow">${label}</span><p class="muted dh-e">${esc(D.err[bad])}</p><button class="btn sm" data-act="dash-retry" data-k="${keys.join(',')}">Try again</button></div>`;
-  if(!keys.every(k=>D.done[k]&&D.d[k]))return `<div class="dh-t"><span class="eyebrow">${label}</span><div class="pv-sk"><i></i><i></i></div></div>`;
-  return `<div class="dh-t" style="--pc:${color||'var(--accent)'}"><span class="eyebrow">${label}</span><div class="dh-v">${val}</div><div class="dh-s">${delta===null||delta===undefined?'':chip(delta,goodDown)}<span class="muted">${sub||''}</span></div></div>`;
+let dashT=0;
+function dashFill(){
+  if(S.screen!=='app'||S.route!=='dash')return;const L=$('#live');if(!L)return;
+  // Many answers can arrive within a moment of each other: draw once per frame.
+  if(dashT)return;dashT=requestAnimationFrame(()=>{dashT=0;const y=window.scrollY,a=document.activeElement,aid=a&&a.id;L.innerHTML=dashHTML();dSizeCharts();window.scrollTo(0,y);if(aid){const n=document.getElementById(aid);if(n&&n.focus){n.focus();if(n.setSelectionRange&&typeof n.value==='string')n.setSelectionRange(n.value.length,n.value.length)}}});
 }
-function dashPanel(name,color,route,body,keys){
-  const D=S.dash,bad=keys.find(k=>D.err[k]);
-  const inner=bad?`<p class="muted">${esc(D.err[bad])}</p><button class="btn sm" data-act="dash-retry" data-k="${keys.join(',')}">Try again</button>`:keys.every(k=>D.done[k]&&D.d[k])?body:`<div class="pv-sk"><i></i><i></i><i></i></div>`;
-  return `<section class="dh-p" style="--pc:${color}"><div class="dh-ph"><h3>${name}</h3><button class="btn sm ghost" data-act="dtab" data-t="${route}">Full ${name} →</button></div>${inner}</section>`;
+
+/* ---- small helpers ---- */
+const dSec=(d,id)=>((d&&d.sections)||[]).find(x=>x.id===id);
+const dT=(d,l)=>pvTile(d,'kpi',l);
+const dReady=k=>!!(S.dash.done[k]&&S.dash.d[k]);
+const dCur=()=>{const D=S.dash.d;return (D.shop&&D.shop.currency)||(D.odoo&&D.odoo.currency)||(D.meta&&D.meta.currency)||''};
+const dM=n=>pvCur(n,dCur());
+const dMf=n=>{n=Number(n)||0;const c=dCur();try{return new Intl.NumberFormat('en-US',c?{style:'currency',currency:c,maximumFractionDigits:0}:{maximumFractionDigits:0}).format(n)}catch(e){return Math.round(n).toLocaleString()}};
+const dMs=n=>{n=Number(n)||0;const c=dCur();try{return new Intl.NumberFormat('en-US',c?{style:'currency',currency:c,notation:'compact',maximumFractionDigits:1}:{notation:'compact',maximumFractionDigits:1}).format(n)}catch(e){return dN(n)}};
+const dN=n=>{n=Number(n)||0;return Math.abs(n)>=1e6?(n/1e6).toFixed(1)+'M':Math.abs(n)>=1e4?(n/1e3).toFixed(1)+'K':Math.round(n).toLocaleString('en-US')};
+const dX=n=>(Number(n)||0).toFixed(2)+'×';
+const dP=n=>(Number(n)||0).toFixed(1)+'%';
+const dDay=s=>new Date(s+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});
+const dWk=s=>new Date(s+'T12:00:00Z').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'UTC'});
+const dDaily=t=>!t||!t.daily?null:Array.isArray(t.daily)?{cur:t.daily,dates:null,prev:null}:t.daily;
+const dDiv=(a,b)=>b?a/b:0;
+const dIco=k=>`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]||NAV_ICON[k]||''}</svg>`;
+function dGate(keys,fn,h){
+  const D=S.dash;keys=[].concat(keys);const bad=keys.find(k=>D.err[k]);
+  if(bad)return `<div class="dx-err"><b>Could not load ${DNAME[bad]||bad}.</b><span class="muted">${esc(D.err[bad])}</span><button class="btn sm" data-act="dash-retry" data-k="${bad}">Try again</button></div>`;
+  if(!keys.every(dReady))return `<div class="dx-skel" style="height:${h||160}px"><span>Loading ${keys.filter(k=>!dReady(k)).map(k=>DNAME[k]).join(', ')}…</span></div>`;
+  try{return fn()}catch(e){console.error(e);return '<p class="muted">This part could not be drawn with the data that came back.</p>'}
 }
-function dashList(rows){return rows.length?`<ul class="dh-l">${rows.map(r=>`<li><span class="dh-n">${esc(r[0])}</span><b>${r[1]}</b></li>`).join('')}</ul>`:'<p class="muted">Nothing in this period.</p>'}
+function dCard(title,sub,body,o={}){
+  return `<section class="dx-card ${o.cls||''}" style="grid-column:span ${o.span||12}${o.color?';--dc:'+o.color:''}"><header class="dx-ch"><div><h3>${o.dot?`<i class="dx-dot" style="background:${o.dot}"></i>`:''}${title}</h3>${sub?`<p>${sub}</p>`:''}</div>${o.tools||''}</header>${body}</section>`;
+}
+function dStat(label,value,delta,goodDown,sub,color){
+  return `<div class="dx-stat"${color?` style="--sc:${color}"`:''}><span>${label}</span><b>${value}</b><em>${delta===null||delta===undefined||!isFinite(delta)?'':chip(Math.round(delta*10)/10,goodDown)}${sub?`<small>${sub}</small>`:''}</em></div>`;
+}
+function dSeg(name,cur,opts){return `<div class="dx-seg" role="group">${opts.map(([v,l])=>`<button class="${cur===v?'on':''}" data-act="dx-set" data-k="${name}" data-v="${v}" aria-pressed="${cur===v}">${l}</button>`).join('')}</div>`}
+function dBars(rows,o={}){
+  if(!rows.length)return `<p class="muted dx-empty">${o.empty||'Nothing in this period.'}</p>`;
+  const mx=Math.max(...rows.map(r=>Math.abs(r.v)),1);
+  return `<ul class="dx-hb">${rows.map((r,i)=>`<li><span class="dx-hn">${o.rank?`<i>${i+1}</i>`:''}${r.img?`<img src="${esc(r.img)}" alt="" loading="lazy">`:''}<span title="${esc(r.l)}">${esc(r.l)}</span></span><span class="dx-hv"><b>${r.f||dM(r.v)}</b>${r.s?`<small>${r.s}</small>`:''}</span><span class="dx-ht"><i style="width:${Math.max(2,Math.abs(r.v)/mx*100)}%;background:${r.c||o.color||'var(--accent)'}"></i></span></li>`).join('')}</ul>`;
+}
+function dDonut(parts,center,sub){
+  parts=parts.filter(p=>p.v>0);const tot=parts.reduce((a,p)=>a+p.v,0);
+  if(!tot)return '<p class="muted dx-empty">Nothing to show for this period.</p>';
+  const r=54,C=2*Math.PI*r;let off=0;
+  const arcs=parts.map(p=>{const len=C*p.v/tot,s=`<circle cx="70" cy="70" r="${r}" fill="none" stroke="${p.c}" stroke-width="16" stroke-dasharray="${Math.max(0,len-2)} ${C}" stroke-dashoffset="${-off}" transform="rotate(-90 70 70)"><title>${esc(p.l)}: ${Math.round(p.v/tot*100)}%</title></circle>`;off+=len;return s}).join('');
+  return `<div class="dx-dn"><svg viewBox="0 0 140 140" aria-hidden="true"><circle cx="70" cy="70" r="${r}" fill="none" stroke="var(--line)" stroke-width="16"/>${arcs}<text x="70" y="68" text-anchor="middle" class="dx-dn-v">${center}</text><text x="70" y="86" text-anchor="middle" class="dx-dn-s">${sub||''}</text></svg><ul>${parts.map(p=>`<li><i style="background:${p.c}"></i><span>${esc(p.l)}</span><b>${Math.round(p.v/tot*100)}%</b><small>${p.f||dM(p.v)}</small></li>`).join('')}</ul></div>`;
+}
+function dRing(score,color){
+  const r=46,C=2*Math.PI*r,len=C*Math.max(0,Math.min(100,score))/100;
+  return `<svg class="dx-ring" viewBox="0 0 120 120" aria-hidden="true"><defs><linearGradient id="dxrg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${DC.pink}"/><stop offset="1" stop-color="${color}"/></linearGradient></defs><circle cx="60" cy="60" r="${r}" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="10"/><circle cx="60" cy="60" r="${r}" fill="none" stroke="url(#dxrg)" stroke-width="10" stroke-linecap="round" stroke-dasharray="${len} ${C}" transform="rotate(-90 60 60)"/><text x="60" y="66" text-anchor="middle">${Math.round(score)}</text></svg>`;
+}
+
+/* ---- chart kit: bars + lines on one or two axes, drawn at the real width, with a hover read-out ---- */
+const CH={};
+function dLegend(id,series){return `<div class="dx-lg">${series.map((s,i)=>`<button class="${S.dash.off[id+':'+s.name]?'off':''}" data-act="ch-toggle" data-c="${id}" data-s="${esc(s.name)}"><i class="${s.type}" style="--lc:${s.color}"></i>${esc(s.name)}</button>`).join('')}</div>`}
+function dChart(id,o){CH[id]=o;return `${o.legend===false?'':dLegend(id,o.series)}<div class="ch" data-c="${id}" style="height:${o.h||260}px"></div>`}
+function dNice(m){if(!(m>0))return 1;const p=Math.pow(10,Math.floor(Math.log10(m))),f=m/p;return (f<=1?1:f<=2?2:f<=2.5?2.5:f<=5?5:10)*p}
+function dChartSVG(id,el){
+  const o=CH[id];if(!o)return;const W=Math.max(260,el.clientWidth),H=o.h||260,n=o.labels.length;
+  const vis=o.series.filter(s=>!S.dash.off[id+':'+s.name]),hasR=vis.some(s=>s.axis==='r');
+  const small=W<480,pl=small?44:58,pr=hasR?(small?44:58):12,pt=12,pb=26,iw=W-pl-pr,ih=H-pt-pb,bw=iw/Math.max(n,1);
+  const ext=ax=>{const v=vis.filter(s=>(s.axis||'l')===ax).flatMap(s=>s.values.map(Number).filter(Number.isFinite));return v.length?Math.max(...v,0):0};
+  const ml=dNice(ext('l')),mr=dNice(ext('r')),yl=v=>pt+ih-ih*(v/ml),yr=v=>pt+ih-ih*(v/mr),x=i=>pl+bw*i+bw/2;
+  const fl=o.fmtL||dN,fr=o.fmtR||dN;
+  let g='';
+  for(let k=0;k<=4;k++){const y=pt+ih-ih*k/4;g+=`<line x1="${pl}" x2="${W-pr}" y1="${y}" y2="${y}" class="ch-g"/><text x="${pl-8}" y="${y+4}" text-anchor="end" class="ch-t">${fl(ml*k/4)}</text>${hasR?`<text x="${W-pr+8}" y="${y+4}" class="ch-t">${fr(mr*k/4)}</text>`:''}`}
+  const step=Math.ceil(n/(small?5:9));
+  o.labels.forEach((l,i)=>{if(i%step===0||(i===n-1&&(n-1)%step>=step*.6))g+=`<text x="${x(i)}" y="${H-8}" text-anchor="middle" class="ch-t">${esc(o.short?o.short(l):l)}</text>`});
+  const bars=vis.filter(s=>s.type==='bar'),bwi=Math.min(38,bw*.72)/Math.max(bars.length,1);
+  let marks='';
+  bars.forEach((s,j)=>{const Y=s.axis==='r'?yr:yl;s.values.forEach((v,i)=>{v=Number(v)||0;if(v<=0)return;const bx=x(i)-bwi*bars.length/2+bwi*j,y=Y(v);marks+=`<rect x="${bx.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1,bwi-1.5).toFixed(1)}" height="${(pt+ih-y).toFixed(1)}" rx="${Math.min(4,bwi/3).toFixed(1)}" fill="${s.color}" opacity="${s.dim?.45:.9}"/>`})});
+  vis.filter(s=>s.type!=='bar').forEach((s,j)=>{
+    const Y=s.axis==='r'?yr:yl,pts=s.values.map((v,i)=>v===null||v===undefined||!Number.isFinite(Number(v))?null:[x(i),Y(Number(v))]);
+    const segs=[];let cur=[];pts.forEach(p=>{if(p)cur.push(p);else if(cur.length){segs.push(cur);cur=[]}});if(cur.length)segs.push(cur);
+    const gid='cg'+id+j;
+    segs.forEach(sg=>{const d=sg.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+','+p[1].toFixed(1)).join('');
+      if(s.type==='area')marks+=`<path d="${d}L${sg[sg.length-1][0].toFixed(1)},${pt+ih}L${sg[0][0].toFixed(1)},${pt+ih}Z" fill="url(#${gid})"/>`;
+      marks+=`<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.type==='dash'?1.8:2.6}" ${s.type==='dash'?'stroke-dasharray="5 5" opacity=".8"':''} stroke-linejoin="round" stroke-linecap="round"/>`;
+      if(n<=16&&s.type!=='dash')sg.forEach(p=>marks+=`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.2" fill="var(--card)" stroke="${s.color}" stroke-width="2"/>`)});
+    if(s.type==='area')marks=`<defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${s.color}" stop-opacity=".32"/><stop offset="1" stop-color="${s.color}" stop-opacity="0"/></linearGradient></defs>`+marks;
+  });
+  o.geo={pl,bw,n,W,H,pt,ih};
+  el.innerHTML=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.title||'Chart')}">${g}${marks}<line class="ch-x" x1="0" x2="0" y1="${pt}" y2="${pt+ih}" style="display:none"/></svg><div class="ch-tip" hidden></div>`;
+}
+function dSizeCharts(){document.querySelectorAll('#live .ch').forEach(el=>dChartSVG(el.dataset.c,el))}
+function dChartHover(el,ev){
+  const id=el.dataset.c,o=CH[id];if(!o||!o.geo)return;const r=el.getBoundingClientRect(),px=ev.clientX-r.left,{pl,bw,n,pt,ih,W}=o.geo;
+  const i=Math.floor((px-pl)/bw),tip=el.querySelector('.ch-tip'),ln=el.querySelector('.ch-x');
+  if(i<0||i>=n){tip.hidden=true;if(ln)ln.style.display='none';return}
+  const vis=o.series.filter(s=>!S.dash.off[id+':'+s.name]),cx=pl+bw*i+bw/2;
+  if(ln){ln.setAttribute('x1',cx);ln.setAttribute('x2',cx);ln.style.display=''}
+  tip.innerHTML=`<b>${esc(o.tipLabel?o.tipLabel(i):o.labels[i])}</b>${vis.map(s=>{const v=s.values[i];return `<span><i style="background:${s.color}"></i>${esc(s.name)}<em>${v===null||v===undefined?'–':(s.fmt||dN)(v)}</em></span>`}).join('')}`;
+  tip.hidden=false;const tw=tip.offsetWidth;tip.style.left=Math.max(4,Math.min(W-tw-4,cx+(cx>W/2?-tw-14:14)))+'px';tip.style.top=(pt+8)+'px';
+}
+document.addEventListener('pointermove',e=>{const el=e.target.closest&&e.target.closest('.ch');if(el)dChartHover(el,e)});
+document.addEventListener('pointerout',e=>{const el=e.target.closest&&e.target.closest('.ch');if(el&&!el.contains(e.relatedTarget)){const t=el.querySelector('.ch-tip'),l=el.querySelector('.ch-x');if(t)t.hidden=true;if(l)l.style.display='none'}});
+let dResizeT;window.addEventListener('resize',()=>{clearTimeout(dResizeT);dResizeT=setTimeout(()=>{if(S.route==='dash')dSizeCharts()},150)});
+
+/* ---- the numbers everything below is built from ---- */
+function dModel(){
+  const D=S.dash.d,sh=D.shop,ss=sh&&sh.summary,od=D.odoo,mt=D.meta,st=D.stock,sa=D.sales,ca=D.cash;
+  const t=(d,l)=>dT(d,l);
+  return {sh,ss,od,mt,st,sa,ca,
+    rev:t(od,'Net revenue'),cost:t(od,'Product cost'),gross:t(od,'Gross profit'),oads:t(od,'Ad spend (Meta)'),pro:t(od,'Profit after ads')||t(od,'Gross profit'),
+    sp:t(mt,'Amount spent'),pu:t(mt,'Purchases'),pv:t(mt,'Purchase value'),ro:t(mt,'Return on ad spend'),cpp:t(mt,'Cost per purchase'),reach:t(mt,'People reached'),imp:t(mt,'Impressions'),clk:t(mt,'Link clicks'),ctr:t(mt,'Link click rate'),cpc:t(mt,'Cost per link click'),cpm:t(mt,'Cost per 1,000 views'),
+    oos:t(st,'Out of stock'),low:t(st,'Running low'),sval:t(st,'Finished goods value (at cost)'),ssale:t(st,'Value at sale price'),sunits:t(st,'Units sold in this period'),
+    owe:t(ca,'Customers owe you'),inv:t(ca,'Invoiced to customers'),paid:t(ca,'Payments received')};
+}
+function dHealth(m){
+  const parts=[],clamp=v=>Math.max(0,Math.min(1,v));
+  if(m.ss&&m.ss.change&&m.ss.change.revenue!==null&&m.ss.change.revenue!==undefined)parts.push(['Sales growth',clamp((m.ss.change.revenue+20)/40),`${m.ss.change.revenue>=0?'+':''}${m.ss.change.revenue}% Shopify revenue`]);
+  if(m.ss&&m.sp&&m.sp.value)parts.push(['Ad efficiency',clamp((dDiv(m.ss.revenue,m.sp.value)-1)/5),dX(dDiv(m.ss.revenue,m.sp.value))+' store revenue per 1 on ads']);
+  if(m.pro&&m.rev&&m.rev.value)parts.push(['Profit margin',clamp(dDiv(m.pro.value,m.rev.value)/.35),dP(dDiv(m.pro.value,m.rev.value)*100)+' of Odoo net revenue']);
+  const prods=dT(m.st,'Products');if(m.oos&&prods&&prods.value)parts.push(['Stock availability',clamp(1-dDiv(m.oos.value,prods.value)/.2),`${m.oos.value} of ${prods.value} finished goods out of stock`]);
+  if(!parts.length)return null;
+  return {score:parts.reduce((a,p)=>a+p[1],0)/parts.length*100,parts};
+}
+function dInsights(m){
+  const out=[],add=(tone,ico,html)=>out.push({tone,ico,html});
+  const ss=m.ss;
+  if(ss&&m.sp&&m.sp.prev){const rc=ss.change.revenue,sc=pvPct(m.sp.value,m.sp.prev);
+    if(rc!==null&&sc!==null){if(rc-sc>5)add('good','trend',`Sales grew <b>${rc}%</b> while ad spend changed <b>${sc}%</b>. Every pound on ads is working harder than before.`);
+      else if(sc-rc>5)add('bad','alert',`Ad spend rose <b>${sc}%</b> but sales only <b>${rc}%</b>. Ads are getting more expensive per sale; review the weakest campaigns below.`);
+      else add('info','trend',`Sales (<b>${rc>=0?'+':''}${rc}%</b>) and ad spend (<b>${sc>=0?'+':''}${sc}%</b>) moved together.`)}}
+  const dl=m.sh&&m.sh.daily&&m.sh.daily.cur;if(dl&&dl.revenue.some(v=>v)){const i=dl.revenue.indexOf(Math.max(...dl.revenue));add('good','star',`Best day was <b>${dWk(dl.dates[i])}</b> with <b>${dMf(dl.revenue[i])}</b> from ${dl.orders[i]} orders.`)}
+  const cs=dSec(m.mt,'campaigns');if(cs&&cs.rows&&cs.rows.length){const r=cs.rows.filter(x=>x.spend>0);const best=r.slice().sort((a,b)=>b.roas-a.roas)[0],worst=r.filter(x=>x.spend>=(m.sp?m.sp.value*.08:0)).sort((a,b)=>a.roas-b.roas)[0];
+    if(best&&best.roas)add('good','meta',`Strongest campaign: <b>${esc(best.name)}</b> returned <b>${dX(best.roas)}</b> on ${dM(best.spend)}.`);
+    if(worst&&worst!==best&&worst.roas<1.5)add('bad','meta',`<b>${esc(worst.name)}</b> spent ${dM(worst.spend)} for only <b>${dX(worst.roas)}</b>. Consider pausing it or changing the creative.`)}
+  if(m.oos&&m.oos.value){const rows=(m.oos.breakdown&&m.oos.breakdown.rows)||[];add('bad','alert',`<b>${m.oos.value}</b> finished product${m.oos.value===1?' is':'s are'} out of stock${rows.length?`, including <b>${esc(rows[0].name)}</b>`:''}.${m.low&&m.low.value?` ${m.low.value} more running low.`:''}`)}
+  else if(m.low&&m.low.value)add('info','alert',`<b>${m.low.value}</b> finished product${m.low.value===1?' is':'s are'} running low. Plan production before they sell out.`);
+  const ag=dSec(m.ca,'aging');if(m.owe&&m.owe.value){const late=ag&&ag.rows?ag.rows.filter(r=>!/not yet|current|not due/i.test(r.name)).reduce((a,r)=>a+(Number(r.value)||0),0):0;add(late?'bad':'info','refund',`Customers owe you <b>${dMf(m.owe.value)}</b>${late?`, of which <b>${dMf(late)}</b> is overdue`:''}.`)}
+  const hm=m.sh&&m.sh.heat;if(hm){let b=[0,0,0];hm.forEach((r,w)=>r.forEach((v,h)=>{if(v>b[0])b=[v,w,h]}));if(b[0]>1)add('info','chat',`Most orders arrive on <b>${['Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays','Sundays'][b[1]]}</b> around <b>${b[2]}:00</b>. Time posts and budget boosts for just before then.`)}
+  if(ss&&m.sh.abandoned&&m.sh.abandoned.monthValue)add('info','bag',`<b>${dMf(m.sh.abandoned.monthValue)}</b> was left in ${m.sh.abandoned.monthCount} unfinished carts this period (${dP(m.sh.abandoned.monthRate)} of checkouts).`);
+  return out;
+}
+
+/* ---- sections ---- */
+function dHero(m){
+  const H=dHealth(m),sh=m.ss;
+  const metric=(label,keys,val,delta,goodDown,sub,spark,color)=>`<div class="dx-hm" style="--hc:${color}"><span class="dx-hl"><i style="background:${color}"></i>${label}</span>${[].concat(keys).every(dReady)?`<b>${val}</b><span class="dx-hd">${delta===null||delta===undefined||!isFinite(delta)?'':chip(Math.round(delta*10)/10,goodDown)}<small>${sub||''}</small></span>${spark||''}`:S.dash.err[[].concat(keys).find(k=>S.dash.err[k])]?`<b class="muted">–</b><small class="muted">Could not load</small>`:'<div class="pv-sk"><i></i><i></i></div>'}</div>`;
+  const sd=m.sh&&m.sh.daily&&m.sh.daily.cur,md=dDaily(m.sp);
+  const blend=sh&&m.sp&&m.sp.value?dDiv(sh.revenue,m.sp.value):null,blendPrev=sh&&m.sp&&m.sp.prev?dDiv(sh.previous.revenue,m.sp.prev):null;
+  const per=(m.sh&&m.sh.period&&m.sh.period.label)||(m.od&&m.od.period&&m.od.period.label)||'';
+  return `<section class="dx-hero"><div class="dx-hero-top"><div><span class="dx-eye">Bless · all systems${per?' · '+esc(per):''}</span><h2>${sh?dMf(sh.revenue):'…'}<small>in Shopify sales${sh&&sh.change.revenue!==null?` · ${sh.change.revenue>=0?'up':'down'} ${Math.abs(sh.change.revenue)}% on ${esc(m.sh.compareText||'the period before')}`:''}</small></h2></div>
+    ${H?`<div class="dx-health" tabindex="0">${dRing(H.score,DC.good)}<div><span class="dx-eye">Business health</span><b>${H.score>=70?'Strong':H.score>=45?'Steady':'Needs attention'}</b><ul>${H.parts.map(p=>`<li><i style="width:${Math.round(p[1]*100)}%"></i><span>${p[0]}</span><small>${p[2]}</small></li>`).join('')}</ul></div></div>`:''}</div>
+    <div class="dx-hgrid">
+      ${metric('Orders','shop',sh?dN(sh.orders):'',sh&&sh.change.orders,false,sh?dMf(sh.aov)+' average':'',sd?pvSpark(sd.orders,DC.shop):'',DC.shop)}
+      ${metric(m.pro?m.pro.label:'Profit after ads','odoo',m.pro?dMf(m.pro.value):'–',m.pro?pvPct(m.pro.value,m.pro.prev):null,false,m.pro&&m.rev&&m.rev.value?dP(dDiv(m.pro.value,m.rev.value)*100)+' margin in Odoo':'from Odoo',(()=>{const tr=dSec(m.od,'trend');return tr?pvSpark(tr.rows.map(r=>r.values.profit),DC.odoo):''})(),DC.odoo)}
+      ${metric('Ad spend','meta',m.sp?dMf(m.sp.value):'–',m.sp?pvPct(m.sp.value,m.sp.prev):null,true,m.pu?dN(m.pu.value)+' purchases on Meta':'',md&&md.cur?pvSpark(md.cur,DC.meta):'',DC.meta)}
+      ${metric('Store return on ads',['shop','meta'],blend!==null?dX(blend):'–',blend!==null&&blendPrev?pvPct(blend,blendPrev):null,false,'Shopify revenue ÷ Meta spend','',DC.pink)}
+    </div></section>`;
+}
+function dInsightsHTML(m){
+  const list=dInsights(m);if(!list.length)return '';
+  return `<section class="dx-ins">${list.slice(0,8).map(x=>`<div class="dx-in ${x.tone}"><span>${dIco(x.ico)}</span><p>${x.html}</p></div>`).join('')}</section>`;
+}
+function dSalesHTML(m){
+  const D=S.dash;
+  const daily=dGate(['shop'],()=>{
+    const dd=m.sh.daily;if(!dd||!dd.cur)return '<p class="muted dx-empty">Day-by-day sales are not available for this period (it is older than the synced orders). Pick a more recent period.</p>';
+    const cur=dd.cur,prev=dd.prev,isR=D.dayM==='revenue',md=dDaily(m.sp),mpu=dDaily(m.pu);
+    const mByDate=(t)=>{if(!t||!t.dates)return null;const mp=new Map(t.dates.map((d,i)=>[d,t.cur[i]]));return cur.dates.map(d=>mp.has(d)?mp.get(d):null)};
+    const series=[{name:isR?'Shopify revenue':'Shopify orders',type:'bar',color:DC.shop,values:isR?cur.revenue:cur.orders,fmt:isR?dMf:dN}];
+    if(D.dayCmp&&prev)series.push({name:'Previous period',type:'dash',color:'#94A3B8',values:cur.dates.map((_,i)=>(isR?prev.revenue:prev.orders)[i]??null),fmt:isR?dMf:dN});
+    const ms=isR?mByDate(md):mByDate(mpu);if(ms)series.push({name:isR?'Meta ad spend':'Meta purchases',type:'line',color:DC.meta,values:ms,axis:isR?'r':'l',fmt:isR?dMf:dN});
+    return dChart('daily',{h:340,labels:cur.dates,short:dDay,tipLabel:i=>dWk(cur.dates[i])+(prev&&prev.dates[i]?` · vs ${dDay(prev.dates[i])}`:''),series,fmtL:dN,fmtR:dN,title:'Sales by day'});
+  },300);
+  const tools=`<div class="row">${dSeg('dayM',D.dayM,[['revenue','Revenue'],['orders','Orders']])}<label class="dx-chk"><input type="checkbox" data-dx="dayCmp" ${D.dayCmp?'checked':''}> Compare</label></div>`;
+  const stats=dGate(['shop'],()=>{const s=m.ss,p=s.previous||{};return `<div class="dx-stats">${dStat('Revenue',dMf(s.revenue),s.change.revenue,false,'',DC.shop)}${dStat('Orders',dN(s.orders),s.change.orders,false,'',DC.shop)}${dStat('Average order',dMf(s.aov),pvPct(s.aov,p.aov),false,'',DC.shop)}${dStat('Items sold',dN(s.units),s.change.units,false,'',DC.shop)}${dStat('Refunds',dMf(s.refunds),pvPct(s.refunds,p.refunds),true,dP(s.refundRate)+' of revenue',DC.bad)}${dStat('Cancelled',dN(s.cancelled||0),null,true,dP(s.cancelRate||0)+' of orders',DC.bad)}</div>`},120);
+  const heat=dGate(['shop'],()=>{const h=m.sh.heat;if(!h)return '<p class="muted dx-empty">Not available for this period.</p>';const mx=Math.max(1,...h.flat());const W=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    return `<div class="dx-heat"><div class="dx-hr"><span></span>${Array.from({length:24},(_,i)=>`<span class="dx-hh">${i%3===0?i:''}</span>`).join('')}</div>${h.map((r,w)=>`<div class="dx-hr"><span class="dx-hw">${W[w]}</span>${r.map((v,hh)=>`<span class="dx-hc" style="--a:${v?(.12+.88*v/mx).toFixed(2):0}" title="${W[w]} ${hh}:00 · ${v} order${v===1?'':'s'}"></span>`).join('')}</div>`).join('')}<div class="dx-hk"><span>Fewer</span><i></i><span>More orders</span></div></div>`},200);
+  const prods=dGate(['shop'],()=>`<div class="row dx-tl">${dSeg('prodBy',D.prodBy,[['revenue','By revenue'],['units','By units']])}<input class="input dx-q" id="dx-pq" data-dxq="prodQ" placeholder="Search products" value="${esc(D.prodQ)}"></div><div id="dx-prods">${dProdList(m)}</div>`,240);
+  const geo=dGate(['shop'],()=>{const L=(rows,c)=>dBars((rows||[]).slice(0,5).map(r=>({l:r.name||r.country||r.city||'Unknown',v:r.revenue,c,s:dN(r.orders)+' orders'})),{rank:1});return `<h4 class="dx-h4" style="margin-top:0">Countries</h4>${L(m.sh.countries,DC.blue)}<h4 class="dx-h4">Cities</h4>${L(m.sh.cities,DC.pink)}`},240);
+  const cust=dGate(['shop'],()=>{const c=m.sh.customers;if(!c)return '<p class="muted dx-empty">No customer data.</p>';return dDonut([{l:'Returning customers',v:c.repeat,c:DC.shop,f:dN(c.repeat)},{l:'First-time customers',v:c.fresh,c:DC.pink,f:dN(c.fresh)},{l:'Guest checkouts',v:c.guest,c:'#94A3B8',f:dN(c.guest)}],dP(c.repeatRate),'returning')},200);
+  const carts=dGate(['shop'],()=>{const a=m.sh.abandoned;if(!a)return '<p class="muted dx-empty">No cart data.</p>';const ag=a.aging||[],tot=ag.reduce((x,b)=>x+b.value,0)||1,cc=[DC.good,DC.amber,'#FB923C',DC.bad];
+    return `<div class="dx-stats">${dStat('Left this period',dMf(a.monthValue),null,true,dN(a.monthCount)+' carts · '+dP(a.monthRate),DC.amber)}${dStat('Still open (90 days)',dMf(a.openValue),null,true,dN(a.openCount)+' carts',DC.amber)}</div>
+      <div class="dx-stk">${ag.map((b,i)=>`<i style="flex:${b.value/tot};background:${cc[i%4]}" title="${esc(b.label)}"></i>`).join('')}</div><ul class="dx-ol">${ag.map((b,i)=>`<li><span><i class="dx-sq" style="background:${cc[i%4]}"></i>${esc(b.label)}</span><b>${dM(b.value)}</b></li>`).join('')}</ul><button class="btn sm ghost" style="margin-top:12px" data-act="dtab" data-t="shop">Recover carts →</button>`},200);
+  return `<div class="dx-block" id="dx-sales"><div class="dx-bh"><span class="dx-bi" style="--bc:${DC.shop}">${dIco('shop')}</span><div><h2>Sales</h2><p>Shopify store: what sold, when and to whom.</p></div></div><div class="dx-grid">
+    ${dCard('Sales by day',m.sh&&m.sh.period?esc(m.sh.period.label):'',daily,{span:8,tools,dot:DC.shop})}
+    ${dCard('At a glance','vs '+esc((m.sh&&m.sh.compareText)||'the period before'),stats,{span:4})}
+    ${dCard('Best sellers','Shopify, this period',prods,{span:6})}
+    ${dCard('Where orders come from','Shopify revenue by place',geo,{span:6})}
+    ${dCard('When people order','Shopify orders by weekday and hour (Cairo time)',heat,{span:6})}
+    ${dCard('Customers','Who bought this period',cust,{span:3})}
+    ${dCard('Unfinished carts','Money left at checkout',carts,{span:3})}
+  </div></div>`;
+}
+function dProdList(m){
+  const D=S.dash;m=m||dModel();if(!m.sh)return '';const q=D.prodQ.trim().toLowerCase();
+  const rows=((D.prodBy==='units'?m.sh.bestByUnits:m.sh.bestByRevenue)||[]).filter(p=>!q||String(p.title).toLowerCase().includes(q)).slice(0,8);
+  return dBars(rows.map(p=>({l:p.title,v:D.prodBy==='units'?p.units:p.revenue,f:D.prodBy==='units'?dN(p.units)+' units':dMf(p.revenue),s:D.prodBy==='units'?dMf(p.revenue):dN(p.units)+' units'})),{color:DC.shop,rank:1,empty:q?'No product matches that search.':'No sales in this period.'});
+}
+function dMarketingHTML(m){
+  const D=S.dash;
+  const funnel=dGate(['meta','shop'],()=>{
+    const steps=[['People reached',m.reach&&m.reach.value],['Saw an ad (impressions)',m.imp&&m.imp.value],['Clicked through',m.clk&&m.clk.value],['Bought (Meta says)',m.pu&&m.pu.value],['Shopify orders (all sources)',m.ss&&m.ss.orders]].filter(s=>s[1]!==undefined&&s[1]!==null);
+    const mx=Math.max(...steps.map(s=>s[1]),1),w=v=>v>0?12+88*Math.log10(v+1)/Math.log10(mx+1):4;
+    const cols=[DC.meta,'#FB923C','#F472B6','#C084FC',DC.shop];
+    return `<div class="dx-fn">${steps.map((s,i)=>{const prev=i?steps[i-1][1]:null,conv=prev&&i<4?dP(s[1]/prev*100):'';return `<div class="dx-fr"><div class="dx-fl"><span>${s[0]}</span><b>${dN(s[1])}</b></div><div class="dx-fb"><i style="width:${w(s[1])}%;background:${cols[i]}"></i></div>${conv?`<small>${conv} of the step before</small>`:''}</div>`}).join('')}</div><p class="muted dx-note">Bar lengths use a log scale so every step stays visible.</p>`;
+  },260);
+  const eff=dGate(['meta'],()=>`<div class="dx-stats">${[[m.ro,'Return on ad spend',dX,false],[m.cpp,'Cost per purchase',dMf,true],[m.ctr,'Click rate',dP,false],[m.cpc,'Cost per click',v=>pvCur(v,dCur()),true],[m.cpm,'Cost per 1,000 views',dMf,true],[m.pv,'Purchase value (Meta)',dMf,false]].filter(x=>x[0]).map(([t,l,f,gd])=>dStat(l,f(t.value),pvPct(t.value,t.prev),gd,'',DC.meta)).join('')}</div>`,200);
+  const camps=dGate(['meta'],()=>{const s=dSec(m.mt,'campaigns');if(!s)return '<p class="muted dx-empty">No campaigns.</p>';if(s.error)return `<p class="muted">${esc(s.error)}</p>`;
+    const by=D.campBy,rows=(s.rows||[]).slice().sort((a,b)=>(b[by]||0)-(a[by]||0)).slice(0,8),mx=Math.max(1,...rows.map(r=>r.spend));
+    const pill=r=>{const v=Number(r.roas)||0,c=v>=3?'good':v>=1.5?'mid':'bad';return `<span class="dx-pill ${c}">${dX(v)}</span>`};
+    return `<div class="row dx-tl">${dSeg('campBy',by,[['spend','Spend'],['roas','Return'],['purchases','Purchases']])}</div><div class="dx-tbl"><div class="dx-tr dx-th"><span>Campaign</span><span>Spend</span><span>Buys</span><span>Return</span></div>${rows.map(r=>`<div class="dx-tr"><span class="dx-cn">${r.img?`<img src="${esc(r.img)}" alt="" loading="lazy">`:''}<span title="${esc(r.name)}">${esc(r.name)}</span></span><span class="dx-cs"><b>${dM(r.spend)}</b><i style="width:${r.spend/mx*100}%"></i>${r.change!==null&&r.change!==undefined?chip(r.change,true):''}</span><span>${dN(r.purchases)}</span><span>${pill(r)}</span></div>`).join('')}</div>`},280);
+  const plat=dGate(['meta'],()=>{const s=dSec(m.mt,'platform');const cols=[DC.blue,DC.pink,DC.amber,DC.good,'#94A3B8','#C084FC'];return s&&s.rows?dDonut(s.rows.map((r,i)=>({l:r.name,v:r.spend,c:cols[i%cols.length],f:dM(r.spend)+(r.roas?' · '+dX(r.roas):'')})),dMs(m.sp?m.sp.value:0),'spent'):'<p class="muted dx-empty">No breakdown.</p>'},200);
+  const dailyEff=dGate(['meta','shop'],()=>{const md=dDaily(m.sp),dd=m.sh.daily&&m.sh.daily.cur;if(!md||!md.dates||!dd)return '<p class="muted dx-empty">Not enough daily data for this period.</p>';
+    const mp=new Map(md.dates.map((d,i)=>[d,md.cur[i]])),roas=dd.dates.map((d,i)=>{const s=mp.get(d);return s?dd.revenue[i]/s:null});
+    const pr=dDaily(m.ro);const mr=pr&&pr.dates?(()=>{const q=new Map(pr.dates.map((d,i)=>[d,pr.cur[i]]));return dd.dates.map(d=>q.has(d)?q.get(d):null)})():null;
+    return dChart('roas',{h:220,labels:dd.dates,short:dDay,tipLabel:i=>dWk(dd.dates[i]),fmtL:v=>(+v).toFixed(1)+'×',series:[{name:'Store revenue ÷ spend',type:'area',color:DC.pink,values:roas,fmt:dX},...(mr?[{name:'Meta-reported return',type:'line',color:DC.meta,values:mr,fmt:dX}]:[])]});
+  },240);
+  return `<div class="dx-block" id="dx-marketing"><div class="dx-bh"><span class="dx-bi" style="--bc:${DC.meta}">${dIco('meta')}</span><div><h2>Marketing</h2><p>Meta Ads checked against real Shopify sales.</p></div></div><div class="dx-grid">
+    ${dCard('From ad to order','Meta funnel, ending in real Shopify orders',funnel,{span:6,dot:DC.meta})}
+    ${dCard('Ad efficiency','vs the period before',eff,{span:6})}
+    ${dCard('Campaigns','Sorted your way; the colour shows the return',camps,{span:8})}
+    ${dCard('Where the money went','Spend by platform',plat,{span:4})}
+    ${dCard('Return on ads, day by day','How many pounds of sales each pound of ads brought in',dailyEff,{span:12})}
+  </div></div>`;
+}
+function dProfitHTML(m){
+  const D=S.dash;
+  const wf=dGate(['odoo'],()=>{
+    if(!m.rev)return '<p class="muted dx-empty">No Odoo sales in this period.</p>';
+    const R=m.rev.value,C=m.cost?m.cost.value:0,G=m.gross?m.gross.value:R-C,A=m.oads?m.oads.value:0,P=m.pro?m.pro.value:G-A;
+    const steps=[['Net revenue',0,R,DC.odoo],['Product cost',G,R,DC.bad],['Gross profit',0,G,'#C084FC'],...(A?[['Ad spend',P,G,DC.meta],['Profit after ads',0,P,DC.good]]:[])];
+    const mx=Math.max(R,1);
+    return `<div class="dx-wf">${steps.map(([l,lo,hi,c],i)=>{const a=Math.min(lo,hi),b=Math.max(lo,hi);return `<div class="dx-wc"><b class="dx-wv">${i%2&&i<4?'−':''}${dN(Math.abs(hi-lo))}</b><div class="dx-wt"><i style="bottom:${Math.max(0,a)/mx*100}%;height:${Math.max(1,(b-a)/mx*100)}%;background:${c}"></i></div><span>${l}</span></div>`}).join('')}</div>`;
+  },260);
+  const trend=dGate(['odoo','meta','shop'],()=>{
+    const ot=dSec(m.od,'trend'),mt=dSec(m.mt,'trend'),sm=m.sh.months||[];
+    const keys=[...new Set([...(ot?ot.rows.map(r=>r.key):[]),...(mt&&mt.rows?mt.rows.map(r=>r.key):[]),...sm.map(r=>r.key)].filter(k=>/^\d{4}-\d{2}$/.test(k)))].sort().slice(-12);
+    if(!keys.length)return '<p class="muted dx-empty">No monthly history yet.</p>';
+    const by=(rows,f)=>{const mp=new Map((rows||[]).map(r=>[r.key,f(r)]));return keys.map(k=>mp.has(k)?mp.get(k):null)};
+    const shR=by(sm,r=>r.revenue),shO=by(sm,r=>r.orders),odR=by(ot&&ot.rows,r=>r.values.revenue),odP=by(ot&&ot.rows,r=>r.values.profit),mS=by(mt&&mt.rows,r=>r.values.spend),mP=by(mt&&mt.rows,r=>r.values.purchases),mR=by(mt&&mt.rows,r=>r.values.roas);
+    const lab=keys.map(k=>new Date(k+'-15T12:00:00Z').toLocaleDateString('en-GB',{month:'short',year:'2-digit',timeZone:'UTC'}));
+    let series,fl=dN;
+    if(D.trendM==='orders')series=[{name:'Shopify orders',type:'bar',color:DC.shop,values:shO,fmt:dN},{name:'Meta purchases',type:'line',color:DC.meta,values:mP,fmt:dN}],fl=dN;
+    else if(D.trendM==='eff')series=[{name:'Store revenue ÷ Meta spend',type:'area',color:DC.pink,values:keys.map((_,i)=>shR[i]&&mS[i]?shR[i]/mS[i]:null),fmt:dX},{name:'Meta-reported return',type:'line',color:DC.meta,values:mR,fmt:dX},{name:'Odoo margin',type:'line',color:DC.odoo,values:keys.map((_,i)=>odR[i]?odP[i]/odR[i]*100:null),axis:'r',fmt:dP}],fl=v=>(+v).toFixed(1)+'×';
+    else series=[{name:'Shopify revenue',type:'bar',color:DC.shop,values:shR,fmt:dMf},{name:'Odoo net revenue',type:'bar',color:DC.odoo,values:odR,fmt:dMf,dim:1},{name:'Odoo profit',type:'line',color:DC.good,values:odP,fmt:dMf},{name:'Meta ad spend',type:'line',color:DC.meta,values:mS,fmt:dMf}];
+    return dChart('months',{h:300,labels:lab,series,fmtL:fl,fmtR:v=>Math.round(v)+'%',title:'Last 12 months'});
+  },320);
+  const costT=dGate(['odoo'],()=>{const s=dSec(m.od,'cost');const rows=(s&&s.rows||[]).filter(r=>r.margin!==null&&r.margin!==undefined).slice(0,8);
+    if(!rows.length)return '<p class="muted dx-empty">No product costs for this period. Set a Cost on products in Odoo to see margins.</p>';
+    return `<div class="dx-tbl m"><div class="dx-tr dx-th"><span>Product</span><span>Revenue</span><span>Profit</span><span>Margin</span></div>${rows.map(r=>{const c=r.margin>=50?DC.good:r.margin>=25?DC.amber:DC.bad;return `<div class="dx-tr"><span class="dx-cn"><span title="${esc(r.name)}">${esc(r.name)}</span></span><span>${dM(r.net_sales)}</span><span>${dM(r.profit)}</span><span class="dx-mg"><i style="width:${Math.max(2,Math.min(100,r.margin))}%;background:${c}"></i><b>${Math.round(r.margin)}%</b></span></div>`}).join('')}</div>`},260);
+  const orders=dGate(['sales'],()=>{const t=l=>dT(m.sa,l);return `<div class="dx-stats">${[['Confirmed orders',dN,false],['Order value',dMf,false],['Invoiced',dMf,false],['Open quotations',dN,false],['Waiting to be paid',dMf,true]].map(([l,f,gd])=>{const x=t(l);return x?dStat(l,f(x.value),x.prev!==undefined?pvPct(x.value,x.prev):null,gd,x.sub?esc(x.sub):'',DC.odoo):''}).join('')}</div>`},160);
+  return `<div class="dx-block" id="dx-profit"><div class="dx-bh"><span class="dx-bi" style="--bc:${DC.odoo}">${dIco('odoo')}</span><div><h2>Profit</h2><p>Odoo's books with Meta's spend taken off.</p></div></div><div class="dx-grid">
+    ${dCard('From revenue to profit','Odoo, this period'+(dCur()?' · in '+dCur():''),wf,{span:5,dot:DC.odoo})}
+    ${dCard('Last 12 months','All three systems on one timeline',trend,{span:7,tools:dSeg('trendM',D.trendM,[['money','Money'],['orders','Orders'],['eff','Efficiency']])})}
+    ${dCard('Margin by product','Odoo cost vs sale price',costT,{span:7})}
+    ${dCard('Odoo sales orders','All channels booked in Odoo',orders,{span:5})}
+  </div></div>`;
+}
+function dStockHTML(m){
+  const stock=dGate(['stock'],()=>{const sale=m.ssale,val=m.sval;
+    const list=(t,c)=>{const rows=(t&&t.breakdown&&t.breakdown.rows)||[];return rows.length?`<ul class="dx-ol">${rows.slice(0,6).map(r=>`<li><span title="${esc(r.name)}">${esc(r.name)}</span><b style="color:${c}">${dN(r.units)} left</b></li>`).join('')}${rows.length>6?`<li class="muted">+${rows.length-6} more</li>`:''}</ul>`:'<p class="muted dx-empty">None 🎉</p>'};
+    return `<div class="dx-stats">${val?dStat('Stock value at cost',dMf(val.value),null,false,val.sub?esc(val.sub):'',DC.odoo):''}${sale?dStat('Value at sale price',dMf(sale.value),null,false,sale.sub?esc(sale.sub):'',DC.good):''}${m.sunits?dStat('Units sold',dN(m.sunits.value),pvPct(m.sunits.value,m.sunits.prev),false,'',DC.odoo):''}</div>
+      <div class="dx-two"><div><h4 class="dx-h4" style="color:${DC.bad}">Out of stock · ${m.oos?m.oos.value:0}</h4>${list(m.oos,DC.bad)}</div><div><h4 class="dx-h4" style="color:${DC.amber}">Running low · ${m.low?m.low.value:0}</h4>${list(m.low,DC.amber)}</div></div>`},260);
+  const sold=dGate(['stock'],()=>{const s=dSec(m.st,'sold');return dBars(((s&&s.rows)||[]).slice(0,8).map(r=>({l:r.name,v:r.value,img:r.img,s:dN(r.units)+' units'})),{color:DC.odoo,rank:1})},260);
+  const cash=dGate(['cash'],()=>{const ag=dSec(m.ca,'aging'),ov=dSec(m.ca,'overdue');
+    const cols=[DC.good,DC.amber,'#FB923C',DC.bad,'#DC2626'];
+    const ovRows=(ov&&ov.rows||[]).slice(0,5),mcol=ov&&ov.columns?(ov.columns.find(c=>/money/.test(c.fmt))||{}).key:null,scol=ov&&ov.columns?(ov.columns.filter(c=>c.fmt==='str')[1]||{}).key:null;
+    return `<div class="dx-stats">${[m.inv&&dStat('Invoiced to customers',dMf(m.inv.value),pvPct(m.inv.value,m.inv.prev),false,'',DC.odoo),m.paid&&dStat('Payments received',dMf(m.paid.value),null,false,'',DC.good),m.owe&&dStat('Customers owe you',dMf(m.owe.value),null,true,m.owe.sub?esc(m.owe.sub):'',DC.amber)].filter(Boolean).join('')}</div>
+      ${ag&&ag.rows?`<h4 class="dx-h4">Who owes you, by how late</h4>${dBars(ag.rows.map((r,i)=>({l:r.name,v:r.value,c:cols[Math.min(i,cols.length-1)],s:dN(r.count)+' invoices'})))}`:''}
+      ${ovRows.length&&mcol?`<h4 class="dx-h4">Chase first</h4><ul class="dx-ol">${ovRows.map(r=>`<li><span title="${esc(r.name)}">${esc(r.name)}${scol&&r[scol]?` <small class="muted">${esc(r[scol])}</small>`:''}</span><b style="color:${DC.bad}">${dMf(r[mcol])}</b></li>`).join('')}</ul>`:''}`},260);
+  return `<div class="dx-block" id="dx-stock"><div class="dx-bh"><span class="dx-bi" style="--bc:${DC.good}">${dIco('box')}</span><div><h2>Stock & cash</h2><p>What is on the shelf and who still has to pay.</p></div></div><div class="dx-grid">
+    ${dCard('Finished goods','Odoo stock right now',stock,{span:5,dot:DC.odoo})}
+    ${dCard('Best sellers in Odoo','All channels, this period',sold,{span:3})}
+    ${dCard('Money owed to you','Odoo invoices',cash,{span:4})}
+  </div></div>`;
+}
 function dashHTML(){
-  const D=S.dash,sh=D.d.shop,ss=sh&&sh.summary,sc=sh&&sh.currency,od=D.d.odoo,oc=od&&od.currency,mt=D.d.meta,mc=mt&&mt.currency,st=D.d.stock;
-  const rev=pvTile(od,'kpi','Net revenue'),pro=pvTile(od,'kpi',['Profit after ads','Gross profit']),cost=pvTile(od,'kpi','Product cost'),oads=pvTile(od,'kpi','Ad spend (Meta)');
-  const sp=pvTile(mt,'kpi','Amount spent'),pu=pvTile(mt,'kpi','Purchases'),ro=pvTile(mt,'kpi','Return on ad spend');
-  const main=[
-    dtile({key:'shop',label:'Shopify revenue',color:'#2DD4BF',val:ss?pvCur(ss.revenue,sc):'',delta:ss&&ss.change.revenue,sub:ss?'vs '+esc(sh.compareText||'before'):''}),
-    dtile({key:'shop',label:'Shopify orders',color:'#2DD4BF',val:ss?ss.orders.toLocaleString():'',delta:ss&&ss.change.orders,sub:ss?pvCur(ss.aov,sc)+' average order':''}),
-    dtile({key:'odoo',label:'Odoo net revenue',color:'#A78BFA',val:rev?pvCur(rev.value,oc):'–',delta:rev?pvPct(rev.value,rev.prev):null,sub:'invoiced sales'}),
-    dtile({key:'odoo',label:pro?pro.label:'Profit',color:'#A78BFA',val:pro?pvCur(pro.value,oc):'–',delta:pro?pvPct(pro.value,pro.prev):null,sub:'after product cost'}),
-    dtile({key:'meta',label:'Meta ad spend',color:'#FF8A3D',val:sp?pvCur(sp.value,mc):'–',delta:sp?pvPct(sp.value,sp.prev):null,goodDown:true,sub:pu?pu.value.toLocaleString()+' purchases':''}),
-    dtile({key:'meta',label:'Meta return on ad spend',color:'#FF8A3D',val:ro?ro.value.toFixed(2)+'×':'–',delta:ro?pvPct(ro.value,ro.prev):null,sub:'as reported by Meta'})
-  ].join('');
-  const both=ss&&sp;
-  const ratio=(a,b)=>b?a/b:0;
-  const bl=[
-    dtile({key:['shop','meta'],label:'Store revenue per 1 spent on ads',color:'#FF8A3D',val:both?ratio(ss.revenue,sp.value).toFixed(2)+'×':'',delta:both?pvPct(ratio(ss.revenue,sp.value),ratio(ss.previous.revenue,sp.prev)):null,sub:'Shopify revenue ÷ Meta spend'}),
-    dtile({key:['shop','meta'],label:'Ad cost per order',color:'#FF8A3D',val:both?pvCur(ratio(sp.value,ss.orders),mc):'',delta:both?pvPct(ratio(sp.value,ss.orders),ratio(sp.prev,ss.previous.orders)):null,goodDown:true,sub:'Meta spend ÷ Shopify orders'}),
-    dtile({key:['shop','meta'],label:'Ads as share of revenue',color:'#FF8A3D',val:both?(ratio(sp.value,ss.revenue)*100).toFixed(1)+'%':'',delta:both?pvPct(ratio(sp.value,ss.revenue),ratio(sp.prev,ss.previous.revenue)):null,goodDown:true,sub:'Meta spend ÷ Shopify revenue'}),
-    dtile({key:['shop','odoo'],label:'Shopify vs Odoo revenue',color:'#A78BFA',val:ss&&rev?pvCur(ss.net-rev.value,oc||sc):'',sub:ss&&rev?(ss.net?Math.round((ss.net-rev.value)/ss.net*1000)/10+'% of Shopify net (Shopify minus Odoo)':''):''})
-  ].join('');
-  const prod=sh?dashList((sh.bestByRevenue||[]).slice(0,5).map(p=>[p.title,pvCur(p.revenue,sc)])):'';
-  const camps=(()=>{const s=mt&&(mt.sections||[]).find(x=>x.id==='campaigns');return s?dashList((s.rows||[]).slice(0,5).map(r=>[r.name,pvCur(r.spend,mc)+(r.roas?` <span class="muted">· ${Number(r.roas).toFixed(2)}×</span>`:'')])):''})();
-  const sk=t=>pvTile(st,'kpi',t),stockRows=st?[['Finished goods at cost',pvCur((sk('Finished goods value (at cost)')||{}).value,oc)],['Out of stock',((sk('Out of stock')||{}).value||0)+(((sk('Out of stock')||{}).value||0)===1?' product':' products')],['Running low',((sk('Running low')||{}).value||0)+(((sk('Running low')||{}).value||0)===1?' product':' products')]]:[];
-  const odBody=od?dashList([['Net revenue',rev?pvCur(rev.value,oc):'–'],['Product cost',cost?pvCur(cost.value,oc):'–'],[pro?pro.label:'Profit',pro?pvCur(pro.value,oc):'–'],['Ad spend booked',oads?pvCur(oads.value,oc):'–']])+(st?`<h4 class="dh-h">Stock</h4>${dashList(stockRows)}`:D.err.stock?`<p class="muted">Stock: ${esc(D.err.stock)}</p>`:''):'';
-  const tr=(rows,k,color,label,c)=>rows&&rows.length?`<div class="dh-tr"><span class="eyebrow">${label}</span>${pvSpark(rows.map(r=>r[k]),color)}<div class="dh-ax"><span>${esc(rows[0].label||'')}</span><span>${esc(rows[rows.length-1].label||'')}</span></div></div>`:'';
-  const otr=od&&(od.sections||[]).find(x=>x.id==='trend'),mtr=mt&&(mt.sections||[]).find(x=>x.id==='trend');
-  const trends=[tr((sh&&sh.months)||[],'revenue','#2DD4BF','Shopify revenue by month'),tr(otr?otr.rows.map(r=>({label:r.label,v:r.values.profit})):[],'v','#A78BFA','Odoo profit by month'),tr(mtr?mtr.rows.map(r=>({label:r.label,v:r.values.spend})):[],'v','#FF8A3D','Meta spend by month')].join('');
-  return `${dashTabs()}<div class="head"><div><h1>Dashboards</h1><p>Shopify, Odoo and Meta Ads together. Pick a period; every number below follows it.</p></div><div class="row"><button class="btn" data-act="dash-refresh">${D.busy?'Refreshing…':'↻ Refresh'}</button></div></div>
-  ${dateBar(sh)}
-  <h2 class="dh-sec">Key numbers</h2><div class="dh-grid g3">${main}</div>
-  <h2 class="dh-sec">How the three work together</h2><div class="dh-grid">${bl}</div>
-  <div class="dh-cols">${dashPanel('Shopify','#2DD4BF','shop',`<h4 class="dh-h">Best sellers by revenue</h4>${prod}`,['shop'])}${dashPanel('Odoo','#A78BFA','odoo',odBody,['odoo'])}${dashPanel('Meta Ads','#FF8A3D','meta',`<h4 class="dh-h">Top campaigns by spend</h4>${camps}`,['meta'])}</div>
-  ${trends?`<h2 class="dh-sec">Last 12 months</h2><div class="dh-trs">${trends}</div>`:''}`;
+  const D=S.dash,m=dModel();
+  const f=D.focus,show=k=>f==='all'||f===k;
+  const loaded=Object.keys(DNAME).filter(dReady).length,total=Object.keys(DNAME).length;
+  const status=D.busy||loaded<total?`<span class="dx-live"><i class="pv-spin"></i>Loading ${loaded} of ${total} sources…</span>`:`<span class="dx-live ok"><i></i>All ${total} sources up to date · ${pvAgo(D.at)}</span>`;
+  return `${dashTabs()}<div class="dx-head"><div><span class="dx-eye">Shopify · Odoo · Meta Ads</span><h1>Dashboards</h1>${status}</div><div class="row"><button class="btn sm ghost" data-act="dash-csv">⤓ Export CSV</button><button class="btn sm ghost" data-act="dash-print">⎙ Print</button><button class="btn sm" data-act="dash-refresh">${D.busy?'Refreshing…':'↻ Refresh'}</button></div></div>
+  <div class="dx-filters">${dateBar(m.sh||m.od||m.mt)}<div class="dx-focus" role="tablist" aria-label="Show">${[['all','Everything'],['sales','Sales'],['marketing','Marketing'],['profit','Profit'],['stock','Stock & cash']].map(([k,l])=>`<button class="${f===k?'on':''}" data-act="dx-set" data-k="focus" data-v="${k}" aria-pressed="${f===k}">${l}</button>`).join('')}</div></div>
+  ${dHero(m)}
+  ${dInsightsHTML(m)}
+  ${show('sales')?dSalesHTML(m):''}
+  ${show('marketing')?dMarketingHTML(m):''}
+  ${show('profit')?dProfitHTML(m):''}
+  ${show('stock')?dStockHTML(m):''}`;
+}
+function dashCSV(){
+  const m=dModel(),rows=[['Source','Metric','This period','Previous period']],q=v=>'"'+String(v===null||v===undefined?'':v).replace(/"/g,'""')+'"';
+  const per=(m.sh&&m.sh.period&&m.sh.period.label)||'';
+  if(m.ss){const s=m.ss,p=s.previous||{};[['Revenue',s.revenue,p.revenue],['Orders',s.orders,p.orders],['Average order',Math.round(s.aov),Math.round(p.aov||0)],['Items sold',s.units,p.units],['Refunds',s.refunds,p.refunds]].forEach(r=>rows.push(['Shopify',...r]))}
+  [['Meta Ads',m.mt],['Odoo profit',m.od],['Odoo stock',m.st],['Odoo sales',m.sa],['Odoo invoices',m.ca]].forEach(([n,d])=>{const s=dSec(d,'kpi');(s&&s.tiles||[]).forEach(t=>rows.push([n,t.label,typeof t.value==='number'?Math.round(t.value*100)/100:t.value,t.prev!==undefined?Math.round(t.prev*100)/100:'']))});
+  const dd=m.sh&&m.sh.daily&&m.sh.daily.cur;if(dd){rows.push([]);rows.push(['Date','Shopify revenue','Shopify orders','Meta spend']);const md=dDaily(m.sp),mp=md&&md.dates?new Map(md.dates.map((d,i)=>[d,md.cur[i]])):new Map();dd.dates.forEach((d,i)=>rows.push([d,Math.round(dd.revenue[i]),dd.orders[i],mp.has(d)?Math.round(mp.get(d)*100)/100:'']))}
+  const blob=new Blob(['﻿'+rows.map(r=>r.map(q).join(',')).join('\n')],{type:'text/csv'}),a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download='bless-dashboards-'+(S.per.from||'')+'_'+(S.per.to||'')+'.csv';document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500);
 }
 
 /* ---------- Shopify dashboard ---------- */
@@ -1634,6 +1884,10 @@ document.addEventListener('click',async e=>{
   else if(a==='dtab'){const t=b.dataset.t;go(t,null,t!=='dash')}
   else if(a==='dash-retry')b.dataset.k.split(',').forEach(k=>dashRun(k,true,S.dash.tok));
   else if(a==='dash-refresh')loadDash(true,false);
+  else if(a==='dash-csv')dashCSV();
+  else if(a==='dash-print')window.print();
+  else if(a==='dx-set'){S.dash[b.dataset.k]=b.dataset.v;dashFill()}
+  else if(a==='ch-toggle'){const k=b.dataset.c+':'+b.dataset.s;S.dash.off[k]=!S.dash.off[k];dashFill()}
   else if(a==='pv-refresh')loadPulse(true).then(()=>{});
   else if(a==='act-days'){S.act.days=Number(b.dataset.n);S.act.data=null;loadAct()}
   else if(a==='act-refresh'){S.act.data=null;loadAct()}
@@ -1742,7 +1996,7 @@ document.addEventListener('change',async e=>{
   if(ev==='drop'&&S.assets)addFiles(d.id.replace('drop-',''),[...e.dataTransfer.files])}));
 document.addEventListener('error',e=>{if(e.target.tagName==='IMG')e.target.closest('.thumb')?.classList.add('broken')},true);
 
-document.addEventListener('input',e=>{const t=e.target;if(t.dataset&&t.dataset.draft)S.draft[t.dataset.draft]=t.value});
+document.addEventListener('input',e=>{const t=e.target;if(t&&t.dataset&&t.dataset.dxq&&S.route==='dash'){S.dash[t.dataset.dxq]=t.value;const L=document.getElementById('dx-prods');if(L)L.innerHTML=dProdList();return}if(t&&t.dataset&&t.dataset.dx&&S.route==='dash'){S.dash[t.dataset.dx]=t.type==='checkbox'?t.checked:t.value;dashFill();return}if(t.dataset&&t.dataset.draft)S.draft[t.dataset.draft]=t.value});
 document.addEventListener('submit',async e=>{
   const f=e.target.closest('[data-form]');if(!f)return;e.preventDefault();const k=f.dataset.form;
   if(k==='rep-target'){const amount=Number(new FormData(f).get('amount')||0);api('POST','/api/odoo',{action:'target',rep:f.dataset.rep,amount}).then(()=>{S.od.cache={};toast(amount?'Target saved':'Target removed');loadOdoo(undefined,true)}).catch(x=>toast(x.message||'Could not save'));return}
