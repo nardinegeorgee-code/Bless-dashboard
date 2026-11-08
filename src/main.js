@@ -396,8 +396,8 @@ function pvBusiness(){
     hero:pt?pvCur(pt.value,oc):'–',delta:pt?pvPct(pt.value,pt.prev):null,spark:trend?pvSpark(trend.rows.map(x=>x.values.profit),'#A78BFA'):'',
     sub:rev?`${pvCur(rev.value,oc)} net revenue this month`:''});
   const mt=P.meta,sp=pvTile(mt,'kpi','Amount spent'),pu=pvTile(mt,'kpi','Purchases'),ro=pvTile(mt,'kpi','Return on ad spend'),mc=mt&&mt.currency;
-  const meta=pvCard({key:'meta',ico:'meta',color:'#FF8A3D',name:'Meta Ads',route:'meta',note:per,heroLabel:'Ad spend',
-    hero:sp?pvCur(sp.value,mc):'–',delta:sp?pvPct(sp.value,sp.prev):null,goodDown:true,spark:sp&&sp.daily?pvSpark(sp.daily,'#FF8A3D'):'',
+  const meta=pvCard({key:'meta',ico:'meta',color:'#E8A598',name:'Meta Ads',route:'meta',note:per,heroLabel:'Ad spend',
+    hero:sp?pvCur(sp.value,mc):'–',delta:sp?pvPct(sp.value,sp.prev):null,goodDown:true,spark:sp&&sp.daily?pvSpark(sp.daily,'#E8A598'):'',
     sub:`${ro?ro.value.toFixed(2)+'× return on ad spend':'–'}${pu?' · '+pu.value.toLocaleString()+' purchases':''}`});
   return `<div class="pv-head"><div><h2>Business today</h2><p class="muted">This month so far. One number per area, with the change against the previous period.</p></div><button class="btn sm ghost" data-act="pv-refresh">${S.pulse.loading?'Refreshing…':'↻ Refresh'}</button></div><div class="pv-grid">${shop}${odoo}${meta}</div>`;
 }
@@ -720,10 +720,10 @@ function perRender(){S.route==='dash'?dashFill():S.route==='meta'?renderMeta():S
 
 /* ---------- Homepage + Dashboards (Shopify + Odoo + Meta together) ---------- */
 const REPORTS=[
-  {k:'dash',t:'Dashboards',d:'Shopify, Odoo and Meta Ads together in one report: sales, profit, ad spend and stock side by side.',ico:'dash',c:'#FF8A3D',feat:1,ceo:1},
+  {k:'dash',t:'Dashboards',d:'Shopify, Odoo and Meta Ads together in one report: sales, profit, ad spend and stock side by side.',ico:'dash',c:'#E8A598',feat:1,ceo:1},
   {k:'shop',t:'Shopify',d:'Sales, funnel, products, customers and retention.',ico:'shop',c:'#2DD4BF',ceo:1},
   {k:'odoo',t:'Odoo',d:'Supply, sales, stock and finance.',ico:'odoo',c:'#A78BFA',ceo:1},
-  {k:'meta',t:'Meta Ads',d:'Facebook and Instagram ad spend and results.',ico:'meta',c:'#FF8A3D',ceo:1},
+  {k:'meta',t:'Meta Ads',d:'Facebook and Instagram ad spend and results.',ico:'meta',c:'#E8A598',ceo:1},
   {k:'home',t:'Team overview',d:'Needs attention, deliveries, and who is waiting.',ico:'home',c:'#F472B6'},
   {k:'eval',t:'Evaluation',d:'Monthly KPIs and team ranking.',ico:'eval',c:'#FBBF24'},
   {k:'content',t:'All content',d:'Every file and note your team added.',ico:'content',c:'#60A5FA'},
@@ -737,7 +737,7 @@ function hubHTML(){
   return `<div class="hub-bar">${brandHTML}<div class="row"><span class="muted">${esc(S.me.username)}</span>${roleChip(S.me.role)}<button class="btn sm so" data-act="theme-toggle">${theme()==='light'?'Dark':'Light'} mode</button><button class="btn sm so" data-act="logout">Sign out</button></div></div><div class="head"><div><h1>Welcome, ${esc(S.me.username)}</h1><p>${t}. Choose a report to open.</p></div></div><div class="hub-grid">${list.map(tile).join('')}</div>`;
 }
 S.dash={d:{},err:{},done:{},busy:false,tok:0,at:0,focus:'all',trendM:'money',dayM:'revenue',dayCmp:true,off:{},prodBy:'revenue',prodQ:'',geo:'countries',campBy:'spend'};
-const DC={shop:'#2DD4BF',odoo:'#A78BFA',meta:'#FF8A3D',good:'#34D399',bad:'#F87171',pink:'#F472B6',blue:'#60A5FA',amber:'#FBBF24'};
+const DC={shop:'#7FD1C0',odoo:'#B79CE0',meta:'#EE9F8E',good:'#6FCF9F',bad:'#F28B96',pink:'#E58FB0',blue:'#8FB4E8',amber:'#E8C27A'};
 const DNAME={shop:'Shopify',meta:'Meta Ads',odoo:'Odoo profit',stock:'Odoo stock',sales:'Odoo sales',cash:'Odoo invoices'};
 function dashJobs(){
   const q=perQuery();
