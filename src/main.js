@@ -135,11 +135,11 @@ function applySideMin(){document.body.classList.toggle('side-min',sideMin())}
 function toggleSide(){try{localStorage.setItem(SIDE_MIN_KEY,sideMin()?'0':'1')}catch(e){document.body.classList.toggle('side-min')}applySideMin()}
 function navItems(){
   const nu=unreadNotes().length;
-  if(isAdmin())return [['hub','Home'],['dash','Dashboards'],['home','Team overview'],['send','Send instruction'],['content','All content'],['eval','Evaluation'],['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads'],['team','Team by role'],['notes','Notifications',nu],['act','Activity'],['users','Users'],['priv','User privileges']];
-  if(isCeo())return [['hub','Home'],['dash','Dashboards'],['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads'],...(myReports().includes('act')?[['act','Activity']]:[])];
+  if(isAdmin())return [['hub','Home'],['dash','Dashboards'],['home','Team overview'],['send','Send instruction'],['content','All content'],['eval','Evaluation'],['team','Team by role'],['notes','Notifications',nu],['act','Activity'],['users','Users'],['priv','User privileges']];
+  if(isCeo())return [['hub','Home'],['dash','Dashboards'],...(myReports().includes('act')?[['act','Activity']]:[])];
   const pending=myInstructions().filter(i=>!responded(i.id)).length;
   const base=[['home','Instructions',pending],['uploads','My uploads'],['notes','Notifications',nu],['team','Team by role']];
-  return hasGrants()?[...base,['hub','Reports'],...GRANT.filter(g=>myReports().includes(g[0])).map(g=>[g[0],g[1]])]:base;
+  return hasGrants()?[...base,['hub','Reports'],...GRANT.filter(g=>['dash','act'].includes(g[0])&&myReports().includes(g[0])).map(g=>[g[0],g[1]])]:base;
 }
 function showApp(){
   S.screen='app';applySideMin();
