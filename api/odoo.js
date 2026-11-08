@@ -312,6 +312,10 @@ function build(tab, cfg, ctx) {
       const [cur, prev] = await Promise.all([so(s, e), so(ps, pe)]); const ids = new Set(list.map((p) => p.id)), mine = (x) => ids.has(nid(x.product_id));
       const c1 = cur.filter(mine), p1 = prev.filter(mine);
       const soldRows = groupBy(c1, (l) => nm(l.product_id) || 'Other', () => ({ units: 0, value: 0 }), (g, l) => { g.units += n0(l.product_uom_qty); g.value += n0(l.price_subtotal); }).sort((a, b) => b.value - a.value);
+      // Pictures for the products that need attention (the first few of each list)
+      const picOf = async (arr) => { const r = await addPictures(cfg, arr.slice().sort((a, b) => cost(b) - cost(a)).slice(0, 8).map((p) => ({ pid: p.id, name: p.display_name }))); return new Map(r.filter((x) => x.img).map((x) => [x.name, x.img])); };
+      const [imgOut, imgLow] = await Promise.all([picOf(out), picOf(low)]);
+      const withImg = (rows, m) => rows.map((r) => (m.get(r.name) ? { ...r, img: m.get(r.name) } : r));
       return { tiles: [
         tile('Finished goods value (at cost)', sum(list, cost), 'money', { sub: list.length + ' products', breakdown: bd([{ l: 'Products', v: list.length, f: 'int' }, { l: 'Units', v: sum(list, (p) => Math.max(0, n0(p.qty_available))), f: 'int' }], cols, rowsOf(list).filter((x) => x.value > 0)) }),
         tile('Value at sale price', sum(list, sale), 'money', { sub: sum(list, sale) ? 'potential margin ' + pct(sum(list, sale) - sum(list, cost), sum(list, sale)).toFixed(0) + '%' : undefined,
@@ -319,8 +323,8 @@ function build(tab, cfg, ctx) {
             [COL.name('Product'), COL.int('units', 'On hand'), { key: 'price', label: 'Sale price', fmt: 'money2' }, { key: 'unit', label: 'Unit cost', fmt: 'money2' }, COL.money('value', 'Value at sale price'), COL.money('cost', 'Value at cost'), COL.pct('margin', 'Margin')],
             list.map((p) => ({ name: p.display_name, units: Math.max(0, n0(p.qty_available)), price: n0(p.list_price), unit: n0(p.standard_price), value: sale(p), cost: cost(p), margin: n0(p.list_price) ? pct(n0(p.list_price) - n0(p.standard_price), n0(p.list_price)) : null })).filter((x) => x.value > 0).sort((a, b) => b.value - a.value)) }),
         tile('Products', list.length, 'int', { breakdown: bd([{ l: 'Products', v: list.length, f: 'int' }], cols, rowsOf(list)) }),
-        tile('Out of stock', out.length, 'int', { goodDown: true, breakdown: bd([{ l: 'Out of stock', v: out.length, f: 'int' }], cols, rowsOf(out)) }),
-        tile('Running low', low.length, 'int', { goodDown: true, breakdown: bd([{ l: 'Running low', v: low.length, f: 'int' }], cols, rowsOf(low)) }),
+        tile('Out of stock', out.length, 'int', { goodDown: true, breakdown: bd([{ l: 'Out of stock', v: out.length, f: 'int' }], cols, withImg(rowsOf(out), imgOut)) }),
+        tile('Running low', low.length, 'int', { goodDown: true, breakdown: bd([{ l: 'Running low', v: low.length, f: 'int' }], cols, withImg(rowsOf(low), imgLow)) }),
         tile('Units sold in this period', sum(c1, 'product_uom_qty'), 'int', { prev: sum(p1, 'product_uom_qty'), breakdown: bd([{ l: 'Products sold', v: soldRows.length, f: 'int' }], [COL.name('Product'), COL.int('units', 'Units'), COL.money('value', 'Sales (before tax)')], soldRows) }),
       ] };
     }, 'Finished goods are products whose reference starts with F-.'),

@@ -1,5 +1,5 @@
 import { route, allow, db, requireAdmin, requireViewer, serveCached, sendCached } from './_lib.js';
-import { ensureShopSchema, shopConfig, getState, shopifyql } from './_shopify.js';
+import { ensureShopSchema, shopConfig, getState, shopifyql, fetchProductImages } from './_shopify.js';
 import { parsePeriod, monthPeriod, startMs, endMs, dayList } from './_period.js';
 
 const DAY = 86400000;
@@ -171,6 +171,19 @@ export default route(async (req, res) => {
   const sc = await getState('checkouts');
   const currency = (orders.find((o) => o.currency) || {}).currency || '';
 
+  // Product pictures (kept for 12 hours so the page stays quick)
+  let pics = {};
+  try {
+    const pk = 'prod-img:v1', ph = await q`SELECT payload FROM shop_cache WHERE key = ${pk} AND fetched_at > ${Date.now() - 12 * 3600000}`;
+    if (ph[0]) pics = ph[0].payload;
+    else {
+      pics = await fetchProductImages(cfg);
+      if (Object.keys(pics).length) await q`INSERT INTO shop_cache (key, fetched_at, payload) VALUES (${pk}, ${Date.now()}, ${JSON.stringify(pics)}::jsonb) ON CONFLICT (key) DO UPDATE SET fetched_at = EXCLUDED.fetched_at, payload = EXCLUDED.payload`;
+    }
+  } catch (e) { pics = {}; }
+  const picOf = (t) => { const k = String(t || '').trim().toLowerCase(); return pics[k] || pics[k.split(' – ')[0]] || pics[k.split(' - ')[0]] || ''; };
+  const withPic = (list) => list.map((p) => { const img = picOf(p.title); return img ? { ...p, img } : p; });
+
   await sendCached(req, res, 'shop', {
     configured: true,
     currency,
@@ -193,8 +206,8 @@ export default route(async (req, res) => {
     },
     daily,
     heat: cur.fromReports ? null : heat,
-    bestByUnits: top(products, 10, 'units'),
-    bestByRevenue: top(products, 10, 'revenue'),
+    bestByUnits: withPic(top(products, 10, 'units')),
+    bestByRevenue: withPic(top(products, 10, 'revenue')),
     countries: top(countries, 10, 'revenue'),
     cities: top(cities, 10, 'revenue'),
     customers: {
@@ -208,7 +221,7 @@ export default route(async (req, res) => {
       monthValue: cartsValueMonth,
       monthRate: monthCarts.length + sales.length ? (monthCarts.length / (monthCarts.length + sales.length)) * 100 : 0,
       aging: buckets.map(({ label: l, count, value }) => ({ label: l, count, value })),
-      topProducts: top(leftIn, 8, 'qty'),
+      topProducts: withPic(top(leftIn, 8, 'qty')),
       oldest: open.sort((a, b) => Number(b.total) - Number(a.total)).slice(0, 10).map((c) => ({
         id: c.id, createdAt: Number(c.created_at), total: Number(c.total), url: c.url,
         name: c.name || '', email: c.email || '', phone: c.phone || '', linkFresh: now - Number(c.updated_at) < 10 * DAY,
