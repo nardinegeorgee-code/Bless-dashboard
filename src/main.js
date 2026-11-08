@@ -1606,10 +1606,11 @@ function breakdownHtml(b){
   if(!b)return '';
   const sum=(b.summary||[]).map(x=>`<span class="bk-s"><em>${esc(x.l)}</em><b>${esc(fv(x.v,x.f))}</b></span>`).join('');
   const head=b.columns.map(c=>`<th class="${c.fmt==='str'?'':'num'}">${esc(c.label)}</th>`).join('');
-  const body=b.rows.map(r=>`<tr>${b.columns.map(c=>{const v=r[c.key];return `<td class="${c.fmt==='str'?'':'num'}">${v===null||v===undefined?'–':c.fmt==='str'?stTag(v):esc(fv(v,c.fmt))}</td>`}).join('')}</tr>`).join('');
+  const bkRow=(cols,r)=>`<tr>${cols.map((c,ci)=>{const v=r[c.key];const t=v===null||v===undefined?'–':c.fmt==='str'?stTag(v):esc(fv(v,c.fmt));return `<td class="${c.fmt==='str'?'':'num'}">${ci===0&&r.img?`<span class="pcell">${pic(r,32)}<span>${t}</span></span>`:t}</td>`}).join('')}</tr>`;
+  const body=b.rows.map(r=>bkRow(b.columns,r)).join('');
   const chart=b.plain?'':b.columns[0].key==='step'?waterfall(b):bkBars(b);
   const tbl=b.rows.length?`<div><div class="bk-wrap"><table class="bk-t"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>${b.more?`<p class="muted dn">Showing the first ${b.rows.length}. ${b.more} more are not listed.</p>`:''}</div>`:'';
-  const more=(b.extra||[]).map(x=>`<h4 class="bk-h">${esc(x.title)}</h4><div class="bk-wrap"><table class="bk-t"><thead><tr>${x.columns.map(c=>`<th class="${c.fmt==='str'?'':'num'}">${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${x.rows.map(r=>`<tr>${x.columns.map(c=>{const v=r[c.key];return `<td class="${c.fmt==='str'?'':'num'}">${v===null||v===undefined?'–':c.fmt==='str'?stTag(v):esc(fv(v,c.fmt))}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>`).join('');
+  const more=(b.extra||[]).map(x=>`<h4 class="bk-h">${esc(x.title)}</h4><div class="bk-wrap"><table class="bk-t"><thead><tr>${x.columns.map(c=>`<th class="${c.fmt==='str'?'':'num'}">${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${x.rows.map(r=>bkRow(x.columns,r)).join('')}</tbody></table></div>`).join('');
   return `<div class="bk">${sum?`<div class="bk-sum">${sum}</div>`:''}${b.note?`<p class="muted dn">${esc(b.note)}</p>`:''}<div class="${chart?'splitc':''}">${tbl}${chart}</div>${more}</div>`;
 }
 function tileDetail(t){
@@ -1628,7 +1629,7 @@ function rowDetail(sec,r,i,barCol,total){
 }
 /* Shopify serves the same picture at any width; ask for 2x and 3x so it stays sharp on high-density screens. */
 function picUrl(u,w){return /^https:\/\/cdn\.shopify\.com\//.test(u)?u+(u.includes('?')?'&':'?')+'width='+w:u}
-function pic(r,size){if(!r.img)return '';return `<img class="pimg" src="${esc(picUrl(r.img,size*2))}" ${/^https:\/\/cdn\.shopify\.com\//.test(r.img)?`srcset="${esc(picUrl(r.img,size*2))} 1x, ${esc(picUrl(r.img,size*3))} 1.5x, ${esc(picUrl(r.img,size*4))} 2x"`:''} width="${size}" height="${size}" alt="${esc(String(r.name||''))}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.removeAttribute('srcset');this.removeAttribute('src');this.classList.add('ph')">`}
+function pic(r,size){if(!r.img)return '';return `<img class="pimg" src="${esc(picUrl(r.img,size*2))}" ${/^https:\/\/cdn\.shopify\.com\//.test(r.img)?`srcset="${esc(picUrl(r.img,size*2))} 1x, ${esc(picUrl(r.img,size*3))} 1.5x, ${esc(picUrl(r.img,size*4))} 2x"`:''} width="${size}" height="${size}" data-act="zoom" data-src="${esc(picUrl(r.img,1200))}" data-cap="${esc(dClean(r.name||r.title||'').name)}" title="Click to enlarge" style="cursor:zoom-in" alt="${esc(String(r.name||''))}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.removeAttribute('srcset');this.removeAttribute('src');this.classList.add('ph')">`}
 function anTable(sec){
   if(!sec.rows.length)return `<p class="muted">${esc(sec.empty||'No data for this period.')}</p>`;
   const cols=sec.columns,nameCol=cols[0],barCol=cols.find(c=>c.bar);

@@ -68,6 +68,27 @@ async function addPictures(cfg, list) {
   list.forEach((r) => { delete r.pid; });
   return list;
 }
+/** Any table whose first column is "Product" gets a picture on every row (matched by code, then name, from Shopify). */
+async function decorateProducts(cfg, root) {
+  const tables = [];
+  const seen = new Set();
+  const walk = (o, d) => {
+    if (!o || typeof o !== 'object' || d > 8 || seen.has(o)) return;
+    seen.add(o);
+    if (Array.isArray(o)) { o.forEach((x) => walk(x, d + 1)); return; }
+    if (Array.isArray(o.columns) && Array.isArray(o.rows) && o.columns[0] && /product|item/i.test(o.columns[0].label || '')) tables.push(o);
+    for (const k of Object.keys(o)) if (k !== 'img') walk(o[k], d + 1);
+  };
+  walk(root, 0);
+  const need = new Map();
+  for (const t of tables) for (const r of t.rows) if (r && !r.img && r.name && !need.has(r.name)) need.set(r.name, { name: r.name });
+  if (!need.size) return;
+  try {
+    const got = await addPictures(cfg, [...need.values()].slice(0, 400));
+    const by = new Map(got.filter((x) => x.img).map((x) => [x.name, x.img]));
+    for (const t of tables) for (const r of t.rows) if (r && !r.img && by.has(r.name)) r.img = by.get(r.name);
+  } catch (err) { /* pictures are an extra */ }
+}
 /** Unit cost (the Cost field on the product in Odoo) for a list of product ids. Missing ids simply have no cost. */
 async function costsOf(cfg, ids) {
   const out = new Map();
@@ -918,5 +939,6 @@ export default route(async (req, res) => {
   info.currency = company[0] && Array.isArray(company[0].currency_id) ? String(company[0].currency_id[1]).slice(0, 3) : '';
   ctx.currency = info.currency;
   const sections = await pool(pick(build(tab, cfg, ctx), onlyIds(req)), 3);
+  await decorateProducts(cfg, sections);
   await sendCached(req, res, 'odoo', { configured: true, tab, month, monthLabel: ctx.monthLabel, period: { from: per.from, to: per.to, days: per.days, label: per.label, kind: per.kind, clamped: per.clamped }, compare: { from: per.compare.from, to: per.compare.to, days: per.compare.days, label: per.compare.label, custom: per.compare.custom }, compareText: per.compareText, months: months.map((k) => ({ key: k, label: label(k) })), currency: info.currency, company: info.company, version: info.version, sections });
 });
