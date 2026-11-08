@@ -31,10 +31,11 @@ const userById=id=>S.users.find(u=>u.id===id);
 let toastT;function toast(msg){const t=$('#toast');t.textContent=msg;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,3200)}
 
 /* ---------- data ---------- */
-async function api(method,url,body){
-  let r;
-  try{r=await fetch(url,{method,headers:body?{'Content-Type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined,credentials:'same-origin'})}
-  catch(e){throw new Error('Cannot reach the server. Check your connection.')}
+async function api(method,url,body,ms){
+  let r,ac=ms?new AbortController():null,tm=ac&&setTimeout(()=>ac.abort(),ms);
+  try{r=await fetch(url,{method,headers:body?{'Content-Type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined,credentials:'same-origin',signal:ac?ac.signal:undefined})}
+  catch(e){throw new Error(e&&e.name==='AbortError'?'This is taking longer than '+Math.round(ms/1000)+' seconds.':'Cannot reach the server. Check your connection.')}
+  finally{if(tm)clearTimeout(tm)}
   let j={};try{j=await r.json()}catch(e){}
   if(!r.ok){const err=new Error(j.error||'Something went wrong.');err.status=r.status;throw err}
   return j;
@@ -288,6 +289,16 @@ function pvHydrate(){
   try{const c=JSON.parse(localStorage.getItem(PV_KEY)||'null');if(!c||c.day!==pvDay())return 0;
     ['shop','odoo','stock','meta','trend'].forEach(k=>{if(c[k]){P[k]=c[k];P.done[k]=1}});P.cachedAt=c.at;return Date.now()-c.at}catch(e){return 0}
 }
+function pvJob(key){
+  const P=S.pulse,r=pvRange(),q='from='+r.from+'&to='+r.to+'&kind=month';
+  return {shop:['/api/shopify?'+q,d=>P.shop=d],odoo:['/api/odoo?tab=profit&only=kpi&'+q,d=>P.odoo=d],stock:['/api/odoo?tab=finished&only=kpi&'+q,d=>P.stock=d],
+    meta:['/api/meta?tab=overview&only=kpi&'+q,d=>P.meta=d],ev:['/api/evaluation',d=>P.ev=d],act:['/api/auth?action=activity&days=7',d=>P.act=d],
+    trend:['/api/odoo?tab=profit&only=trend&'+q,d=>P.trend=d]}[key];
+}
+function pvRun(key){
+  const P=S.pulse,[url,set]=pvJob(key),t0=Date.now();delete P.err[key];if(!P[key]){delete P.done[key];pvFill()}
+  return api('GET',url,null,50000).then(d=>{if(d&&d.configured===false)throw new Error('Not connected yet. Add its keys in Vercel, then reload.');set(d);P.took=P.took||{};P.took[key]=Math.round((Date.now()-t0)/100)/10}).catch(e=>{if(!P[key])P.err[key]=e.message||'Could not load'}).finally(()=>{P.done[key]=1;pvFill()});
+}
 async function loadPulse(force){
   const P=S.pulse;if(P.loading)return;
   const age=pvHydrate()||(P.cachedAt?Date.now()-P.cachedAt:Infinity);
@@ -296,18 +307,8 @@ async function loadPulse(force){
   const warm=!force&&Object.keys(P.done).length>0;   // we already show saved numbers: refresh quietly behind them
   if(!warm)P.done={};
   pvFill();
-  const r=pvRange(),q='from='+r.from+'&to='+r.to+'&kind=month';
-  const job=(key,url,set)=>api('GET',url).then(d=>{if(d&&d.configured===false)throw new Error('Not connected yet');set(d);delete P.err[key]}).catch(e=>{if(!P[key])P.err[key]=e.message||'Could not load'}).finally(()=>{P.done[key]=1;pvFill()});
-  await Promise.all([
-    job('shop','/api/shopify?'+q,d=>P.shop=d),
-    job('odoo','/api/odoo?tab=profit&only=kpi&'+q,d=>P.odoo=d),
-    job('stock','/api/odoo?tab=finished&only=kpi&'+q,d=>P.stock=d),
-    job('meta','/api/meta?tab=overview&only=kpi&'+q,d=>P.meta=d),
-    job('ev','/api/evaluation',d=>P.ev=d),
-    job('act','/api/auth?action=activity&days=7',d=>P.act=d),
-    // the 12-month profit line is the slow part, so it fills in last without blocking the headline numbers
-    job('trend','/api/odoo?tab=profit&only=trend&'+q,d=>P.trend=d)
-  ]);
+  setTimeout(pvFill,8000);
+  await Promise.all(['shop','odoo','stock','meta','ev','act','trend'].map(pvRun));
   P.loading=false;pvSave();pvFill();
 }
 function pvFill(){
@@ -341,8 +342,8 @@ function pvAttention(){
 function pvCard(o){
   const {key,ico,color,name,route,hero,heroLabel,delta,goodDown,spark,mini,note}=o,P=S.pulse;
   const head=`<div class="pv-top"><span class="kico" style="--kc:${color}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${ICON[ico]||NAV_ICON[ico]||''}</svg></span><b>${name}</b><span class="eyebrow">${note||''}</span></div>`;
-  if(P.err[key])return `<section class="pv-card err">${head}<p class="muted">${esc(P.err[key])}</p><button class="btn sm" data-act="go" data-route="${route}">Open ${name}</button></section>`;
-  if(!P.done[key])return `<section class="pv-card">${head}<div class="pv-sk"><i></i><i></i><i></i></div></section>`;
+  if(P.err[key])return `<section class="pv-card err">${head}<p class="pv-msg"><b>Could not load ${name}.</b><br><span class="muted">${esc(P.err[key])}</span></p><div class="row"><button class="btn sm primary" data-act="pv-retry" data-k="${key}${key==='odoo'?',stock,trend':''}">Try again</button><button class="btn sm" data-act="go" data-route="${route}">Open ${name}</button></div></section>`;
+  if(!P.done[key])return `<section class="pv-card">${head}<div class="pv-sk"><i></i><i></i><i></i></div>${Date.now()-P.at>8000?`<p class="muted pv-foot">Still loading. ${name} can take up to a minute to answer.</p>`:''}</section>`;
   return `<section class="pv-card" style="--pc:${color}">${head}<div class="pv-hero"><div><span class="eyebrow">${heroLabel}</span><div class="pv-n">${hero}</div></div>${delta===null||delta===undefined?'':chip(delta,goodDown)}</div>${spark}<div class="pv-mini">${mini.map(([l,v,d,gd])=>`<div><span class="eyebrow">${l}</span><b>${v}</b>${d===null||d===undefined?'':chip(d,gd)}</div>`).join('')}</div><button class="pv-open" data-act="go" data-route="${route}">Open full report <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></button></section>`;
 }
 function pvBusiness(){
@@ -1508,6 +1509,7 @@ document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
   if(a==='go'){e.preventDefault();go(b.dataset.route,b.dataset.param)}
   else if(a==='side-toggle')toggleSide();
+  else if(a==='pv-retry')b.dataset.k.split(',').forEach(pvRun);
   else if(a==='pv-refresh')loadPulse(true).then(()=>{});
   else if(a==='act-days'){S.act.days=Number(b.dataset.n);S.act.data=null;loadAct()}
   else if(a==='act-refresh'){S.act.data=null;loadAct()}

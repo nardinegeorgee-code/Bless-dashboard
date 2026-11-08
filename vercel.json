@@ -11,6 +11,12 @@
     },
     "api/odoo.js": {
       "maxDuration": 60
+    },
+    "api/shopify.js": {
+      "maxDuration": 60
+    },
+    "api/meta.js": {
+      "maxDuration": 60
     }
   },
   "crons": [
