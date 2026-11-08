@@ -906,14 +906,14 @@ document.addEventListener('pointermove',e=>{const el=e.target.closest&&e.target.
 function heatTip(e){
   const c=e.target.closest&&e.target.closest('.dx-hc'),root=document.querySelector('.dx-heat');if(!root)return;
   const tip=root.querySelector('.dx-htip');
-  root.querySelectorAll('.hl').forEach(x=>x.classList.remove('hl'));
+  root.querySelectorAll('.hlx').forEach(x=>x.classList.remove('hlx'));
   if(!c){tip.hidden=true;return}
   const w=+c.dataset.w,x=+c.dataset.x,v=+c.dataset.v,d=JSON.parse(root.dataset.heat),FULL=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
   const h12=n=>{n=((n%24)+24)%24;return (n%12||12)+(n<12?' AM':' PM')};
   const share=d.tot?v/d.tot*100:0,ratio=d.avg?v/d.avg:0;
   const verdict=!v?'No orders in this hour':ratio>=2?'Much busier than a typical hour':ratio>=1.2?'Busier than a typical hour':ratio>=.8?'About a typical hour':'Quieter than a typical hour';
-  root.querySelectorAll(`[data-row="${w}"] .dx-hc,[data-x="${x}"]`).forEach(n=>n.classList.add('hl'));
-  const hw=root.querySelector(`[data-hw="${w}"]`);if(hw)hw.classList.add('hl');const hh=root.querySelector(`[data-hh="${x}"]`);if(hh)hh.classList.add('hl');
+  root.querySelectorAll(`[data-row="${w}"] .dx-hc,[data-x="${x}"]`).forEach(n=>n.classList.add('hlx'));
+  const hw=root.querySelector(`[data-hw="${w}"]`);if(hw)hw.classList.add('hlx');const hh=root.querySelector(`[data-hh="${x}"]`);if(hh)hh.classList.add('hlx');
   tip.innerHTML=`<b>${FULL[w]}, ${h12(x)} – ${h12(x+1)}</b><span class="n">${v}<small> order${v===1?'':'s'}</small></span><em>${verdict}</em><small>${v?share.toFixed(1)+'% of all orders in this period':'Try boosting posts here only if other signals are strong'}</small><small>Typical hour: ${d.avg.toFixed(1)} orders</small>`;
   tip.hidden=false;const r=root.getBoundingClientRect(),cr=c.getBoundingClientRect(),tw=tip.offsetWidth,th=tip.offsetHeight;
   let L=cr.left-r.left+cr.width/2-tw/2;L=Math.max(0,Math.min(r.width-tw,L));let T=cr.top-r.top-th-10;if(T<0)T=cr.bottom-r.top+10;
