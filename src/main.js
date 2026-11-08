@@ -247,13 +247,58 @@ function overviewHTML(){
     <section class="panel"><div class="item-top"><h2>Your team</h2><button class="btn sm" data-act="go" data-route="team">View all</button></div>${team.length?`<div class="rolebars">${roles}</div>`:'<p class="muted">Add team members on the Users page.</p>'}</section></div>`;
   const waiting=S.instructions.map(i=>({i,w:recipients(i).filter(u=>!responded(i.id,u.id))})).filter(x=>x.w.length).sort((x,y)=>y.w.length-x.w.length).slice(0,4);
   const attn=waiting.length?`<section class="panel"><div><h2>Needs a nudge</h2><p class="muted">Instructions with the most people still to respond.</p></div><div class="attn">${waiting.map(({i,w})=>`<button class="arow" data-act="go" data-route="ins" data-param="${i.id}"><b>${esc(i.title)}</b><span class="muted">${w.slice(0,4).map(u=>esc(u.username)).join(', ')}${w.length>4?' +'+(w.length-4)+' more':''}</span><span class="pill new">${w.length} waiting</span></button>`).join('')}</div></section>`:'';
-  const secs=[['ov-summary','Summary'],['ov-team','Response & team'],...(attn?[['ov-nudge','Needs a nudge']]:[]),['ov-latest','Latest instructions'],['ov-files','From the team']];
+  const secs=[['ov-summary','Summary'],['ov-insights','Insights'],['ov-team','Response & team'],...(attn?[['ov-nudge','Needs a nudge']]:[]),['ov-latest','Latest instructions'],['ov-files','From the team']];
   const tabs=`<nav class="ovtabs" aria-label="Sections">${secs.map(([id,l])=>`<button type="button" data-act="ov-tab" data-sec="${id}"${S.ovSec===id?' class="on" aria-current="true"':''}>${l}</button>`).join('')}</nav>`;
-  return `<div style="display:grid;gap:18px">${hero}${ovFilters()}${tabs}<div id="ov-summary" class="ovsec">${kpis}</div><div id="ov-team" class="ovsec">${side}</div>${attn?`<div id="ov-nudge" class="ovsec">${attn}</div>`:''}
+  return `<div style="display:grid;gap:18px">${hero}${ovFilters()}${tabs}<div id="ov-summary" class="ovsec">${kpis}</div><div id="ov-insights" class="ovsec">${ovInsights(team,insAll,subsF)}</div><div id="ov-team" class="ovsec">${side}</div>${attn?`<div id="ov-nudge" class="ovsec">${attn}</div>`:''}
     <section id="ov-latest" class="ovsec" style="display:grid;gap:12px"><div class="item-top"><h2>Latest instructions</h2><button class="btn sm" data-act="go" data-route="send">See all</button></div>${S.instructions.length?`<div class="list">${S.instructions.slice(0,5).map(insRowAdmin).join('')}</div>`:empty('No instructions yet','Send your first brief from Send instruction.')}</section>
     <section id="ov-files" class="ovsec" style="display:grid;gap:12px"><div class="item-top"><h2>Latest from the team</h2><button class="btn sm" data-act="go" data-route="content">See all</button></div>${listOrEmpty(S.subs.slice(0,6),'Nothing received yet','Responses and uploads from your team land here.')}</section></div>`;
 }
 
+
+/* ---------- Overview insights: charts from the team's own activity ---------- */
+const OVC={orange:'#F28D3A',purple:'#7B4FA0',teal:'#0F766E',soft:'#CBB7D8',red:'#C2410C'};
+function ovcDur(ms){const h=ms/36e5;return h<1?Math.max(1,Math.round(ms/6e4))+' min':h<48?(h<10?h.toFixed(1):Math.round(h))+' h':(h/24<10?(h/24).toFixed(1):Math.round(h/24))+' days'}
+function ovcWeeks(n){const out=[],d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-((d.getDay()+6)%7));for(let i=n-1;i>=0;i--){const a=new Date(d);a.setDate(a.getDate()-i*7);out.push({t:a.getTime(),label:a.toLocaleDateString(undefined,{day:'numeric',month:'short'}),subs:0,ins:0})}return out}
+function ovcActivity(ins,subs){
+  const W=ovcWeeks(12),idx=t=>{for(let i=W.length-1;i>=0;i--)if(t>=W[i].t)return i;return -1};
+  subs.forEach(x=>{const i=idx(x.createdAt);if(i>=0)W[i].subs++});ins.forEach(x=>{const i=idx(x.createdAt);if(i>=0)W[i].ins++});
+  const max=Math.max(4,...W.map(w=>Math.max(w.subs,w.ins))),top=Math.ceil(max/4)*4,w=640,h=230,L=34,B=28,T=10,pw=w-L-8,ph=h-B-T,bw=pw/W.length;
+  const y=v=>T+ph-v/top*ph,grid=[0,1,2,3,4].map(g=>{const v=top/4*g;return `<line x1="${L}" x2="${w-8}" y1="${y(v)}" y2="${y(v)}" class="cgrid"/><text x="${L-6}" y="${y(v)+4}" text-anchor="end" class="caxis">${Math.round(v)}</text>`}).join('');
+  const bars=W.map((k,i)=>{const x=L+i*bw+bw*.2,bh=k.subs/top*ph;return `<rect x="${x}" y="${y(k.subs)}" width="${bw*.6}" height="${Math.max(bh,k.subs?2:0)}" rx="3" fill="${OVC.orange}" class="cbar" data-tip="Week of ${k.label}: ${k.subs} response${k.subs===1?'':'s'}, ${k.ins} instruction${k.ins===1?'':'s'} sent"/>`}).join('');
+  const pts=W.map((k,i)=>[L+i*bw+bw/2,y(k.ins)]),line=pts.map((q,i)=>(i?'L':'M')+q[0].toFixed(1)+' '+q[1].toFixed(1)).join(' ');
+  const labels=W.map((k,i)=>i%2===(W.length-1)%2?`<text x="${L+i*bw+bw/2}" y="${h-8}" text-anchor="middle" class="caxis">${esc(k.label)}</text>`:'').join('');
+  return `<svg class="cchart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Weekly activity, last 12 weeks">${grid}${bars}<path d="${line}" fill="none" stroke="${OVC.purple}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>${pts.map((q,i)=>`<circle cx="${q[0]}" cy="${q[1]}" r="3.4" fill="var(--surface)" stroke="${OVC.purple}" stroke-width="2"><title>${W[i].ins} sent</title></circle>`).join('')}${labels}</svg>
+  <div class="clegend"><span><i style="background:${OVC.orange}"></i>Responses received</span><span><i class="ln" style="background:${OVC.purple}"></i>Instructions sent</span></div>`;
+}
+function ovcRows(rows,fmt){
+  const max=Math.max(1e-9,...rows.map(r=>r.v));
+  return `<div class="hbs">${rows.map(r=>`<div class="hb"${r.tip?` data-tip="${esc(r.tip)}"`:''}><span class="hl"><i style="background:${r.c}"></i>${esc(r.l)}</span><span class="ht"><b style="width:${Math.max(r.v?3:0,r.v/max*100)}%;background:${r.c}"></b></span><span class="hv">${esc(fmt?fmt(r):r.v)}</span></div>`).join('')}</div>`;
+}
+function ovInsights(team,ins,subs){
+  const fr=S.ov.role,rec=i=>recipients(i).filter(u=>!fr||u.role===fr),roles=ROLES.filter(r=>r.key!=='super_admin'&&team.some(u=>u.role===r.key));
+  const first=new Map();S.subs.forEach(x=>{if(!x.instructionId)return;const k=x.instructionId+'|'+x.userId,c=first.get(k);if(c===undefined||x.createdAt<c)first.set(k,x.createdAt)});
+  const byRole={},all=[];
+  roles.forEach(r=>byRole[r.key]={sent:0,done:0,ms:[]});
+  ins.forEach(i=>rec(i).forEach(u=>{const b=byRole[u.role];if(!b)return;b.sent++;const f=first.get(i.id+'|'+u.id);if(f!==undefined){b.done++;const d=Math.max(0,f-i.createdAt);b.ms.push(d);all.push(d)}}));
+  const med=a=>{if(!a.length)return null;const q=[...a].sort((x,y)=>x-y),m=q.length>>1;return q.length%2?q[m]:(q[m-1]+q[m])/2},avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
+  const rateRows=roles.map(r=>{const b=byRole[r.key],p=b.sent?Math.round(b.done/b.sent*100):0;return {l:r.label,v:p,c:`var(${r.tok})`,done:b.done,sent:b.sent,tip:`${r.label}: ${b.done} of ${b.sent} responded`}}).filter(r=>r.sent).sort((a,b)=>b.v-a.v);
+  const timeRows=roles.map(r=>({l:r.label,v:avg(byRole[r.key].ms),c:`var(${r.tok})`})).filter(r=>r.v!==null).sort((a,b)=>a.v-b.v).map(r=>({...r,tip:r.l+': average '+ovcDur(r.v)}));
+  let full=0,part=0,none=0;ins.forEach(i=>{const r=rec(i);if(!r.length)return;const d=r.filter(u=>responded(i.id,u.id)).length;d===r.length?full++:d?part++:none++});
+  const kinds={Images:0,Videos:0,Documents:0,Other:0};subs.forEach(x=>(x.files||[]).forEach(f=>{const t=String(f.type||'');kinds[t.startsWith('image/')?'Images':t.startsWith('video/')?'Videos':/pdf|word|sheet|excel|powerpoint|presentation|text|csv|document/.test(t)?'Documents':'Other']++}));
+  const kTot=Object.values(kinds).reduce((a,b)=>a+b,0),kCol={Images:OVC.orange,Videos:OVC.purple,Documents:OVC.teal,Other:OVC.soft};
+  const people=new Map();subs.forEach(x=>{const g=people.get(x.userId)||{name:x.username,role:x.role,n:0};g.n++;people.set(x.userId,g)});
+  const top=[...people.values()].sort((a,b)=>b.n-a.n).slice(0,5).map(g=>({l:g.name,v:g.n,c:`var(${(ROLES.find(r=>r.key===g.role)||{tok:'--role-ec'}).tok})`,tip:g.name+': '+g.n+' response'+(g.n===1?'':'s')}));
+  const totalSent=rateRows.reduce((a,r)=>a+r.sent,0),totalDone=rateRows.reduce((a,r)=>a+r.done,0),mid=med(all),fast=timeRows[0],slow=timeRows[timeRows.length-1];
+  const stat=(l,v,sub)=>`<div class="ist"><span class="eyebrow">${l}</span><b>${v}</b><small class="muted">${sub}</small></div>`;
+  const strip=`<div class="istrip">${stat('Response rate',totalSent?Math.round(totalDone/totalSent*100)+'%':'–',`${totalDone} of ${totalSent} requests answered`)}${stat('Typical response time',mid===null?'–':ovcDur(mid),'median, instruction to first response')}${stat('Fastest team',fast?esc(fast.l):'–',fast?'about '+ovcDur(fast.v)+' on average':'no responses yet')}${stat('Needs attention',slow&&timeRows.length>1?esc(slow.l):(rateRows.length?esc(rateRows[rateRows.length-1].l):'–'),slow&&timeRows.length>1?'slowest, about '+ovcDur(slow.v):(rateRows.length?'lowest response rate':'nothing to compare yet'))}</div>`;
+  const card=(t,sub,body,cls)=>`<section class="panel ic ${cls||''}"><div><h2>${t}</h2><p class="muted" style="font-size:.85rem">${sub}</p></div>${body}</section>`;
+  const donutCard=(parts,top,sub,legend)=>`<div class="cust">${donut(parts,top,sub)}<div class="legend">${legend}</div></div>`;
+  const completion=full+part+none?donutCard([{v:full,c:OVC.teal,l:'Fully answered'},{v:part,c:OVC.orange,l:'Partly answered'},{v:none,c:OVC.soft,l:'No response yet'}],String(full+part+none),'instructions',`<div><i style="background:${OVC.teal}"></i><b>${full}</b> fully answered</div><div><i style="background:${OVC.orange}"></i><b>${part}</b> partly answered</div><div><i style="background:${OVC.soft}"></i><b>${none}</b> no response yet</div>`):'<p class="muted">No instructions in this selection.</p>';
+  const mix=kTot?donutCard(Object.keys(kinds).filter(k=>kinds[k]).map(k=>({v:kinds[k],c:kCol[k],l:k})),String(kTot),'files',Object.keys(kinds).filter(k=>kinds[k]).map(k=>`<div><i style="background:${kCol[k]}"></i><b>${kinds[k]}</b> ${k.toLowerCase()}</div>`).join('')):'<p class="muted">No files received in this selection.</p>';
+  return `<div class="insights">${strip}
+    <div class="igrid wide">${card('Activity, last 12 weeks','Responses received each week against instructions sent.',ovcActivity(ins,subs),'span2')}${card('Response rate by team','Share of requests each team has answered.',rateRows.length?ovcRows(rateRows,r=>r.v+'%  ('+r.done+'/'+r.sent+')'):'<p class="muted">No instructions sent yet.</p>')}</div>
+    <div class="igrid">${card('How fast they respond','Average time from sending to the first response.',timeRows.length?ovcRows(timeRows,r=>ovcDur(r.v)):'<p class="muted">No responses yet.</p>')}${card('Instruction progress','How far each instruction has been answered.',completion)}${card('What comes in','Types of files received.',mix)}${card('Most active people','Responses sent, top five.',top.length?ovcRows(top):'<p class="muted">No responses yet.</p>')}</div></div>`;
+}
 function ovRender(){$('#view').innerHTML=overviewHTML();ovSpy()}
 function ovSetHash(id){try{history.replaceState(null,'','#home'+(id?':'+id:''))}catch(e){}}
 let ovLock=0;
