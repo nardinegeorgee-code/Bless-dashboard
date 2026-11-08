@@ -64,7 +64,15 @@ export default route(async (req, res) => {
   }
   if (gap.size) {
     try {
-      const r = await shopifyql(cfg, `FROM sales SHOW total_sales, orders, net_items_sold, sales_reversals TIMESERIES month SINCE ${months[0]}-01 UNTIL ${new Date().toISOString().slice(0, 10)}`);
+      // Shopify's report service is slow, and older months never change: keep the answer for 6 hours.
+      const qlKey = 'ql-series:' + months[0] + ':' + new Date().toISOString().slice(0, 10);
+      let r;
+      const hit = await q`SELECT payload FROM shop_cache WHERE key = ${qlKey} AND fetched_at > ${Date.now() - 6 * 3600000}`;
+      if (hit[0]) r = hit[0].payload;
+      else {
+        r = await shopifyql(cfg, `FROM sales SHOW total_sales, orders, net_items_sold, sales_reversals TIMESERIES month SINCE ${months[0]}-01 UNTIL ${new Date().toISOString().slice(0, 10)}`);
+        await q`INSERT INTO shop_cache (key, fetched_at, payload) VALUES (${qlKey}, ${Date.now()}, ${JSON.stringify(r)}::jsonb) ON CONFLICT (key) DO UPDATE SET fetched_at = EXCLUDED.fetched_at, payload = EXCLUDED.payload`;
+      }
       for (const row of r.rows) {
         const k = String(row.month).slice(0, 7);
         const m = series.get(k);

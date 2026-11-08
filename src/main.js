@@ -307,8 +307,9 @@ async function loadPulse(force){
   const warm=!force&&Object.keys(P.done).length>0;   // we already show saved numbers: refresh quietly behind them
   if(!warm)P.done={};
   pvFill();
-  setTimeout(pvFill,8000);
+  const iv=setInterval(pvFill,1000);
   await Promise.all(['shop','odoo','stock','meta','ev','act','trend'].map(pvRun));
+  clearInterval(iv);
   P.loading=false;pvSave();pvFill();
 }
 function pvFill(){
@@ -343,7 +344,7 @@ function pvCard(o){
   const {key,ico,color,name,route,hero,heroLabel,delta,goodDown,spark,mini,note}=o,P=S.pulse;
   const head=`<div class="pv-top"><span class="kico" style="--kc:${color}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${ICON[ico]||NAV_ICON[ico]||''}</svg></span><b>${name}</b><span class="eyebrow">${note||''}</span></div>`;
   if(P.err[key])return `<section class="pv-card err">${head}<p class="pv-msg"><b>Could not load ${name}.</b><br><span class="muted">${esc(P.err[key])}</span></p><div class="row"><button class="btn sm primary" data-act="pv-retry" data-k="${key}${key==='odoo'?',stock,trend':''}">Try again</button><button class="btn sm" data-act="go" data-route="${route}">Open ${name}</button></div></section>`;
-  if(!P.done[key])return `<section class="pv-card">${head}<div class="pv-sk"><i></i><i></i><i></i></div>${Date.now()-P.at>8000?`<p class="muted pv-foot">Still loading. ${name} can take up to a minute to answer.</p>`:''}</section>`;
+  if(!P.done[key])return `<section class="pv-card">${head}<div class="pv-sk"><i></i><i></i><i></i></div>${Date.now()-P.at>=3000?`<p class="muted pv-foot">Waiting for ${name}… ${Math.round((Date.now()-P.at)/1000)}s${Date.now()-P.at>=15000?'. It can take up to a minute the first time; after that it is saved for 10 minutes.':''}</p>`:''}</section>`;
   return `<section class="pv-card" style="--pc:${color}">${head}<div class="pv-hero"><div><span class="eyebrow">${heroLabel}</span><div class="pv-n">${hero}</div></div>${delta===null||delta===undefined?'':chip(delta,goodDown)}</div>${spark}<div class="pv-mini">${mini.map(([l,v,d,gd])=>`<div><span class="eyebrow">${l}</span><b>${v}</b>${d===null||d===undefined?'':chip(d,gd)}</div>`).join('')}</div><button class="pv-open" data-act="go" data-route="${route}">Open full report <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></button></section>`;
 }
 function pvBusiness(){

@@ -1,4 +1,4 @@
-import { route, allow, db, HttpError, requireAdmin, requireViewer } from './_lib.js';
+import { route, allow, serveCached, sendCached, db, HttpError, requireAdmin, requireViewer } from './_lib.js';
 import { ensureShopSchema } from './_shopify.js';
 import { parsePeriod, monthPeriod, startMs, endMs, dayList } from './_period.js';
 import { metaConfig, graph, graphAll, cached, clearMetaCache, audit, recentAudit, accountInfo, metrics, INSIGHT_FIELDS, ACCOUNT_STATUS, budgetOffset } from './_meta.js';
@@ -249,6 +249,7 @@ export default route(async (req, res) => {
   const cfg = metaConfig();
   if (req.method === 'POST') return write(req, res, cfg, user);
   if (cfg.missing.length) return res.json({ configured: false, missing: cfg.missing });
+  if (await serveCached(req, res, 'meta', 10 * 60 * 1000)) return;
 
   const keyOf = monthKeyer(cfg.tz);
   const months = lastMonths(keyOf, 12);
@@ -265,7 +266,7 @@ export default route(async (req, res) => {
   };
   const info = await accountInfo(cfg, ctx.refresh);
   const sections = await pool(pick(build(tab, cfg, ctx, info), onlyIds(req)), 3);
-  res.json({
+  await sendCached(req, res, 'meta', {
     configured: true, tab, month, monthLabel: ctx.monthLabel, period: { from: per.from, to: per.to, days: per.days, label: per.label, kind: per.kind, clamped: per.clamped }, compare: { from: per.compare.from, to: per.compare.to, days: per.compare.days, label: per.compare.label, custom: per.compare.custom }, compareText: per.compareText, months: months.map((k) => ({ key: k, label: label(k) })),
     currency: info.currency, account: info.name, accountStatus: ACCOUNT_STATUS[info.status] || 'Unknown', timezone: info.timezone, sections,
   });

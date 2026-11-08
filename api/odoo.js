@@ -1,4 +1,4 @@
-import { route, allow, requireViewer, requireAdmin } from './_lib.js';
+import { route, allow, serveCached, sendCached, requireViewer, requireAdmin } from './_lib.js';
 import { loadTargets, saveTarget, monthsIn } from './_targets.js';
 import { odooConfig, odooVersion, call, sr, nm, nid, fieldsOf, needModel } from './_odoo.js';
 import { parsePeriod, monthPeriod, dayList } from './_period.js';
@@ -870,6 +870,7 @@ export default route(async (req, res) => {
     return res.json({ ok: true });
   }
   await requireViewer(req);
+  if (await serveCached(req, res, 'odoo', 10 * 60 * 1000)) return;
   res.setHeader('Cache-Control', 'no-store');
   const cfg = odooConfig();
   if (cfg.missing.length) return res.json({ configured: false, missing: cfg.missing });
@@ -890,5 +891,5 @@ export default route(async (req, res) => {
   info.currency = company[0] && Array.isArray(company[0].currency_id) ? String(company[0].currency_id[1]).slice(0, 3) : '';
   ctx.currency = info.currency;
   const sections = await pool(pick(build(tab, cfg, ctx), onlyIds(req)), 3);
-  res.json({ configured: true, tab, month, monthLabel: ctx.monthLabel, period: { from: per.from, to: per.to, days: per.days, label: per.label, kind: per.kind, clamped: per.clamped }, compare: { from: per.compare.from, to: per.compare.to, days: per.compare.days, label: per.compare.label, custom: per.compare.custom }, compareText: per.compareText, months: months.map((k) => ({ key: k, label: label(k) })), currency: info.currency, company: info.company, version: info.version, sections });
+  await sendCached(req, res, 'odoo', { configured: true, tab, month, monthLabel: ctx.monthLabel, period: { from: per.from, to: per.to, days: per.days, label: per.label, kind: per.kind, clamped: per.clamped }, compare: { from: per.compare.from, to: per.compare.to, days: per.compare.days, label: per.compare.label, custom: per.compare.custom }, compareText: per.compareText, months: months.map((k) => ({ key: k, label: label(k) })), currency: info.currency, company: info.company, version: info.version, sections });
 });

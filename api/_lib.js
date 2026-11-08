@@ -84,6 +84,7 @@ export function ensureSchema() {
       )`;
       await q`CREATE INDEX IF NOT EXISTS activity_t ON activity (started_at)`;
       await q`CREATE INDEX IF NOT EXISTS activity_u ON activity (user_id, started_at)`;
+      await q`CREATE TABLE IF NOT EXISTS api_cache (key TEXT PRIMARY KEY, fetched_at BIGINT NOT NULL, payload JSONB NOT NULL)`;
       await q`CREATE TABLE IF NOT EXISTS eval_settings (key TEXT PRIMARY KEY, value JSONB NOT NULL)`;
     })();
     ready.catch(() => { ready = null; });
@@ -235,4 +236,24 @@ export function route(handler) {
 
 export function allow(req, methods) {
   if (!methods.includes(req.method)) throw new HttpError(405, 'Method not allowed.');
+}
+
+/* ---------- short-lived response cache for the Overview's headline requests (?only=...) ---------- */
+const cacheKey = (ns, req) => ns + ':' + Object.entries(req.query || {}).filter(([k]) => k !== 'refresh').sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => k + '=' + v).join('&');
+/** Sends a stored answer when there is a fresh one. Returns true when it did. */
+export async function serveCached(req, res, ns, ttlMs) {
+  if (req.method !== 'GET' || !req.query.only || req.query.refresh === '1') return false;
+  const rows = await db()`SELECT fetched_at, payload FROM api_cache WHERE key = ${cacheKey(ns, req)}`;
+  if (rows[0] && Date.now() - Number(rows[0].fetched_at) < ttlMs) { res.setHeader('X-Cache', 'hit'); res.json(rows[0].payload); return true; }
+  return false;
+}
+/** Sends the answer, and keeps a copy for the next person when it was a headline request. */
+export async function sendCached(req, res, ns, body) {
+  if (req.method === 'GET' && req.query.only && body && !body.error && body.configured !== false) {
+    try {
+      await db()`INSERT INTO api_cache (key, fetched_at, payload) VALUES (${cacheKey(ns, req)}, ${Date.now()}, ${JSON.stringify(body)}::jsonb)
+        ON CONFLICT (key) DO UPDATE SET fetched_at = EXCLUDED.fetched_at, payload = EXCLUDED.payload`;
+    } catch (e) { /* the cache is a bonus; never fail the request over it */ }
+  }
+  res.json(body);
 }
