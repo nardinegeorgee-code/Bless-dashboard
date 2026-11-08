@@ -1230,3 +1230,8 @@ body.zoomed{overflow:hidden}
 .ac-path{white-space:normal!important;min-width:180px;line-height:1.4}
 .acttable td,.acttable th{vertical-align:middle}
 .ac-tools{width:max-content;max-width:100%;margin-bottom:6px}.ac-kf small{white-space:normal}
+/* person pop-up: always starts at the top of the screen and scrolls as one page, never clipped */
+.amod{display:flex;justify-content:center;align-items:flex-start;overflow-y:auto;overscroll-behavior:contain;padding:max(16px,env(safe-area-inset-top)) 16px 24px}
+.amod-box{width:min(860px,100%);max-height:none;overflow:visible;margin:auto 0;box-sizing:border-box}
+.amod-h{position:sticky;top:-22px;z-index:2;background:var(--surface);margin:-22px -24px 0;padding:18px 24px 12px;border-radius:16px 16px 0 0}
+@media(max-width:600px){.amod-box{padding:16px}.amod-h{margin:-16px -16px 0;padding:14px 16px 10px;top:-16px}}
