@@ -563,3 +563,5 @@ aside.viz .viz-t{cursor:grab;touch-action:none;user-select:none}
 .an .dt tr.stm-line td:nth-child(2){padding-left:30px}
 .an .dt tr.stm-line td:first-child{color:var(--muted);font-size:.85rem}
 .an .dt tr.stm-total td{font-weight:800;font-size:1.02rem;border-top:2px solid var(--ink,#2a1a3a);border-bottom:2px solid var(--ink,#2a1a3a);background:color-mix(in srgb,var(--ok,#0F766E) 10%,transparent)}
+
+.tgbox{margin:4px 0 14px;padding:12px 14px;border:1px solid var(--paper-line,var(--line));border-radius:12px}

@@ -1025,25 +1025,32 @@ function odooHero(d){
 }
 
 /* Sales by salesperson: plain tables only. Click a line to see what is behind it. */
+function targetBox(p){
+  const t=p.monthlyTarget||0,pct=p.targetPct,w=Math.max(0,Math.min(100,pct||0)),canEdit=isAdmin();
+  const form=canEdit?`<form class="tgform" data-form="rep-target" data-rep="${esc(p.name)}" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"><label class="muted" style="font-size:.85rem">Monthly target</label><input class="input" name="amount" type="number" min="0" step="100" value="${t||''}" placeholder="e.g. 500000" style="width:150px"><button class="btn sm primary" type="submit">Save target</button></form>`:'';
+  if(!t)return `<div class="tgbox">${canEdit?`<p class="muted" style="font-size:.88rem;margin:0">No target set for ${esc(p.name)}.</p>${form}`:''}</div>`;
+  const hit=pct>=100;
+  return `<div class="tgbox"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><span><b>Target for these dates: ${esc(fv(p.periodTarget,'money'))}</b> <span class="muted">(${esc(fv(t,'money'))} a month)</span></span><span><b style="color:var(--${hit?'ok':'warn'})">${Math.round(pct)}% reached</b> · ${hit?`${esc(fv(p.cur.sales-p.periodTarget,'money'))} above target`:`${esc(fv(p.targetLeft,'money'))} to go`}</span></div><div class="bar" style="margin-top:6px"><i style="width:${w}%"></i></div>${form}</div>`;
+}
 function anReps(sec){
   if(!sec.people.length)return `<p class="muted">${esc(sec.empty)}</p>`;
   const plain=(cols,rows,empty)=>anTable({columns:cols,rows:rows.map(r=>r.breakdown?{...r,only:true}:r),empty});
-  const col=(key,label,fmt)=>({key,label,fmt});
-  const team=plain([col('name','Salesperson','str'),col('sales','Sales (before tax)','money'),col('orders','Orders','int'),col('units','Units','int'),col('distributors','Distributors','int'),col('invoices','Invoices','int'),col('invoiced','Invoiced','money')],
-    sec.people.map(x=>({name:x.name,sales:x.cur.sales,orders:x.cur.orders,units:x.cur.units,distributors:x.distributors,invoices:x.cur.invoices,invoiced:x.cur.invoiced,breakdown:x.breakdown})));
+  const col=(key,label,fmt)=>({key,label,fmt}),hasT=sec.people.some(x=>x.monthlyTarget>0);
+  const team=plain([col('name','Salesperson','str'),col('sales','Sales (before tax)','money'),col('orders','Orders','int'),col('units','Units','int'),col('distributors','Distributors','int'),col('invoices','Invoices','int'),col('invoiced','Invoiced','money'),...(hasT?[col('periodTarget','Target for these dates','money'),col('targetPct','Of target','pct')]:[])],
+    sec.people.map(x=>({name:x.name,sales:x.cur.sales,orders:x.cur.orders,units:x.cur.units,distributors:x.distributors,invoices:x.cur.invoices,invoiced:x.cur.invoiced,periodTarget:x.periodTarget||null,targetPct:x.targetPct,breakdown:x.breakdown})));
   const one=(p,n)=>{
     const c=p.cur,stat=(l,v,k)=>`<button type="button" class="rs" data-act="rep-stat" data-k="${k}" aria-expanded="false"><em>${esc(l)}</em><b>${esc(v)}</b></button>`;
-    return `<details class="repbox"${n===0?' open':''}><summary><b>${esc(p.name)}</b><span class="muted">${esc(fv(c.sales,'money'))} · ${fmtNum(c.orders)} orders · ${fmtNum(c.units)} units</span></summary>
-    <div class="repin"><div class="repsum">${stat('Sales',fv(c.sales,'money'),'months')}${stat('Orders',fmtNum(c.orders),'orders')}${stat('Units',fmtNum(c.units),'units')}${stat('Distributors',fmtNum(p.distributors),'dist')}${stat('Invoices',fmtNum(c.invoices),'invoices')}${stat('Invoiced',fv(c.invoiced,'money'),'invoices')}</div>
+    return `<details class="repbox"${n===0?' open':''}><summary><b>${esc(p.name)}</b><span class="muted">${esc(fv(c.sales,'money'))} · ${fmtNum(c.orders)} orders · ${fmtNum(c.units)} units${p.targetPct!==null&&p.targetPct!==undefined?` · <b>${Math.round(p.targetPct)}% of target</b>`:''}</span></summary>
+    <div class="repin">${targetBox(p)}<div class="repsum">${stat('Sales',fv(c.sales,'money'),'months')}${stat('Orders',fmtNum(c.orders),'orders')}${stat('Units',fmtNum(c.units),'units')}${stat('Distributors',fmtNum(p.distributors),'dist')}${stat('Invoices',fmtNum(c.invoices),'invoices')}${stat('Invoiced',fv(c.invoiced,'money'),'invoices')}</div>
     <div class="repdet" data-k="orders" hidden><h3 class="sub">Orders (${fmtNum(c.orders)})</h3>${plain([col('name','Order','str'),col('date','Date','str'),col('customer','Distributor','str'),col('city','City','str'),col('amount','Amount','money')],p.orders||[],'No orders in this period.')}</div>
     <div class="repdet" data-k="units" hidden><h3 class="sub">Units per product (${fmtNum(c.units)})</h3>${plain([col('name','Product','str'),col('units','Units','int'),col('distributors','Distributors','int'),col('orders','Orders','int'),col('sales','Sales','money')],p.products,'No sales in this period.')}</div>
     <div class="repdet" data-k="dist" hidden><h3 class="sub">Distributors (${fmtNum(p.distributors)})</h3>${plain([col('name','Distributor','str'),col('city','City','str'),col('orders','Orders','int'),col('units','Units','int'),col('sales','Sales','money'),col('invoices','Invoices','int'),col('invoiced','Invoiced','money')],p.customers,'No sales in this period.')}</div>
     <div class="repdet" data-k="invoices" hidden><h3 class="sub">Invoices (${fmtNum(c.invoices)}) · ${esc(fv(c.invoiced,'money'))}</h3>${plain([col('name','Invoice','str'),col('customer','Distributor','str'),col('date','Date','str'),col('amount','Amount','money'),col('status','Payment','str')],p.invoices,'No invoices in this period.')}</div>
-    <div class="repdet" data-k="months" hidden><h3 class="sub">Sales month by month</h3>${plain([col('label','Month','str'),col('sales','Sales','money'),col('orders','Orders','int'),col('units','Units','int'),col('invoiced','Invoiced','money')],p.months.slice().reverse(),'No sales.')}</div>
+    <div class="repdet" data-k="months" hidden><h3 class="sub">Sales month by month</h3>${plain([col('label','Month','str'),col('sales','Sales','money'),col('orders','Orders','int'),col('units','Units','int'),col('invoiced','Invoiced','money'),...(p.monthlyTarget?[col('target','Target','money'),col('targetPct','Of target','pct')]:[])],p.months.slice().reverse(),'No sales.')}</div>
     <h3 class="sub">Products</h3>${plain([col('name','Product','str'),col('units','Units','int'),col('distributors','Distributors','int'),col('orders','Orders','int'),col('sales','Sales','money')],p.products,'No sales in this period.')}
     <h3 class="sub">Distributors</h3>${plain([col('name','Distributor','str'),col('city','City','str'),col('invoices','Invoices','int'),col('invoiced','Invoiced','money'),col('units','Units','int'),col('orders','Orders','int'),col('sales','Sales','money')],p.customers,'No sales in this period.')}
     <h3 class="sub">Cities</h3>${plain([col('name','City','str'),col('distributors','Distributors','int'),col('units','Units','int'),col('orders','Orders','int'),col('sales','Sales','money')],p.cities,'No sales in this period.')}
-    <h3 class="sub">Month by month</h3>${plain([col('label','Month','str'),col('sales','Sales','money'),col('orders','Orders','int'),col('units','Units','int'),col('invoiced','Invoiced','money')],p.months.slice().reverse(),'No sales.')}
+    <h3 class="sub">Month by month</h3>${plain([col('label','Month','str'),col('sales','Sales','money'),col('orders','Orders','int'),col('units','Units','int'),col('invoiced','Invoiced','money'),...(p.monthlyTarget?[col('target','Target','money'),col('targetPct','Of target','pct')]:[])],p.months.slice().reverse(),'No sales.')}
     <h3 class="sub">Invoices</h3>${plain([col('name','Invoice','str'),col('customer','Distributor','str'),col('date','Date','str'),col('amount','Amount','money'),col('status','Payment','str')],p.invoices,'No invoices in this period.')}</div></details>`;
   };
   return `${sec.source?`<p class="muted" style="font-size:.85rem">${esc(sec.source)}</p>`:''}<h3 class="sub">Everyone</h3>${team}<h3 class="sub" style="margin-top:22px">Each salesperson</h3><p class="muted" style="font-size:.85rem">Click any line to see the detail behind it.</p>${sec.people.map(one).join('')}`;
@@ -1241,6 +1248,7 @@ document.addEventListener('error',e=>{if(e.target.tagName==='IMG')e.target.close
 document.addEventListener('input',e=>{const t=e.target;if(t.dataset&&t.dataset.draft)S.draft[t.dataset.draft]=t.value});
 document.addEventListener('submit',async e=>{
   const f=e.target.closest('[data-form]');if(!f)return;e.preventDefault();const k=f.dataset.form;
+  if(k==='rep-target'){const amount=Number(new FormData(f).get('amount')||0);api('POST','/api/odoo',{action:'target',rep:f.dataset.rep,amount}).then(()=>{S.od.cache={};toast(amount?'Target saved':'Target removed');loadOdoo(undefined,true)}).catch(x=>toast(x.message||'Could not save'));return}
   if(k==='setup'){
     const u=$('#su-u').value.trim().replace(/\s+/g,' '),p=$('#su-p').value,p2=$('#su-p2').value,err=$('#su-err');
     if(!validName(u))return err.textContent='Use 2 to 40 characters.';

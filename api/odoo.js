@@ -1,4 +1,5 @@
-import { route, allow, requireViewer } from './_lib.js';
+import { route, allow, requireViewer, requireAdmin } from './_lib.js';
+import { loadTargets, saveTarget, monthsIn } from './_targets.js';
 import { odooConfig, odooVersion, call, sr, nm, nid, fieldsOf, needModel } from './_odoo.js';
 import { parsePeriod, monthPeriod, dayList } from './_period.js';
 import { adSpend, profitTiles } from './_profit.js';
@@ -476,6 +477,15 @@ function build(tab, cfg, ctx) {
             return { name: r.name, distributors: allCust.length, productsCount: allProd.length, cur: r.cur, prev: r.prev, months: [...r.months.values()], cities, customers: custs, products: prods, invoices: invoices.slice(0, 300), orders: r.orderList.sort((x, y) => y.date.localeCompare(x.date)).slice(0, 300), breakdown };
           })
           .sort((a, b) => b.cur.sales - a.cur.sales).slice(0, 40);
+        // Monthly target per salesperson (set by the Super Admin); a longer or shorter period scales it by the months it covers.
+        let targets = new Map(); try { targets = await loadTargets(); } catch (err) { /* no database: no targets */ }
+        const nMonths = monthsIn(s, e);
+        for (const p of people) {
+          const t = targets.get(p.name) || 0; p.monthlyTarget = t; p.periodTarget = t * nMonths;
+          p.targetPct = t ? (p.cur.sales / (t * nMonths)) * 100 : null; p.targetLeft = t ? Math.max(0, t * nMonths - p.cur.sales) : null;
+          p.months = p.months.map((m) => ({ ...m, target: t || null, targetPct: t ? (m.sales / t) * 100 : null }));
+        }
+        for (const [name, t] of targets) if (!people.some((p) => p.name === name)) people.push({ name, distributors: 0, productsCount: 0, cur: { sales: 0, orders: 0, units: 0, invoiced: 0, invoices: 0 }, prev: { sales: 0, orders: 0, units: 0, invoiced: 0, invoices: 0 }, months: [], cities: [], customers: [], products: [], invoices: [], orders: [], breakdown: { plain: true, summary: [], columns: [], rows: [] }, monthlyTarget: t, periodTarget: t * nMonths, targetPct: 0, targetLeft: t * nMonths });
         const used = order.filter((f) => filled[f]).map((f) => `${metaF[f] ? metaF[f].string : f} (${filled[f]} of ${orders.length} orders)`);
         return { people, empty: 'No confirmed orders in the last 12 months.', source: used.length ? 'Salesperson read from: ' + used.join(', ') + '.' : 'No salesperson is filled in on the orders of the last 12 months.' };
       }, 'Salesperson is the one on the sales order (and on the invoice). Amounts are before tax. City is taken from the delivery address on the order (the customer address when there is none), and the distributor is the customer on the order. The lists follow the dates you picked; the month chart always shows the last 12 months.'),
@@ -845,7 +855,13 @@ async function pool(tasks, size = 3) {
 }
 
 export default route(async (req, res) => {
-  allow(req, ['GET']);
+  allow(req, ['GET', 'POST']);
+  if (req.method === 'POST') {
+    await requireAdmin(req);
+    if (req.body?.action !== 'target') return res.status(400).json({ error: 'Unknown action.' });
+    await saveTarget(req.body.rep, req.body.amount);
+    return res.json({ ok: true });
+  }
   await requireViewer(req);
   res.setHeader('Cache-Control', 'no-store');
   const cfg = odooConfig();
