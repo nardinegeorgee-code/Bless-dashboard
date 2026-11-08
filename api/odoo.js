@@ -3,6 +3,7 @@ import { loadTargets, saveTarget, monthsIn } from './_targets.js';
 import { odooConfig, odooVersion, call, sr, nm, nid, fieldsOf, needModel } from './_odoo.js';
 import { parsePeriod, monthPeriod, dayList } from './_period.js';
 import { adSpend, profitTiles } from './_profit.js';
+import { shopConfig, fetchSkuImages } from './_shopify.js';
 
 const TZ = process.env.DASHBOARD_TZ || 'Africa/Cairo';
 
@@ -33,15 +34,37 @@ async function addPictures(cfg, list) {
   const ids = [...new Set(list.map((r) => r.pid).filter(Boolean))];
   list.forEach((r) => { if (!ids.length) delete r.pid; });
   if (!ids.length) return list;
+  const codeBy = new Map();
   try {
     const have = await fieldsOf(cfg, 'product.product');
-    if (have.has('image_256')) {
-      const got = await call(cfg, 'product.product', 'read', [ids, ['image_256']], { context: { lang: 'en_US' } });
-      const by = new Map();
-      for (const g of got) { const b = typeof g.image_256 === 'string' ? g.image_256 : ''; const m = b && b.length < 160000 && MIME.find(([p]) => b.startsWith(p)); if (m) by.set(g.id, `data:${m[1]};base64,${b}`); }
-      list.forEach((r) => { if (by.has(r.pid)) r.img = by.get(r.pid); });
+    const fields = ['default_code', ...(have.has('image_256') ? ['image_256'] : [])];
+    const got = await call(cfg, 'product.product', 'read', [ids, fields], { context: { lang: 'en_US' } });
+    const by = new Map();
+    for (const g of got) {
+      if (g.default_code) codeBy.set(g.id, String(g.default_code).trim().toLowerCase());
+      const b = typeof g.image_256 === 'string' ? g.image_256 : ''; const m = b && b.length < 400000 && MIME.find(([p]) => b.startsWith(p));
+      if (m) by.set(g.id, `data:${m[1]};base64,${b}`);
     }
+    list.forEach((r) => { if (by.has(r.pid)) r.img = by.get(r.pid); });
   } catch (err) { /* pictures are an extra; the table still works without them */ }
+  // Products with no picture in Odoo borrow the Shopify one: same SKU first, then same name
+  try {
+    if (list.some((r) => !r.img)) {
+      const sc = shopConfig();
+      if (!sc.missing || !sc.missing.length) {
+        const { bySku, byName } = await fetchSkuImages(sc);
+        const clean = (t) => String(t || '').replace(/^\s*\[[^\]]*\]\s*/, '').toLowerCase().replace(/[\u2013\u2014-]+/g, '-').replace(/\s+/g, ' ').replace(/\s*-\s*/g, ' - ').trim();
+        const names = Object.entries(byName).map(([k, v]) => [clean(k), v]);
+        for (const r of list) {
+          if (r.img) continue;
+          const code = codeBy.get(r.pid) || ((String(r.name || '').match(/^\s*\[([^\]]+)\]/) || [])[1] || '').toLowerCase();
+          let u = code && bySku[code];
+          if (!u) { const n = clean(r.name); const hit = names.find(([k]) => k === n) || names.find(([k]) => k.length > 6 && (n.includes(k) || k.includes(n))); u = hit && hit[1]; }
+          if (u) r.img = u;
+        }
+      }
+    }
+  } catch (err) { /* ignore */ }
   list.forEach((r) => { delete r.pid; });
   return list;
 }

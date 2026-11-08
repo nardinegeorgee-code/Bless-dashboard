@@ -169,6 +169,35 @@ export async function fetchProductImages(cfg, max = 500) {
   return out;
 }
 
+/**
+ * Store pictures by SKU, so Odoo products (Internal Reference = SKU) can borrow the picture from Shopify.
+ * Returns { bySku, byName } with lower-case keys; empty when Shopify does not answer.
+ */
+let skuPicMemo = { at: 0, v: null };
+export async function fetchSkuImages(cfg, max = 3000) {
+  if (skuPicMemo.v && Date.now() - skuPicMemo.at < 30 * 60000) return skuPicMemo.v;
+  const bySku = {}, byName = {};
+  try {
+    let cursor = null, n = 0;
+    while (n < max) {
+      const j = await gql(cfg, `query($cursor:String){productVariants(first:250,after:$cursor){pageInfo{hasNextPage endCursor} nodes{sku title image{url} product{title featuredMedia{preview{image{url}}}}}}}`, { cursor });
+      if (j.errors || !j.data) throw new Error(errText(j) || 'no data');
+      for (const v of j.data.productVariants.nodes) {
+        const img = v.image?.url || v.product?.featuredMedia?.preview?.image?.url || '';
+        if (!img) continue;
+        if (v.sku) bySku[String(v.sku).trim().toLowerCase()] = img;
+        const t = String(v.product?.title || '').trim().toLowerCase();
+        if (t) { byName[t] = byName[t] || img; if (v.title && !/^default title$/i.test(v.title)) byName[t + ' - ' + String(v.title).trim().toLowerCase()] = img; }
+      }
+      n += j.data.productVariants.nodes.length;
+      if (!j.data.productVariants.pageInfo.hasNextPage) break;
+      cursor = j.data.productVariants.pageInfo.endCursor;
+    }
+    skuPicMemo = { at: Date.now(), v: { bySku, byName } };
+  } catch (e) { /* pictures are an extra */ }
+  return { bySku, byName };
+}
+
 /** Each variant's SKU and barcode from Shopify, used to match store products with Odoo products. Returns { bySku, byName } (lower-case keys). */
 export async function fetchVariantCodes(cfg, max = 3000) {
   const bySku = {}, byName = {};
