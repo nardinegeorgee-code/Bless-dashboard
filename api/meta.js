@@ -19,10 +19,17 @@ function lastMonths(keyOf, n) {
 }
 
 /** A section never throws: a failed query becomes an error card so the rest of the tab still loads. */
-const section = (id, title, kind, fn, note) => async () => {
-  try { return { id, title, kind, note, ...(await fn()) }; }
-  catch (e) { return { id, title, kind, note, error: String(e.message || e).slice(0, 400) }; }
+const section = (id, title, kind, fn, note) => {
+  const run = async () => {
+    try { return { id, title, kind, note, ...(await fn()) }; }
+    catch (e) { return { id, title, kind, note, error: String(e.message || e).slice(0, 400) }; }
+  };
+  run.sid = id;
+  return run;
 };
+/** ?only=kpi,trend → build just those sections (the Overview only needs the headline numbers). */
+const onlyIds = (req) => (req.query.only ? new Set(String(req.query.only).split(',').map((x) => x.trim()).filter(Boolean)) : null);
+const pick = (tasks, only) => (only ? tasks.filter((t) => only.has(t.sid)) : tasks);
 const tile = (label, value, fmt, extra = {}) => ({ label, value, fmt, ...extra });
 async function pool(tasks, size = 3) {
   const out = new Array(tasks.length); let i = 0;
@@ -257,7 +264,7 @@ export default route(async (req, res) => {
     once: (k, fn) => (memo[k] = memo[k] || fn()),
   };
   const info = await accountInfo(cfg, ctx.refresh);
-  const sections = await pool(build(tab, cfg, ctx, info), 3);
+  const sections = await pool(pick(build(tab, cfg, ctx, info), onlyIds(req)), 3);
   res.json({
     configured: true, tab, month, monthLabel: ctx.monthLabel, period: { from: per.from, to: per.to, days: per.days, label: per.label, kind: per.kind, clamped: per.clamped }, compare: { from: per.compare.from, to: per.compare.to, days: per.compare.days, label: per.compare.label, custom: per.compare.custom }, compareText: per.compareText, months: months.map((k) => ({ key: k, label: label(k) })),
     currency: info.currency, account: info.name, accountStatus: ACCOUNT_STATUS[info.status] || 'Unknown', timezone: info.timezone, sections,

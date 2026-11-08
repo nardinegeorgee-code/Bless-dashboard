@@ -281,20 +281,34 @@ function pvSpark(vals,color){
   const pts=vals.map((v,i)=>x(i).toFixed(1)+','+y(v).toFixed(1)).join(' ');
   return `<svg class="pv-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="pvg${color.replace(/\W/g,'')}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity=".35"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs><polygon points="${P},${H} ${pts} ${W-P},${H}" fill="url(#pvg${color.replace(/\W/g,'')})"/><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>`;
 }
+const PV_KEY='bless-pulse-v2';
+function pvSave(){try{const P=S.pulse;localStorage.setItem(PV_KEY,JSON.stringify({day:pvDay(),at:P.at,shop:P.shop&&{currency:P.shop.currency,summary:P.shop.summary,months:(P.shop.months||[]).map(m=>({revenue:m.revenue}))},odoo:P.odoo,stock:P.stock,meta:P.meta,trend:P.trend}))}catch(e){}}
+function pvHydrate(){
+  const P=S.pulse;if(P.hydrated)return 0;P.hydrated=1;
+  try{const c=JSON.parse(localStorage.getItem(PV_KEY)||'null');if(!c||c.day!==pvDay())return 0;
+    ['shop','odoo','stock','meta','trend'].forEach(k=>{if(c[k]){P[k]=c[k];P.done[k]=1}});P.cachedAt=c.at;return Date.now()-c.at}catch(e){return 0}
+}
 async function loadPulse(force){
-  const P=S.pulse;if(P.loading||(!force&&Date.now()-P.at<5*60e3))return;
-  P.loading=true;P.at=Date.now();P.err={};P.done={};pvFill();
+  const P=S.pulse;if(P.loading)return;
+  const age=pvHydrate()||(P.cachedAt?Date.now()-P.cachedAt:Infinity);
+  if(!force&&(Date.now()-P.at<5*60e3||age<2*60e3)){pvFill();return}
+  P.loading=true;P.at=Date.now();P.err={};
+  const warm=!force&&Object.keys(P.done).length>0;   // we already show saved numbers: refresh quietly behind them
+  if(!warm)P.done={};
+  pvFill();
   const r=pvRange(),q='from='+r.from+'&to='+r.to+'&kind=month';
-  const job=(key,url,set)=>api('GET',url).then(d=>{if(d&&d.configured===false)throw new Error('Not connected yet');set(d)}).catch(e=>{P.err[key]=e.message||'Could not load'}).finally(()=>{P.done[key]=1;pvFill()});
+  const job=(key,url,set)=>api('GET',url).then(d=>{if(d&&d.configured===false)throw new Error('Not connected yet');set(d);delete P.err[key]}).catch(e=>{if(!P[key])P.err[key]=e.message||'Could not load'}).finally(()=>{P.done[key]=1;pvFill()});
   await Promise.all([
     job('shop','/api/shopify?'+q,d=>P.shop=d),
-    job('odoo','/api/odoo?tab=profit&'+q,d=>P.odoo=d),
-    job('stock','/api/odoo?tab=finished&'+q,d=>P.stock=d),
-    job('meta','/api/meta?tab=overview&'+q,d=>P.meta=d),
+    job('odoo','/api/odoo?tab=profit&only=kpi&'+q,d=>P.odoo=d),
+    job('stock','/api/odoo?tab=finished&only=kpi&'+q,d=>P.stock=d),
+    job('meta','/api/meta?tab=overview&only=kpi&'+q,d=>P.meta=d),
     job('ev','/api/evaluation',d=>P.ev=d),
-    job('act','/api/auth?action=activity&days=7',d=>P.act=d)
+    job('act','/api/auth?action=activity&days=7',d=>P.act=d),
+    // the 12-month profit line is the slow part, so it fills in last without blocking the headline numbers
+    job('trend','/api/odoo?tab=profit&only=trend&'+q,d=>P.trend=d)
   ]);
-  P.loading=false;pvFill();
+  P.loading=false;pvSave();pvFill();
 }
 function pvFill(){
   if(S.route!=='home'||!isAdmin())return;
@@ -340,7 +354,7 @@ function pvBusiness(){
     mini:ss?[['Orders',ss.orders.toLocaleString(),ss.change.orders],['Avg order',pvCur(ss.aov,cur),pvPct(ss.aov,ss.previous.aov)],['Refund rate',ss.refundRate.toFixed(1)+'%',null]]:[]});
   // Odoo
   const od=P.odoo,pt=pvTile(od,'kpi',['Profit after ads','Profit after delivery','Gross profit']),rev=pvTile(od,'kpi','Net revenue'),gp=pvTile(od,'kpi','Gross profit'),ra=pvTile(od,'kpi','Revenue per 1 spent on ads');
-  const oc=od&&od.currency,trend=od&&(od.sections||[]).find(x=>x.id==='trend'),oos=pvTile(P.stock,'kpi','Out of stock'),low=pvTile(P.stock,'kpi','Running low');
+  const oc=od&&od.currency,trend=(P.trend&&(P.trend.sections||[]).find(x=>x.id==='trend'))||(od&&(od.sections||[]).find(x=>x.id==='trend')),oos=pvTile(P.stock,'kpi','Out of stock'),low=pvTile(P.stock,'kpi','Running low');
   const odoo=pvCard({key:'odoo',ico:'odoo',color:'#A78BFA',name:'Odoo',route:'odoo',note:per,heroLabel:pt?pt.label:'Profit',
     hero:pt?pvCur(pt.value,oc):'–',delta:pt?pvPct(pt.value,pt.prev):null,spark:trend?pvSpark(trend.rows.map(x=>x.values.profit),'#A78BFA'):'',
     mini:[['Net revenue',rev?pvCur(rev.value,oc):'–',rev?pvPct(rev.value,rev.prev):null],['Gross profit',gp?pvCur(gp.value,oc):'–',gp?pvPct(gp.value,gp.prev):null],['Stock alerts',P.stock?((oos?oos.value:0)+(low?low.value:0))+' item'+(((oos?oos.value:0)+(low?low.value:0))===1?'':'s'):'–',null]]});

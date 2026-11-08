@@ -16,10 +16,17 @@ const monthsBack = (n) => { const now = new Date(); const out = []; for (let i =
 const mkey = (s) => String(s || '').slice(0, 7);
 const dt = (d) => d + ' 00:00:00', dtEnd = (d) => d + ' 23:59:59';
 
-const section = (id, title, kind, fn, note) => async () => {
-  try { return { id, title, kind, note, ...(await fn()) }; }
-  catch (e) { return { id, title, kind, note, error: String(e.message || e).slice(0, 400) }; }
+const section = (id, title, kind, fn, note) => {
+  const run = async () => {
+    try { return { id, title, kind, note, ...(await fn()) }; }
+    catch (e) { return { id, title, kind, note, error: String(e.message || e).slice(0, 400) }; }
+  };
+  run.sid = id;
+  return run;
 };
+/** ?only=kpi,trend → build just those sections (the Overview only needs the headline numbers). */
+const onlyIds = (req) => (req.query.only ? new Set(String(req.query.only).split(',').map((x) => x.trim()).filter(Boolean)) : null);
+const pick = (tasks, only) => (only ? tasks.filter((t) => only.has(t.sid)) : tasks);
 /** Product pictures straight from Odoo, as small inline images (256 px), so the browser needs no Odoo login. */
 const MIME = [['/9j/', 'image/jpeg'], ['iVBOR', 'image/png'], ['R0lGO', 'image/gif'], ['UklGR', 'image/webp'], ['PHN2', 'image/svg+xml']];
 async function addPictures(cfg, list) {
@@ -882,6 +889,6 @@ export default route(async (req, res) => {
   info.company = company[0] ? company[0].name : '';
   info.currency = company[0] && Array.isArray(company[0].currency_id) ? String(company[0].currency_id[1]).slice(0, 3) : '';
   ctx.currency = info.currency;
-  const sections = await pool(build(tab, cfg, ctx), 3);
+  const sections = await pool(pick(build(tab, cfg, ctx), onlyIds(req)), 3);
   res.json({ configured: true, tab, month, monthLabel: ctx.monthLabel, period: { from: per.from, to: per.to, days: per.days, label: per.label, kind: per.kind, clamped: per.clamped }, compare: { from: per.compare.from, to: per.compare.to, days: per.compare.days, label: per.compare.label, custom: per.compare.custom }, compareText: per.compareText, months: months.map((k) => ({ key: k, label: label(k) })), currency: info.currency, company: info.company, version: info.version, sections });
 });
