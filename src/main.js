@@ -778,8 +778,8 @@ function dStat(label,value,delta,goodDown,sub,color){
 }
 function dSeg(name,cur,opts){return `<div class="dx-seg" role="group">${opts.map(([v,l])=>`<button class="${cur===v?'on':''}" data-act="dx-set" data-k="${name}" data-v="${v}" aria-pressed="${cur===v}">${l}</button>`).join('')}</div>`}
 const dClean=n=>{const m=String(n||'').match(/^\s*\[([^\]]+)\]\s*(.*)$/);return m?{code:m[1],name:m[2]||n}:{code:'',name:String(n||'')}};
-function dTh(img,name,size){
-  if(!img)return name?`<span class="dx-th ph" style="--ts:${(size||34)}px" aria-hidden="true">${esc(String(name).trim().charAt(0).toUpperCase())}</span>`:'';size=size||34;const big=picUrl(img,1200),sm=picUrl(img,size*3);
+function dTh(img,name,size,ph){
+  if(!img)return ph&&name?`<span class="dx-th ph" style="--ts:${(size||34)}px" aria-hidden="true">${esc(String(name).trim().charAt(0).toUpperCase())}</span>`:'';size=size||34;const big=picUrl(img,1200),sm=picUrl(img,size*3);
   return `<button type="button" class="dx-th" style="--ts:${size}px" data-act="zoom" data-src="${esc(big)}" data-cap="${esc(name||'')}" aria-label="Enlarge picture of ${esc(name||'product')}" title="Click to enlarge"><img src="${esc(sm)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest('button').remove()"></button>`;
 }
 function zoomOpen(src,cap){
@@ -797,7 +797,7 @@ function dxModalClose(){const d=document.getElementById('dxm');if(d)d.remove();i
 function dStockModal(){
   const m=dModel(),oc=m.st&&m.st.currency;
   const rowsOf=t=>((t&&t.breakdown&&t.breakdown.rows)||[]);
-  const sect=(title,color,rows,note)=>`<section class="dxm-s"><h3 style="color:${color}">${title} <span>${rows.length}</span></h3>${rows.length?`<div class="dxm-g">${rows.map(r=>{const c=dClean(r.name);return `<div class="dxm-i">${dTh(r.img,c.name,64)}<div><b title="${esc(c.name)}">${esc(c.name)}</b>${c.code?`<small class="mono">${esc(c.code)}</small>`:''}<span style="color:${color}">${Math.round(r.units||0).toLocaleString()} left</span>${r.unit?`<small>${pvCur(r.unit,oc)} each at cost</small>`:''}</div></div>`}).join('')}</div>`:'<p class="muted">None right now.</p>'}</section>`;
+  const sect=(title,color,rows,note)=>`<section class="dxm-s"><h3 style="color:${color}">${title} <span>${rows.length}</span></h3>${rows.length?`<div class="dxm-g">${rows.map(r=>{const c=dClean(r.name);return `<div class="dxm-i">${dTh(r.img,c.name,64,1)}<div><b title="${esc(c.name)}">${esc(c.name)}</b>${c.code?`<small class="mono">${esc(c.code)}</small>`:''}<span style="color:${color}">${Math.round(r.units||0).toLocaleString()} left</span>${r.unit?`<small>${pvCur(r.unit,oc)} each at cost</small>`:''}</div></div>`}).join('')}</div>`:'<p class="muted">None right now.</p>'}</section>`;
   const o=rowsOf(m.oos),l=rowsOf(m.low);
   dxModal(`<h2>Finished products to restock</h2><p class="muted">From Odoo, right now. Click a picture to enlarge it.</p>${sect('Out of stock',DC.bad,o)}${sect('Running low',DC.amber,l)}`,'Products to restock');
 }
@@ -806,7 +806,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(document.getElem
 function dBars(rows,o={}){
   if(!rows.length)return `<p class="muted dx-empty">${o.empty||'Nothing in this period.'}</p>`;
   const mx=Math.max(...rows.map(r=>Math.abs(r.v)),1);
-  return `<ul class="dx-hb">${rows.map((r,i)=>`<li><span class="dx-hn">${o.rank?`<i>${i+1}</i>`:''}${dTh(r.img,r.l,r.ts||34)}<span title="${esc(r.l)}">${esc(r.l)}</span></span><span class="dx-hv"><b>${r.f||dM(r.v)}</b>${r.s?`<small>${r.s}</small>`:''}</span><span class="dx-ht"><i style="width:${Math.max(2,Math.abs(r.v)/mx*100)}%;background:${r.c||o.color||'var(--accent)'}"></i></span></li>`).join('')}</ul>`;
+  return `<ul class="dx-hb">${rows.map((r,i)=>`<li><span class="dx-hn">${o.rank?`<i>${i+1}</i>`:''}${dTh(r.img,dClean(r.l).name,r.ts||34,r.ph)}<span class="dx-nm" dir="auto">${esc(dClean(r.l).name)}${dClean(r.l).code?`<small class="mono">${esc(dClean(r.l).code)}</small>`:''}</span></span><span class="dx-hv"><b>${r.f||dM(r.v)}</b>${r.s?`<small>${r.s}</small>`:''}</span><span class="dx-ht"><i style="width:${Math.max(2,Math.abs(r.v)/mx*100)}%;background:${r.c||o.color||'var(--accent)'}"></i></span></li>`).join('')}</ul>`;
 }
 function dDonut(parts,center,sub){
   parts=parts.filter(p=>p.v>0);const tot=parts.reduce((a,p)=>a+p.v,0);
@@ -984,7 +984,7 @@ function dSalesHTML(m){
 function dProdList(m){
   const D=S.dash;m=m||dModel();if(!m.sh)return '';const q=D.prodQ.trim().toLowerCase();
   const rows=((D.prodBy==='units'?m.sh.bestByUnits:m.sh.bestByRevenue)||[]).filter(p=>!q||String(p.title).toLowerCase().includes(q)).slice(0,8);
-  return dBars(rows.map(p=>({l:p.title,img:p.img,ts:40,v:D.prodBy==='units'?p.units:p.revenue,f:D.prodBy==='units'?dN(p.units)+' units':dMf(p.revenue),s:D.prodBy==='units'?dMf(p.revenue):dN(p.units)+' units'})),{color:DC.shop,rank:1,empty:q?'No product matches that search.':'No sales in this period.'});
+  return dBars(rows.map(p=>({l:p.title,img:p.img,ph:1,ts:40,v:D.prodBy==='units'?p.units:p.revenue,f:D.prodBy==='units'?dN(p.units)+' units':dMf(p.revenue),s:D.prodBy==='units'?dMf(p.revenue):dN(p.units)+' units'})),{color:DC.shop,rank:1,empty:q?'No product matches that search.':'No sales in this period.'});
 }
 function dMarketingHTML(m){
   const D=S.dash;
@@ -998,7 +998,7 @@ function dMarketingHTML(m){
   const camps=dGate(['meta'],()=>{const s=dSec(m.mt,'campaigns');if(!s)return '<p class="muted dx-empty">No campaigns.</p>';if(s.error)return `<p class="muted">${esc(s.error)}</p>`;
     const by=D.campBy,rows=(s.rows||[]).slice().sort((a,b)=>(b[by]||0)-(a[by]||0)).slice(0,8),mx=Math.max(1,...rows.map(r=>r.spend));
     const pill=r=>{const v=Number(r.roas)||0,c=v>=3?'good':v>=1.5?'mid':'bad';return `<span class="dx-pill ${c}">${dX(v)}</span>`};
-    return `<div class="row dx-tl">${dSeg('campBy',by,[['spend','Spend'],['roas','Return'],['purchases','Purchases']])}</div><div class="dx-tbl"><div class="dx-tr dx-th"><span>Campaign</span><span>Spend</span><span>Buys</span><span>Return</span></div>${rows.map(r=>`<div class="dx-tr"><span class="dx-cn">${dTh(r.img,r.name,36)}<span title="${esc(r.name)}">${esc(r.name)}</span></span><span class="dx-cs"><b>${dM(r.spend)}</b><i style="width:${r.spend/mx*100}%"></i>${r.change!==null&&r.change!==undefined?chip(r.change,true):''}</span><span>${dN(r.purchases)}</span><span>${pill(r)}</span></div>`).join('')}</div>`},280);
+    return `<div class="row dx-tl">${dSeg('campBy',by,[['spend','Spend'],['roas','Return'],['purchases','Purchases']])}</div><div class="dx-tbl"><div class="dx-tr dx-th"><span>Campaign</span><span>Spend</span><span>Buys</span><span>Return</span></div>${rows.map(r=>`<div class="dx-tr"><span class="dx-cn">${dTh(r.img,r.name,36,1)}<span dir="auto">${esc(r.name)}</span></span><span class="dx-cs"><b>${dM(r.spend)}</b><i style="width:${r.spend/mx*100}%"></i>${r.change!==null&&r.change!==undefined?chip(r.change,true):''}</span><span>${dN(r.purchases)}</span><span>${pill(r)}</span></div>`).join('')}</div>`},280);
   const plat=dGate(['meta'],()=>{const s=dSec(m.mt,'platform');const cols=[DC.blue,DC.pink,DC.amber,DC.good,'#94A3B8','#C084FC'];return s&&s.rows?dDonut(s.rows.map((r,i)=>({l:r.name,v:r.spend,c:cols[i%cols.length],f:dM(r.spend)+(r.roas?' · '+dX(r.roas):'')})),dMs(m.sp?m.sp.value:0),'spent'):'<p class="muted dx-empty">No breakdown.</p>'},200);
   const dailyEff=dGate(['meta','shop'],()=>{const md=dDaily(m.sp),dd=m.sh.daily&&m.sh.daily.cur;if(!md||!md.dates||!dd)return '<p class="muted dx-empty">Not enough daily data for this period.</p>';
     const mp=new Map(md.dates.map((d,i)=>[d,md.cur[i]])),roas=dd.dates.map((d,i)=>{const s=mp.get(d);return s?dd.revenue[i]/s:null});
@@ -1037,7 +1037,7 @@ function dProfitHTML(m){
   },320);
   const costT=dGate(['odoo'],()=>{const s=dSec(m.od,'cost');const rows=(s&&s.rows||[]).filter(r=>r.margin!==null&&r.margin!==undefined).slice(0,8);
     if(!rows.length)return '<p class="muted dx-empty">No product costs for this period. Set a Cost on products in Odoo to see margins.</p>';
-    return `<div class="dx-tbl m"><div class="dx-tr dx-th"><span>Product</span><span>Revenue</span><span>Profit</span><span>Margin</span></div>${rows.map(r=>{const c=r.margin>=50?DC.good:r.margin>=25?DC.amber:DC.bad;return `<div class="dx-tr"><span class="dx-cn">${dTh(r.img,r.name,36)}<span title="${esc(r.name)}">${esc(r.name)}</span></span><span>${dM(r.net_sales)}</span><span>${dM(r.profit)}</span><span class="dx-mg"><i style="width:${Math.max(2,Math.min(100,r.margin))}%;background:${c}"></i><b>${Math.round(r.margin)}%</b></span></div>`}).join('')}</div>`},260);
+    return `<div class="dx-tbl m"><div class="dx-tr dx-th"><span>Product</span><span>Revenue</span><span>Profit</span><span>Margin</span></div>${rows.map(r=>{const c=r.margin>=50?DC.good:r.margin>=25?DC.amber:DC.bad;return `<div class="dx-tr"><span class="dx-cn">${dTh(r.img,dClean(r.name).name,36,1)}<span dir="auto">${esc(dClean(r.name).name)}</span></span><span>${dM(r.net_sales)}</span><span>${dM(r.profit)}</span><span class="dx-mg"><i style="width:${Math.max(2,Math.min(100,r.margin))}%;background:${c}"></i><b>${Math.round(r.margin)}%</b></span></div>`}).join('')}</div>`},260);
   const orders=dGate(['sales'],()=>{const t=l=>dT(m.sa,l);return `<div class="dx-stats">${[['Confirmed orders',dN,false],['Order value',dMf,false],['Invoiced',dMf,false],['Open quotations',dN,false],['Waiting to be paid',dMf,true]].map(([l,f,gd])=>{const x=t(l);return x?dStat(l,f(x.value),x.prev!==undefined?pvPct(x.value,x.prev):null,gd,x.sub?esc(x.sub):'',DC.odoo):''}).join('')}</div>`},160);
   return `<div class="dx-block" id="dx-profit"><div class="dx-bh"><span class="dx-bi" style="--bc:${DC.odoo}">${dIco('odoo')}</span><div><h2>Profit</h2><p>Odoo's books with Meta's spend taken off.</p></div></div><div class="dx-grid">
     ${dCard('From revenue to profit','Odoo, this period'+(dCur()?' · in '+dCur():''),wf,{span:5,dot:DC.odoo})}
@@ -1048,20 +1048,20 @@ function dProfitHTML(m){
 }
 function dStockHTML(m){
   const stock=dGate(['stock'],()=>{const sale=m.ssale,val=m.sval;
-    const list=(t,c)=>{const rows=(t&&t.breakdown&&t.breakdown.rows)||[];return rows.length?`<ul class="dx-ol">${rows.slice(0,6).map(r=>`<li><span class="dx-lt" title="${esc(dClean(r.name).name)}">${dTh(r.img,dClean(r.name).name,32)}<em>${esc(dClean(r.name).name)}</em></span><b style="color:${c}">${dN(r.units)} left</b></li>`).join('')}${rows.length>6?`<li class="muted">+${rows.length-6} more</li>`:''}</ul>${rows.length>6?`<button class="btn sm ghost" style="margin-top:8px" data-act="dx-ins" data-k="stock">See all ${rows.length} →</button>`:''}`:'<p class="muted dx-empty">None 🎉</p>'};
+    const list=(t,c)=>{const rows=(t&&t.breakdown&&t.breakdown.rows)||[];return rows.length?`<ul class="dx-ol">${rows.slice(0,8).map(r=>`<li><span class="dx-lt">${dTh(r.img,dClean(r.name).name,40,1)}<em dir="auto">${esc(dClean(r.name).name)}${dClean(r.name).code?`<small class="mono">${esc(dClean(r.name).code)}</small>`:''}</em></span><b style="color:${c}">${dN(r.units)} left</b></li>`).join('')}</ul>${rows.length>8?`<button class="btn sm ghost" style="margin-top:8px" data-act="dx-ins" data-k="stock">+${rows.length-8} more · see all →</button>`:''}`:'<p class="muted dx-empty">None 🎉</p>'};
     return `<div class="dx-stats">${val?dStat('Stock value at cost',dMf(val.value),null,false,val.sub?esc(val.sub):'',DC.odoo):''}${sale?dStat('Value at sale price',dMf(sale.value),null,false,sale.sub?esc(sale.sub):'',DC.good):''}${m.sunits?dStat('Units sold',dN(m.sunits.value),pvPct(m.sunits.value,m.sunits.prev),false,'',DC.odoo):''}</div>
       <div class="dx-two"><div><h4 class="dx-h4" style="color:${DC.bad}">Out of stock · ${m.oos?m.oos.value:0}</h4>${list(m.oos,DC.bad)}</div><div><h4 class="dx-h4" style="color:${DC.amber}">Running low · ${m.low?m.low.value:0}</h4>${list(m.low,DC.amber)}</div></div>`},260);
-  const sold=dGate(['stock'],()=>{const s=dSec(m.st,'sold');return dBars(((s&&s.rows)||[]).slice(0,8).map(r=>({l:r.name,v:r.value,img:r.img,s:dN(r.units)+' units'})),{color:DC.odoo,rank:1})},260);
+  const sold=dGate(['stock'],()=>{const s=dSec(m.st,'sold');return dBars(((s&&s.rows)||[]).slice(0,8).map(r=>({l:r.name,v:r.value,img:r.img,ph:1,ts:40,s:dN(r.units)+' units'})),{color:DC.odoo,rank:1})},260);
   const cash=dGate(['cash'],()=>{const ag=dSec(m.ca,'aging'),ov=dSec(m.ca,'overdue');
     const cols=[DC.good,DC.amber,'#FB923C',DC.bad,'#DC2626'];
     const ovRows=(ov&&ov.rows||[]).slice(0,5),mcol=ov&&ov.columns?(ov.columns.find(c=>/money/.test(c.fmt))||{}).key:null,scol=ov&&ov.columns?(ov.columns.filter(c=>c.fmt==='str')[1]||{}).key:null;
     return `<div class="dx-stats">${[m.inv&&dStat('Invoiced to customers',dMf(m.inv.value),pvPct(m.inv.value,m.inv.prev),false,'',DC.odoo),m.paid&&dStat('Payments received',dMf(m.paid.value),null,false,'',DC.good),m.owe&&dStat('Customers owe you',dMf(m.owe.value),null,true,m.owe.sub?esc(m.owe.sub):'',DC.amber)].filter(Boolean).join('')}</div>
-      ${ag&&ag.rows?`<h4 class="dx-h4">Who owes you, by how late</h4>${dBars(ag.rows.map((r,i)=>({l:r.name,v:r.value,c:cols[Math.min(i,cols.length-1)],s:dN(r.count)+' invoices'})))}`:''}
-      ${ovRows.length&&mcol?`<h4 class="dx-h4">Chase first</h4><ul class="dx-ol">${ovRows.map(r=>`<li><span title="${esc(r.name)}">${esc(r.name)}${scol&&r[scol]?` <small class="muted">${esc(r[scol])}</small>`:''}</span><b style="color:${DC.bad}">${dMf(r[mcol])}</b></li>`).join('')}</ul>`:''}`},260);
+      ${ag&&ag.rows?`<div class="dx-two top"><div><h4 class="dx-h4" style="margin-top:0">Who owes you, by how late</h4>${dBars(ag.rows.map((r,i)=>({l:r.name,v:r.value,c:cols[Math.min(i,cols.length-1)],s:dN(r.count)+' invoices'})))}</div>`:'<div></div>'}
+      ${ovRows.length&&mcol?`<div><h4 class="dx-h4" style="margin-top:0">Chase first</h4><ul class="dx-ol">${ovRows.map(r=>`<li><span dir="auto">${esc(r.name)}${scol&&r[scol]?` <small class="muted">${esc(r[scol])}</small>`:''}</span><b style="color:${DC.bad}">${dMf(r[mcol])}</b></li>`).join('')}</ul></div>`:'<div></div>'}</div>`},260);
   return `<div class="dx-block" id="dx-stock"><div class="dx-bh"><span class="dx-bi" style="--bc:${DC.good}">${dIco('box')}</span><div><h2>Stock & cash</h2><p>What is on the shelf and who still has to pay.</p></div></div><div class="dx-grid">
-    ${dCard('Finished goods','Odoo stock right now',stock,{span:5,dot:DC.odoo})}
-    ${dCard('Best sellers in Odoo','All channels, this period',sold,{span:3})}
-    ${dCard('Money owed to you','Odoo invoices',cash,{span:4})}
+    ${dCard('Finished goods','Odoo stock right now',stock,{span:6,dot:DC.odoo})}
+    ${dCard('Best sellers in Odoo','All channels, this period',sold,{span:6})}
+    ${dCard('Money owed to you','Odoo invoices: who still has to pay and who to chase first',cash,{span:12,cls:'wide'})}
   </div></div>`;
 }
 function dashHTML(){
