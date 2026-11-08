@@ -1167,3 +1167,9 @@ body.zoomed{overflow:hidden}
 .pv-opt span{display:flex;flex-direction:column;gap:2px;min-width:0}
 .pv-opt small{color:var(--muted);font-size:.78rem;line-height:1.35}
 .rkt b{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+
+.rt{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+.rt.rtp{display:flex;align-items:center;gap:10px;min-width:0}
+.rt.rtp>span:last-child{min-width:0}
+.rrow:has(.rtp){grid-template-columns:22px minmax(0,1.6fr) minmax(40px,.8fr) auto;padding:2px 0}
+.ranks{align-content:start}

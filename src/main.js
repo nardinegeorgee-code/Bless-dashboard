@@ -1149,10 +1149,10 @@ function money2(n){const c=(S.route==='meta'&&S.meta.data&&S.meta.data.currency)
 function shortNum(n){if(n<0)return '−'+shortNum(-n);return n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e4?Math.round(n/1e3)+'k':n>=1e3?(n/1e3).toFixed(1)+'k':String(Math.round(n))}
 function delta(v){if(v===null||v===undefined)return '';const up=v>=0;return `<span class="delta ${up?'up':'down'}">${up?'▲':'▼'} ${Math.abs(v)}% vs ${esc(cmpText())}</span>`}
 function ageText(h){return h<48?h+' h':Math.round(h/24)+' days'}
-function rankList(list,valFn,sub){
+function rankList(list,valFn,sub,pics){
   if(!list.length)return '<p class="muted">Nothing here yet.</p>';
   const max=Math.max(1,...list.map(valFn));
-  return `<div class="ranks">${list.map((x,i)=>`<div class="rrow"><span class="rn mono">${i+1}</span><span class="rt" title="${esc(x.title||x.name)}">${esc(x.title||x.name)}</span><span class="rbar"><i style="width:${Math.max(2,valFn(x)/max*100)}%"></i></span><span class="rv mono">${sub(x)}</span></div>`).join('')}</div>`;
+  return `<div class="ranks">${list.map((x,i)=>`<div class="rrow"><span class="rn mono">${i+1}</span><span class="rt${pics?' rtp':''}" title="${esc(x.title||x.name)}">${pics?dTh(x.img,x.title||x.name,40,1):''}<span dir="auto">${esc(x.title||x.name)}</span></span><span class="rbar"><i style="width:${Math.max(2,valFn(x)/max*100)}%"></i></span><span class="rv mono">${sub(x)}</span></div>`).join('')}</div>`;
 }
 function monthChart(ms,metric,sel){
   const f=metric==='revenue'?money:fmtNum;const max=Math.max(1,...ms.map(m=>m[metric]));
@@ -1301,7 +1301,7 @@ function ovBody(d){
   const geo=sh.geo==='cities'?d.cities:d.countries;
   const geoTot=geo.reduce((x,y)=>x+y.revenue,0)||1;
   const lists=`<div class="two">
-    <section class="panel"><div class="item-top"><h2>Best sellers</h2>${seg('best',sh.best||'units',[['units','By units'],['revenue','By revenue']])}</div>${rankList(best,x=>sh.best==='revenue'?x.revenue:x.units,x=>sh.best==='revenue'?money(x.revenue):fmtNum(x.units)+' units')}</section>
+    <section class="panel"><div class="item-top"><h2>Best sellers</h2>${seg('best',sh.best||'units',[['units','By units'],['revenue','By revenue']])}</div>${rankList(best,x=>sh.best==='revenue'?x.revenue:x.units,x=>sh.best==='revenue'?money(x.revenue):fmtNum(x.units)+' units',1)}</section>
     <section class="panel"><div class="item-top"><h2>Where orders go</h2>${seg('geo',sh.geo||'countries',[['countries','Countries'],['cities','Cities']])}</div>${rankList(geo,x=>x.revenue,x=>Math.round(x.revenue/geoTot*100)+'% · '+fmtNum(x.orders)+' orders')}</section></div>`;
   const cust=`<section class="panel"><h2>Customers</h2>${c.distinct||c.guest?`<div class="cust">${donut([{v:c.fresh,c:'#F28D3A',l:'First-time customers'},{v:c.repeat,c:'#7B4FA0',l:'Returning customers'}],c.repeatRate.toFixed(0)+'%','returning')}
     <div class="legend"><div><i style="background:#F28D3A"></i><b>${fmtNum(c.fresh)}</b> first-time customers</div><div><i style="background:#7B4FA0"></i><b>${fmtNum(c.repeat)}</b> returning customers</div>${c.guest?`<div class="muted"><i style="background:var(--line)"></i>${fmtNum(c.guest)} orders without a customer record</div>`:''}
@@ -1315,7 +1315,7 @@ function ovBody(d){
     <div class="cart-hero"><div><span class="eyebrow">Money sitting in carts</span><div class="hero-n sm">${money(a.openValue)}</div><span class="muted">${fmtNum(a.openCount)} carts waiting</span></div>
       <div class="cart-side"><div><span class="eyebrow">Abandoned in ${esc(d.monthLabel)}</span><b>${fmtNum(a.monthCount)}</b> <span class="muted mono">${money(a.monthValue)}</span></div><div><span class="eyebrow">Abandonment rate</span><b>${a.monthRate.toFixed(0)}%</b> <span class="muted">carts vs orders</span></div></div></div>
     <div style="display:grid;gap:8px"><h3>How long they have been waiting</h3>${stack}</div>
-    <div class="two"><div style="display:grid;gap:10px"><h3>Most left in carts</h3>${rankList(a.topProducts,x=>x.qty,x=>fmtNum(x.qty)+' in '+x.carts+' carts')}</div>
+    <div class="two"><div style="display:grid;gap:10px"><h3>Most left in carts</h3>${rankList(a.topProducts,x=>x.qty,x=>fmtNum(x.qty)+' in '+x.carts+' carts',1)}</div>
     <div class="callout"><b>Recovery tip</b><p>Carts under 10 days old still have a working link. For older ones, message the customer on WhatsApp or email and send the product directly.</p></div></div>
     ${a.oldest.length?`<div style="display:grid;gap:10px"><h3>Biggest carts to recover</h3><div class="tablewrap"><table style="min-width:640px"><thead><tr><th>Value</th><th>Waiting</th><th>Items</th><th>Customer</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`:''}</section>`;
   return hero+kpis+chart+lists+cust+carts;
