@@ -632,12 +632,33 @@ const pad2=n=>String(n).padStart(2,'0');
 const todayStr=()=>{const d=new Date();return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())};
 const lastDay=(y,m)=>new Date(y,m,0).getDate();
 const MONTH_NAMES=['January','February','March','April','May','June','July','August','September','October','November','December'];
-S.per={mode:'month',from:'',to:'',cmp:'auto',cfrom:'',cto:''};
+S.per={mode:'month',from:'',to:'',cmp:'smart',cfrom:'',cto:''};
 function perSet(mode,from,to){const t=todayStr();if(from>t)return false;S.per.mode=mode;S.per.from=from;S.per.to=to>t?t:to;return true}
 function perMonth(y,m){return perSet('month',y+'-'+pad2(m)+'-01',y+'-'+pad2(m)+'-'+pad2(lastDay(y,m)))}
 function perQuarter(y,q){const m=(q-1)*3+1;return perSet('quarter',y+'-'+pad2(m)+'-01',y+'-'+pad2(m+2)+'-'+pad2(lastDay(y,m+2)))}
 (function(){const t=todayStr();perMonth(+t.slice(0,4),+t.slice(5,7))})();
-function perQuery(){const p=S.per;let q='from='+p.from+'&to='+p.to;if(p.mode!=='custom')q+='&kind='+p.mode;if(p.cmp==='custom'&&p.cfrom&&p.cto)q+='&cfrom='+p.cfrom+'&cto='+p.cto;return q}
+/* Compare options. Shifted ones keep the same day numbers (or weekdays) so like is compared with like. */
+const CMP_OPTS=[['smart','Smart pick'],['auto','Previous period'],['week','Same weekdays, week(s) before'],['month','Same days last month'],['year','Same days last year'],['custom','Another period…']];
+function cmpShift(d,how,wk){
+  const [y,m,dd]=d.split('-').map(Number);
+  if(how==='week'){const t=new Date(Date.UTC(y,m-1,dd-7*(wk||1)));return t.toISOString().slice(0,10)}
+  const Y=how==='year'?y-1:(m===1?y-1:y),M=how==='year'?m:(m===1?12:m-1);
+  return Y+'-'+pad2(M)+'-'+pad2(Math.min(dd,lastDay(Y,M)))}
+function cmpSmart(){
+  const p=S.per,days=Math.round((Date.parse(p.to)-Date.parse(p.from))/864e5)+1,wd=new Date(p.from+'T12:00:00Z').toLocaleDateString('en-GB',{weekday:'long',timeZone:'UTC'});
+  if(days===1)return ['week','same '+wd+' last week, because each weekday sells differently'];
+  if(days<=7)return ['week','the same weekdays last week, so busy and quiet days line up'];
+  if(p.mode==='quarter'||days>62)return ['year','the same dates last year, so seasons and holidays line up'];
+  return ['month','the same dates last month, so the month-to-date pace lines up'];
+}
+function cmpRange(){
+  const p=S.per;let how=p.cmp;
+  if(how==='smart')how=cmpSmart()[0];
+  if(how==='custom')return p.cfrom&&p.cto?[p.cfrom,p.cto]:null;
+  if(how==='week'||how==='month'||how==='year'){const wk=Math.max(1,Math.ceil((Math.round((Date.parse(p.to)-Date.parse(p.from))/864e5)+1)/7));return [cmpShift(p.from,how,wk),cmpShift(p.to,how,wk)]}
+  return null;
+}
+function perQuery(){const p=S.per;let q='from='+p.from+'&to='+p.to;if(p.mode!=='custom')q+='&kind='+p.mode;const c=cmpRange();if(c)q+='&cfrom='+c[0]+'&cto='+c[1];return q}
 function perReload(refresh){S.route==='dash'?loadDash(!!refresh,true):S.route==='meta'?loadMeta(undefined,refresh):S.route==='odoo'?loadOdoo(undefined,refresh):loadShop()}
 function curData(){return S.route==='dash'?S.dash.d.shop:S.route==='meta'?S.meta.data:S.route==='odoo'?S.od.data:(S.an.tab==='overview'?S.shop.data:S.an.data)}
 function cmpText(){const d=curData();return (d&&d.compareText)||'the period before'}
@@ -651,10 +672,10 @@ function dateBar(d){
   else if(p.mode==='quarter')pick=`<select class="select" id="per-q" aria-label="Quarter">${[1,2,3,4].map(q=>opt(q,'Q'+q,Math.floor((+p.from.slice(5,7)-1)/3)+1)).join('')}</select><select class="select" id="per-y" aria-label="Year">${years(6).map(y=>opt(y,y,p.from.slice(0,4))).join('')}</select>`;
   else pick=`<input type="date" class="input" id="per-from" value="${p.from}" max="${t}" aria-label="From"><span class="muted">to</span><input type="date" class="input" id="per-to" value="${p.to}" max="${t}" aria-label="To">`;
   const cust=p.cmp==='custom'?`<input type="date" class="input" id="per-cfrom" value="${p.cfrom}" max="${t}" aria-label="Compare from"><span class="muted">to</span><input type="date" class="input" id="per-cto" value="${p.cto}" max="${t}" aria-label="Compare to">`:'';
-  const info=d&&d.period?`<span class="perinfo"><b>${esc(d.period.label)}</b> <span class="muted">(${d.period.days} day${d.period.days===1?'':'s'}) compared with</span> <b>${esc(d.compare.label)}</b>${d.period.clamped?' <span class="muted">· cut at today</span>':''}</span>`:'';
+  const info=d&&d.period?`<span class="perinfo"><b>${esc(d.period.label)}</b> <span class="muted">(${d.period.days} day${d.period.days===1?'':'s'}) compared with</span> <b>${esc(d.compare.label)}</b>${d.period.clamped?' <span class="muted">· cut at today</span>':''}${p.cmp==='smart'?`<br><span class="muted">Smart pick: comparing with ${cmpSmart()[1]}.</span>`:''}</span>`:'';
   return `<div class="datebar"><div class="seg" role="tablist" aria-label="Period type">${[['day','Day'],['month','Month'],['quarter','Quarter'],['custom','Custom']].map(([k,l])=>`<button class="segb${p.mode===k?' on':''}" data-act="per-mode" data-mode="${k}" aria-pressed="${p.mode===k}">${l}</button>`).join('')}</div>
   <div class="row perpick">${pick}</div>
-  <div class="row perpick"><label class="muted" for="per-cmp">Compare with</label><select class="select" id="per-cmp">${opt('auto','Previous period',p.cmp)}${opt('custom','Another period…',p.cmp)}</select>${cust}</div>
+  <div class="row perpick"><label class="muted" for="per-cmp">Compare with</label><select class="select" id="per-cmp">${CMP_OPTS.map(([v,l])=>opt(v,l,p.cmp)).join('')}</select>${cust}</div>
   ${info}</div>`;
 }
 function perChange(t){
