@@ -15,7 +15,7 @@ const ROLES=[
 const ROLE=Object.fromEntries(ROLES.map(r=>[r.key,r]));
 const TYPES={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml',mp4:'video/mp4',webm:'video/webm',pdf:'application/pdf',txt:'text/plain',csv:'text/csv',md:'text/markdown',json:'application/json'};
 
-const S={ov:{role:'',period:'all',open:'',q:'',f:'',who:'',d:'',sk:'',sd:'asc'},reads:new Set(),seenUnread:null,comments:[],revs:[],thr:{},draft:{},amend:null,amendFiles:[],shop:{month:'',metric:'revenue',best:'units',geo:'countries',data:null,loading:false,err:'',syncing:false,syncMsg:''},sel:new Set(),assets:true,lastJson:'',users:[],instructions:[],subs:[],usersReady:false,screen:null,me:null,route:'home',param:null,
+const S={ov:{role:'',period:'all',open:'',q:'',f:'',who:'',d:'',sk:'',sd:'asc'},reads:new Set(),seenUnread:null,comments:[],revs:[],thr:{},draft:{},amend:null,amendFiles:[],shop:{month:'',metric:'revenue',best:'units',geo:'countries',data:null,loading:false,err:'',syncing:false,syncMsg:''},sel:new Set(),assets:true,lastJson:'',users:[],instructions:[],subs:[],usersReady:false,screen:null,me:null,route:'hub',param:null,
   sendRoles:new Set(),sendUsers:new Set(),fRole:'',fUser:'',fKind:'',pwOpen:null,picked:{}};
 
 /* ---------- helpers ---------- */
@@ -51,7 +51,7 @@ async function refresh(){
   S.users=j.users;S.instructions=j.instructions;S.subs=j.submissions;S.speeds=j.speeds||[];S.comments=j.comments||[];S.revs=j.revisions||[];S.reads=new Set(j.reads||[]);S.usersReady=true;
   const roleChanged=!S.me||S.me.role!==j.me.role||S.me.id!==j.me.id;
   const wasNull=!S.me;S.me=j.me;
-  if(wasNull||roleChanged){if(roleChanged&&!wasNull){S.route='home';S.param=null}showApp()}
+  if(wasNull||roleChanged){if(roleChanged&&!wasNull){S.route='hub';S.param=null}showApp()}
   else if(S.screen==='app')update();
 }
 async function sync(){try{await refresh()}catch(e){if(S.screen==='boot')fatal(e.message)}}
@@ -100,7 +100,9 @@ const validName=u=>u.length>=2&&u.length<=40;
 
 /* ---------- app shell ---------- */
 const NAV_ICON={
-  home:'<path d="M4 11.5 12 5l8 6.5"/><path d="M6 10v9h12v-9"/><path d="M10 19v-5h4v5"/>',
+  hub:'<path d="M4 11.5 12 5l8 6.5"/><path d="M6 10v9h12v-9"/><path d="M10 19v-5h4v5"/>',
+  dash:'<path d="M4 20V10M10 20V4M16 20v-7M21 20H3"/>',
+  home:'<rect x="4" y="4" width="7" height="7" rx="1.500"/><rect x="13" y="4" width="7" height="7" rx="1.500"/><rect x="4" y="13" width="7" height="7" rx="1.500"/><rect x="13" y="13" width="7" height="7" rx="1.500"/>',
   send:'<path d="M21 4 3 10.5l7 3 3 7L21 4Z"/><path d="m10 13.5 5-5"/>',
   content:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/><path d="M3 11h18"/>',
   eval:'<path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9 6.8 19.6l1-5.8-4.3-4.1 5.9-.9L12 3.5Z"/>',
@@ -126,8 +128,8 @@ function applySideMin(){document.body.classList.toggle('side-min',sideMin())}
 function toggleSide(){try{localStorage.setItem(SIDE_MIN_KEY,sideMin()?'0':'1')}catch(e){document.body.classList.toggle('side-min')}applySideMin()}
 function navItems(){
   const nu=unreadNotes().length;
-  if(isAdmin())return [['home','Overview'],['send','Send instruction'],['content','All content'],['eval','Evaluation'],['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads'],['team','Team by role'],['notes','Notifications',nu],['act','Activity'],['users','Users']];
-  if(isCeo())return [['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads']];
+  if(isAdmin())return [['hub','Home'],['dash','Dashboards'],['home','Team overview'],['send','Send instruction'],['content','All content'],['eval','Evaluation'],['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads'],['team','Team by role'],['notes','Notifications',nu],['act','Activity'],['users','Users']];
+  if(isCeo())return [['hub','Home'],['dash','Dashboards'],['shop','Shopify'],['odoo','Odoo'],['meta','Meta Ads']];
   const pending=myInstructions().filter(i=>!responded(i.id)).length;
   return [['home','Instructions',pending],['uploads','My uploads'],['notes','Notifications',nu],['team','Team by role']];
 }
@@ -156,9 +158,11 @@ function targetChips(ins){
 /* ---------- views: mount builds static parts (forms), update fills live parts ---------- */
 function mount(){
   const v=$('#view');const r=S.route;
-  if(isCeo()){if(!['shop','odoo','meta'].includes(S.route))S.route='shop'}
-  else if(!isAdmin()&&['send','content','users','shop','eval','odoo','meta','act'].includes(r)){S.route='home'}
-  if(S.route==='home')v.innerHTML=isAdmin()?`<div id="live"></div>`
+  if(isCeo()){if(!['hub','dash','shop','odoo','meta'].includes(S.route))S.route='hub'}
+  else if(!isAdmin()&&['hub','dash','send','content','users','shop','eval','odoo','meta','act'].includes(r)){S.route='home'}
+  if(S.route==='hub')v.innerHTML=`<div id="live"></div>`;
+  else if(S.route==='dash'){v.innerHTML=`<div id="live"></div>`;if(!S.dash.d.shop&&!S.dash.busy)loadDash(false,true)}
+  else if(S.route==='home')v.innerHTML=isAdmin()?`<div id="live"></div>`
     :`<div class="head"><div><h1>Instructions</h1><p>Briefs from your Super Admin. Open one to send back your files.</p></div><button class="btn" data-act="go" data-route="uploads">Upload without an instruction</button></div><div id="live"></div>`;
   else if(S.route==='ins')v.innerHTML=`<button class="btn ghost back" data-act="go" data-route="${isAdmin()?'send':'home'}">← Back</button><div id="live"></div>${isAdmin()?'':`<div class="panel"><div><h2>Respond</h2><p class="muted">Attach your files and add a note if needed.</p></div>${uploadForm('resp')}</div>`}<div id="live2"></div>`;
   else if(S.route==='uploads')v.innerHTML=`<div class="head"><div><h1>My uploads</h1><p>Everything you have sent. Add files here even when there is no instruction.</p></div></div><div class="panel"><h2>Upload files</h2>${uploadForm('free')}</div><div id="live"></div>`;
@@ -194,7 +198,9 @@ function mount(){
 function update(){
   if(S.screen!=='app')return;renderNav();notifyNew();
   const L=$('#live');if(!L)return;const r=S.route;
-  if(r==='home'&&isAdmin()){L.innerHTML=overviewHTML();ovSpy();loadPulse()}
+  if(r==='hub')L.innerHTML=hubHTML();
+  else if(r==='dash')dashFill();
+  else if(r==='home'&&isAdmin()){L.innerHTML=overviewHTML();ovSpy();loadPulse()}
   else if(r==='home')L.innerHTML=inboxHTML();
   else if(r==='ins')updateIns();
   else if(r==='uploads')L.innerHTML=listOrEmpty(S.subs.filter(s=>s.userId===S.me.id),'Nothing uploaded yet','Files you upload, with or without an instruction, appear here.');
@@ -626,8 +632,8 @@ function perMonth(y,m){return perSet('month',y+'-'+pad2(m)+'-01',y+'-'+pad2(m)+'
 function perQuarter(y,q){const m=(q-1)*3+1;return perSet('quarter',y+'-'+pad2(m)+'-01',y+'-'+pad2(m+2)+'-'+pad2(lastDay(y,m+2)))}
 (function(){const t=todayStr();perMonth(+t.slice(0,4),+t.slice(5,7))})();
 function perQuery(){const p=S.per;let q='from='+p.from+'&to='+p.to;if(p.mode!=='custom')q+='&kind='+p.mode;if(p.cmp==='custom'&&p.cfrom&&p.cto)q+='&cfrom='+p.cfrom+'&cto='+p.cto;return q}
-function perReload(refresh){S.route==='meta'?loadMeta(undefined,refresh):S.route==='odoo'?loadOdoo(undefined,refresh):loadShop()}
-function curData(){return S.route==='meta'?S.meta.data:S.route==='odoo'?S.od.data:(S.an.tab==='overview'?S.shop.data:S.an.data)}
+function perReload(refresh){S.route==='dash'?loadDash(!!refresh,true):S.route==='meta'?loadMeta(undefined,refresh):S.route==='odoo'?loadOdoo(undefined,refresh):loadShop()}
+function curData(){return S.route==='dash'?S.dash.d.shop:S.route==='meta'?S.meta.data:S.route==='odoo'?S.od.data:(S.an.tab==='overview'?S.shop.data:S.an.data)}
 function cmpText(){const d=curData();return (d&&d.compareText)||'the period before'}
 function perMonthSel(){return S.per.mode==='month'?S.per.from.slice(0,7):''}
 function dateBar(d){
@@ -663,7 +669,95 @@ function perChange(t){
     p.cfrom=f;p.cto=e}
   perReload();
 }
-function perRender(){S.route==='meta'?renderMeta():S.route==='odoo'?renderOdoo():renderShop()}
+function perRender(){S.route==='dash'?dashFill():S.route==='meta'?renderMeta():S.route==='odoo'?renderOdoo():renderShop()}
+
+/* ---------- Homepage + Dashboards (Shopify + Odoo + Meta together) ---------- */
+const REPORTS=[
+  {k:'dash',t:'Dashboards',d:'Shopify, Odoo and Meta Ads together in one report: sales, profit, ad spend and stock side by side.',ico:'dash',c:'#FF8A3D',feat:1,ceo:1},
+  {k:'shop',t:'Shopify',d:'Sales, funnel, products, customers and retention.',ico:'shop',c:'#2DD4BF',ceo:1},
+  {k:'odoo',t:'Odoo',d:'Supply, sales, stock and finance.',ico:'odoo',c:'#A78BFA',ceo:1},
+  {k:'meta',t:'Meta Ads',d:'Facebook and Instagram ad spend and results.',ico:'meta',c:'#FF8A3D',ceo:1},
+  {k:'home',t:'Team overview',d:'Needs attention, deliveries, and who is waiting.',ico:'home',c:'#F472B6'},
+  {k:'eval',t:'Evaluation',d:'Monthly KPIs and team ranking.',ico:'eval',c:'#FBBF24'},
+  {k:'content',t:'All content',d:'Every file and note your team added.',ico:'content',c:'#60A5FA'},
+  {k:'act',t:'Activity',d:'Who used the hub, which pages and for how long.',ico:'act',c:'#34D399'}
+];
+function hubHTML(){
+  const list=REPORTS.filter(r=>isAdmin()||(isCeo()&&r.ceo));
+  const t=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric',timeZone:'Africa/Cairo'});
+  const tile=r=>`<button class="hub-t${r.feat?' feat':''}" style="--hc:${r.c}" data-act="go" data-route="${r.k}"><span class="kico" style="--kc:${r.c}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[r.ico]||NAV_ICON[r.ico]||''}</svg></span><span class="hub-tt">${r.t}</span><span class="hub-td">${r.d}</span><span class="hub-go">Open report <i>→</i></span></button>`;
+  return `<div class="head"><div><h1>Welcome, ${esc(S.me.username)}</h1><p>${t}. Choose a report to open.</p></div></div><div class="hub-grid">${list.map(tile).join('')}</div>`;
+}
+S.dash={d:{},err:{},done:{},busy:false,tok:0};
+function dashJobs(){
+  const q=perQuery();
+  return [['shop','/api/shopify?only=summary&'+q],['meta','/api/meta?tab=overview&only=kpi,trend,campaigns&'+q],['odoo','/api/odoo?tab=profit&only=kpi,trend&'+q],['stock','/api/odoo?tab=finished&only=kpi&'+q]];
+}
+async function dashGet(url,retry){
+  try{const d=await api('GET',url,null,65000);if(d&&d.configured===false)throw new Error('Not connected yet. Add its keys in Vercel, then reload.');return d}
+  catch(e){if(!retry&&/taking longer|Server error|went wrong|reach the server/i.test(e.message||'')){await new Promise(r=>setTimeout(r,4000));return dashGet(url,true)}throw e}
+}
+async function dashRun(key,force,tok){
+  const D=S.dash,job=dashJobs().find(j=>j[0]===key);delete D.err[key];
+  try{const d=await dashGet(job[1]+(force?'&refresh=1':''));if(tok!==D.tok)return;D.d[key]=d}
+  catch(e){if(tok!==D.tok)return;D.err[key]=e.message||'Could not load'}
+  D.done[key]=1;dashFill();
+}
+async function loadDash(force,clear){
+  const D=S.dash,tok=++D.tok;
+  if(clear){D.d={};D.done={}}D.err={};D.busy=true;dashFill();
+  const seq=async()=>{await dashRun('odoo',force,tok);await dashRun('stock',force,tok)};
+  await Promise.all([dashRun('shop',force,tok),dashRun('meta',force,tok),seq()]);
+  if(tok===D.tok){D.busy=false;dashFill()}
+}
+function dashFill(){if(S.screen!=='app'||S.route!=='dash')return;const L=$('#live');if(!L)return;const y=window.scrollY;L.innerHTML=dashHTML();window.scrollTo(0,y)}
+function dtile(o){
+  const D=S.dash,{key,label,val,delta,goodDown,sub,color}=o,keys=[].concat(key);
+  const bad=keys.find(k=>D.err[k]);
+  if(bad)return `<div class="dh-t err"><span class="eyebrow">${label}</span><p class="muted dh-e">${esc(D.err[bad])}</p><button class="btn sm" data-act="dash-retry" data-k="${keys.join(',')}">Try again</button></div>`;
+  if(!keys.every(k=>D.done[k]&&D.d[k]))return `<div class="dh-t"><span class="eyebrow">${label}</span><div class="pv-sk"><i></i><i></i></div></div>`;
+  return `<div class="dh-t" style="--pc:${color||'var(--accent)'}"><span class="eyebrow">${label}</span><div class="dh-v">${val}</div><div class="dh-s">${delta===null||delta===undefined?'':chip(delta,goodDown)}<span class="muted">${sub||''}</span></div></div>`;
+}
+function dashPanel(name,color,route,body,keys){
+  const D=S.dash,bad=keys.find(k=>D.err[k]);
+  const inner=bad?`<p class="muted">${esc(D.err[bad])}</p><button class="btn sm" data-act="dash-retry" data-k="${keys.join(',')}">Try again</button>`:keys.every(k=>D.done[k]&&D.d[k])?body:`<div class="pv-sk"><i></i><i></i><i></i></div>`;
+  return `<section class="dh-p" style="--pc:${color}"><div class="dh-ph"><h3>${name}</h3><button class="btn sm ghost" data-act="go" data-route="${route}">Open ${name} →</button></div>${inner}</section>`;
+}
+function dashList(rows){return rows.length?`<ul class="dh-l">${rows.map(r=>`<li><span class="dh-n">${esc(r[0])}</span><b>${r[1]}</b></li>`).join('')}</ul>`:'<p class="muted">Nothing in this period.</p>'}
+function dashHTML(){
+  const D=S.dash,sh=D.d.shop,ss=sh&&sh.summary,sc=sh&&sh.currency,od=D.d.odoo,oc=od&&od.currency,mt=D.d.meta,mc=mt&&mt.currency,st=D.d.stock;
+  const rev=pvTile(od,'kpi','Net revenue'),pro=pvTile(od,'kpi',['Profit after ads','Gross profit']),cost=pvTile(od,'kpi','Product cost'),oads=pvTile(od,'kpi','Ad spend (Meta)');
+  const sp=pvTile(mt,'kpi','Amount spent'),pu=pvTile(mt,'kpi','Purchases'),ro=pvTile(mt,'kpi','Return on ad spend');
+  const main=[
+    dtile({key:'shop',label:'Shopify revenue',color:'#2DD4BF',val:ss?pvCur(ss.revenue,sc):'',delta:ss&&ss.change.revenue,sub:ss?'vs '+esc(sh.compareText||'before'):''}),
+    dtile({key:'shop',label:'Shopify orders',color:'#2DD4BF',val:ss?ss.orders.toLocaleString():'',delta:ss&&ss.change.orders,sub:ss?pvCur(ss.aov,sc)+' average order':''}),
+    dtile({key:'odoo',label:'Odoo net revenue',color:'#A78BFA',val:rev?pvCur(rev.value,oc):'–',delta:rev?pvPct(rev.value,rev.prev):null,sub:'invoiced sales'}),
+    dtile({key:'odoo',label:pro?pro.label:'Profit',color:'#A78BFA',val:pro?pvCur(pro.value,oc):'–',delta:pro?pvPct(pro.value,pro.prev):null,sub:'after product cost'}),
+    dtile({key:'meta',label:'Meta ad spend',color:'#FF8A3D',val:sp?pvCur(sp.value,mc):'–',delta:sp?pvPct(sp.value,sp.prev):null,goodDown:true,sub:pu?pu.value.toLocaleString()+' purchases':''}),
+    dtile({key:'meta',label:'Meta return on ad spend',color:'#FF8A3D',val:ro?ro.value.toFixed(2)+'×':'–',delta:ro?pvPct(ro.value,ro.prev):null,sub:'as reported by Meta'})
+  ].join('');
+  const both=ss&&sp;
+  const ratio=(a,b)=>b?a/b:0;
+  const bl=[
+    dtile({key:['shop','meta'],label:'Store revenue per 1 spent on ads',color:'#FF8A3D',val:both?ratio(ss.revenue,sp.value).toFixed(2)+'×':'',delta:both?pvPct(ratio(ss.revenue,sp.value),ratio(ss.previous.revenue,sp.prev)):null,sub:'Shopify revenue ÷ Meta spend'}),
+    dtile({key:['shop','meta'],label:'Ad cost per order',color:'#FF8A3D',val:both?pvCur(ratio(sp.value,ss.orders),mc):'',delta:both?pvPct(ratio(sp.value,ss.orders),ratio(sp.prev,ss.previous.orders)):null,goodDown:true,sub:'Meta spend ÷ Shopify orders'}),
+    dtile({key:['shop','meta'],label:'Ads as share of revenue',color:'#FF8A3D',val:both?(ratio(sp.value,ss.revenue)*100).toFixed(1)+'%':'',delta:both?pvPct(ratio(sp.value,ss.revenue),ratio(sp.prev,ss.previous.revenue)):null,goodDown:true,sub:'Meta spend ÷ Shopify revenue'}),
+    dtile({key:['shop','odoo'],label:'Shopify vs Odoo revenue',color:'#A78BFA',val:ss&&rev?pvCur(ss.net-rev.value,oc||sc):'',sub:ss&&rev?(ss.net?Math.round((ss.net-rev.value)/ss.net*1000)/10+'% of Shopify net (Shopify minus Odoo)':''):''})
+  ].join('');
+  const prod=sh?dashList((sh.bestByRevenue||[]).slice(0,5).map(p=>[p.title,pvCur(p.revenue,sc)])):'';
+  const camps=(()=>{const s=mt&&(mt.sections||[]).find(x=>x.id==='campaigns');return s?dashList((s.rows||[]).slice(0,5).map(r=>[r.name,pvCur(r.spend,mc)+(r.roas?` <span class="muted">· ${Number(r.roas).toFixed(2)}×</span>`:'')])):''})();
+  const sk=t=>pvTile(st,'kpi',t),stockRows=st?[['Finished goods at cost',pvCur((sk('Finished goods value (at cost)')||{}).value,oc)],['Out of stock',((sk('Out of stock')||{}).value||0)+(((sk('Out of stock')||{}).value||0)===1?' product':' products')],['Running low',((sk('Running low')||{}).value||0)+(((sk('Running low')||{}).value||0)===1?' product':' products')]]:[];
+  const odBody=od?dashList([['Net revenue',rev?pvCur(rev.value,oc):'–'],['Product cost',cost?pvCur(cost.value,oc):'–'],[pro?pro.label:'Profit',pro?pvCur(pro.value,oc):'–'],['Ad spend booked',oads?pvCur(oads.value,oc):'–']])+(st?`<h4 class="dh-h">Stock</h4>${dashList(stockRows)}`:D.err.stock?`<p class="muted">Stock: ${esc(D.err.stock)}</p>`:''):'';
+  const tr=(rows,k,color,label,c)=>rows&&rows.length?`<div class="dh-tr"><span class="eyebrow">${label}</span>${pvSpark(rows.map(r=>r[k]),color)}<div class="dh-ax"><span>${esc(rows[0].label||'')}</span><span>${esc(rows[rows.length-1].label||'')}</span></div></div>`:'';
+  const otr=od&&(od.sections||[]).find(x=>x.id==='trend'),mtr=mt&&(mt.sections||[]).find(x=>x.id==='trend');
+  const trends=[tr((sh&&sh.months)||[],'revenue','#2DD4BF','Shopify revenue by month'),tr(otr?otr.rows.map(r=>({label:r.label,v:r.values.profit})):[],'v','#A78BFA','Odoo profit by month'),tr(mtr?mtr.rows.map(r=>({label:r.label,v:r.values.spend})):[],'v','#FF8A3D','Meta spend by month')].join('');
+  return `<div class="head"><div><h1>Dashboards</h1><p>Shopify, Odoo and Meta Ads together. Pick a period; every number below follows it.</p></div><div class="row"><button class="btn ghost" data-act="go" data-route="hub">← All reports</button><button class="btn" data-act="dash-refresh">${D.busy?'Refreshing…':'↻ Refresh'}</button></div></div>
+  ${dateBar(sh)}
+  <h2 class="dh-sec">Key numbers</h2><div class="dh-grid g3">${main}</div>
+  <h2 class="dh-sec">How the three work together</h2><div class="dh-grid">${bl}</div>
+  <div class="dh-cols">${dashPanel('Shopify','#2DD4BF','shop',`<h4 class="dh-h">Best sellers by revenue</h4>${prod}`,['shop'])}${dashPanel('Odoo','#A78BFA','odoo',odBody,['odoo'])}${dashPanel('Meta Ads','#FF8A3D','meta',`<h4 class="dh-h">Top campaigns by spend</h4>${camps}`,['meta'])}</div>
+  ${trends?`<h2 class="dh-sec">Last 12 months</h2><div class="dh-trs">${trends}</div>`:''}`;
+}
 
 /* ---------- Shopify dashboard ---------- */
 async function loadShop(){
@@ -1531,6 +1625,8 @@ document.addEventListener('click',async e=>{
   if(a==='go'){e.preventDefault();go(b.dataset.route,b.dataset.param)}
   else if(a==='side-toggle')toggleSide();
   else if(a==='pv-retry')b.dataset.k.split(',').forEach(k=>pvRun(k,true));
+  else if(a==='dash-retry')b.dataset.k.split(',').forEach(k=>dashRun(k,true,S.dash.tok));
+  else if(a==='dash-refresh')loadDash(true,false);
   else if(a==='pv-refresh')loadPulse(true).then(()=>{});
   else if(a==='act-days'){S.act.days=Number(b.dataset.n);S.act.data=null;loadAct()}
   else if(a==='act-refresh'){S.act.data=null;loadAct()}
@@ -1649,12 +1745,12 @@ document.addEventListener('submit',async e=>{
     if(p.length<4)return err.textContent='Use at least 4 characters.';
     if(p!==p2)return err.textContent='The passwords do not match.';
     err.textContent='';
-    try{await api('POST','/api/auth?action=setup',{username:u,password:p});S.lastJson='';S.route='home';await sync()}catch(x){err.textContent=x.message}
+    try{await api('POST','/api/auth?action=setup',{username:u,password:p});S.lastJson='';S.route='hub';await sync()}catch(x){err.textContent=x.message}
   }
   else if(k==='login'){
     const u=$('#li-u').value.trim().replace(/\s+/g,' '),p=$('#li-p').value,err=$('#li-err');
     err.textContent='';
-    try{await api('POST','/api/auth?action=login',{username:u,password:p});S.lastJson='';S.route='home';await sync()}catch(x){err.textContent=x.message}
+    try{await api('POST','/api/auth?action=login',{username:u,password:p});S.lastJson='';S.route='hub';await sync()}catch(x){err.textContent=x.message}
   }
   else if(k==='cmt'){
     const id=f.dataset.id,t=f.querySelector('textarea'),body=t.value.trim();if(!body)return;
@@ -1686,7 +1782,7 @@ document.addEventListener('submit',async e=>{
   else if(k==='up-free')submitUpload('free');
 });
 
-(function(){try{let h=location.hash.slice(1);if(h.startsWith('home:')){S.ovSec=S.ovPending=h.slice(5);h='home'}if(h.startsWith('ins-')){S.route='ins';S.param=h.slice(4)}else if(['home','uploads','notes','team','send','content','users','shop','eval','odoo','meta'].includes(h))S.route=h}catch(e){}})();
+(function(){try{let h=location.hash.slice(1);if(h.startsWith('home:')){S.ovSec=S.ovPending=h.slice(5);h='home'}if(h.startsWith('ins-')){S.route='ins';S.param=h.slice(4)}else if(['hub','dash','home','uploads','notes','team','send','content','users','shop','eval','odoo','meta'].includes(h))S.route=h}catch(e){}})();
 boot();
 
 /* Side charts (pies and bar panels) can be dragged out of the way. Position is remembered while the page is open; double-click the title to put it back. */
