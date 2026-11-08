@@ -313,7 +313,7 @@ function build(tab, cfg, ctx) {
       const c1 = cur.filter(mine), p1 = prev.filter(mine);
       const soldRows = groupBy(c1, (l) => nm(l.product_id) || 'Other', () => ({ units: 0, value: 0 }), (g, l) => { g.units += n0(l.product_uom_qty); g.value += n0(l.price_subtotal); }).sort((a, b) => b.value - a.value);
       // Pictures for the products that need attention (the first few of each list)
-      const picOf = async (arr) => { const r = await addPictures(cfg, arr.slice().sort((a, b) => cost(b) - cost(a)).slice(0, 8).map((p) => ({ pid: p.id, name: p.display_name }))); return new Map(r.filter((x) => x.img).map((x) => [x.name, x.img])); };
+      const picOf = async (arr) => { const r = await addPictures(cfg, arr.slice().sort((a, b) => cost(b) - cost(a)).slice(0, 30).map((p) => ({ pid: p.id, name: p.display_name }))); return new Map(r.filter((x) => x.img).map((x) => [x.name, x.img])); };
       const [imgOut, imgLow] = await Promise.all([picOf(out), picOf(low)]);
       const withImg = (rows, m) => rows.map((r) => (m.get(r.name) ? { ...r, img: m.get(r.name) } : r));
       return { tiles: [

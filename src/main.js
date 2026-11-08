@@ -777,6 +777,7 @@ function dStat(label,value,delta,goodDown,sub,color){
   return `<div class="dx-stat"${color?` style="--sc:${color}"`:''}><span>${label}</span><b class="${String(value).length>11?'long':String(value).length>9?'mid':''}">${value}</b><em>${delta===null||delta===undefined||!isFinite(delta)?'':chip(Math.round(delta*10)/10,goodDown)}${sub?`<small>${sub}</small>`:''}${Math.abs(delta||0)>400?'<small class="dx-warn" title="The period you compare with has very little data. Orders may not be synced that far back. Pick another comparison.">⚠ check comparison</small>':''}</em></div>`;
 }
 function dSeg(name,cur,opts){return `<div class="dx-seg" role="group">${opts.map(([v,l])=>`<button class="${cur===v?'on':''}" data-act="dx-set" data-k="${name}" data-v="${v}" aria-pressed="${cur===v}">${l}</button>`).join('')}</div>`}
+const dClean=n=>{const m=String(n||'').match(/^\s*\[([^\]]+)\]\s*(.*)$/);return m?{code:m[1],name:m[2]||n}:{code:'',name:String(n||'')}};
 function dTh(img,name,size){
   if(!img)return name?`<span class="dx-th ph" style="--ts:${(size||34)}px" aria-hidden="true">${esc(String(name).trim().charAt(0).toUpperCase())}</span>`:'';size=size||34;const big=picUrl(img,1200),sm=picUrl(img,size*3);
   return `<button type="button" class="dx-th" style="--ts:${size}px" data-act="zoom" data-src="${esc(big)}" data-cap="${esc(name||'')}" aria-label="Enlarge picture of ${esc(name||'product')}" title="Click to enlarge"><img src="${esc(sm)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest('button').remove()"></button>`;
@@ -787,8 +788,21 @@ function zoomOpen(src,cap){
   d.addEventListener('click',e=>{if(e.target===d)zoomClose()});document.body.appendChild(d);document.body.classList.add('zoomed');
   const x=d.querySelector('.zoom-x');if(x)x.focus();
 }
+function dxModal(html,label){
+  dxModalClose();const d=document.createElement('div');d.id='dxm';d.className='dxm';d.setAttribute('role','dialog');d.setAttribute('aria-modal','true');d.setAttribute('aria-label',label||'Details');
+  d.innerHTML=`<div class="dxm-box"><button type="button" class="zoom-x" data-act="dxm-close" aria-label="Close">✕</button>${html}</div>`;
+  d.addEventListener('click',e=>{if(e.target===d)dxModalClose()});document.body.appendChild(d);document.body.classList.add('zoomed');const x=d.querySelector('.zoom-x');if(x)x.focus();
+}
+function dxModalClose(){const d=document.getElementById('dxm');if(d)d.remove();if(!document.getElementById('zoom'))document.body.classList.remove('zoomed')}
+function dStockModal(){
+  const m=dModel(),oc=m.st&&m.st.currency;
+  const rowsOf=t=>((t&&t.breakdown&&t.breakdown.rows)||[]);
+  const sect=(title,color,rows,note)=>`<section class="dxm-s"><h3 style="color:${color}">${title} <span>${rows.length}</span></h3>${rows.length?`<div class="dxm-g">${rows.map(r=>{const c=dClean(r.name);return `<div class="dxm-i">${dTh(r.img,c.name,64)}<div><b title="${esc(c.name)}">${esc(c.name)}</b>${c.code?`<small class="mono">${esc(c.code)}</small>`:''}<span style="color:${color}">${Math.round(r.units||0).toLocaleString()} left</span>${r.unit?`<small>${pvCur(r.unit,oc)} each at cost</small>`:''}</div></div>`}).join('')}</div>`:'<p class="muted">None right now.</p>'}</section>`;
+  const o=rowsOf(m.oos),l=rowsOf(m.low);
+  dxModal(`<h2>Finished products to restock</h2><p class="muted">From Odoo, right now. Click a picture to enlarge it.</p>${sect('Out of stock',DC.bad,o)}${sect('Running low',DC.amber,l)}`,'Products to restock');
+}
 function zoomClose(){const d=document.getElementById('zoom');if(d)d.remove();document.body.classList.remove('zoomed')}
-document.addEventListener('keydown',e=>{if(e.key==='Escape')zoomClose()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(document.getElementById('zoom'))zoomClose();else dxModalClose()}if((e.key==='Enter'||e.key===' ')&&e.target&&e.target.dataset&&e.target.dataset.act==='dx-ins'){e.preventDefault();dStockModal()}});
 function dBars(rows,o={}){
   if(!rows.length)return `<p class="muted dx-empty">${o.empty||'Nothing in this period.'}</p>`;
   const mx=Math.max(...rows.map(r=>Math.abs(r.v)),1);
@@ -890,7 +904,7 @@ function dHealth(m){
   return {score:parts.reduce((a,p)=>a+p[1],0)/parts.length*100,parts};
 }
 function dInsights(m){
-  const out=[],add=(tone,ico,html,img,name)=>out.push({tone,ico,html,img,name});
+  const out=[],add=(tone,ico,html,img,name,act)=>out.push({tone,ico,html,img,name,act});
   const ss=m.ss;
   if(ss&&m.sp&&m.sp.prev){const rc=ss.change.revenue,sc=pvPct(m.sp.value,m.sp.prev);
     if(rc!==null&&sc!==null){if(rc-sc>5)add('good','trend',`Sales grew <b>${rc}%</b> while ad spend changed <b>${sc}%</b>. Every pound on ads is working harder than before.`);
@@ -901,8 +915,8 @@ function dInsights(m){
   const cs=dSec(m.mt,'campaigns');if(cs&&cs.rows&&cs.rows.length){const r=cs.rows.filter(x=>x.spend>0);const best=r.slice().sort((a,b)=>b.roas-a.roas)[0],worst=r.filter(x=>x.spend>=(m.sp?m.sp.value*.08:0)).sort((a,b)=>a.roas-b.roas)[0];
     if(best&&best.roas)add('good','meta',`Strongest campaign: <b>${esc(best.name)}</b> returned <b>${dX(best.roas)}</b> on ${dM(best.spend)}.`,best.img,best.name);
     if(worst&&worst!==best&&worst.roas<1.5)add('bad','meta',`<b>${esc(worst.name)}</b> spent ${dM(worst.spend)} for only <b>${dX(worst.roas)}</b>. Consider pausing it or changing the creative.`,worst.img,worst.name)}
-  if(m.oos&&m.oos.value){const rows=(m.oos.breakdown&&m.oos.breakdown.rows)||[];add('bad','alert',`<b>${m.oos.value}</b> finished product${m.oos.value===1?' is':'s are'} out of stock${rows.length?`, including <b>${esc(rows[0].name)}</b>`:''}.${m.low&&m.low.value?` ${m.low.value} more running low.`:''}`,rows[0]&&rows[0].img,rows[0]&&rows[0].name)}
-  else if(m.low&&m.low.value)add('info','alert',`<b>${m.low.value}</b> finished product${m.low.value===1?' is':'s are'} running low. Plan production before they sell out.`);
+  if(m.oos&&m.oos.value){const rows=(m.oos.breakdown&&m.oos.breakdown.rows)||[];add('bad','alert',`<b>${m.oos.value}</b> finished product${m.oos.value===1?' is':'s are'} out of stock${rows.length?`, including <b>${esc(dClean(rows[0].name).name)}</b>`:''}.${m.low&&m.low.value?` ${m.low.value} more running low.`:''} <u>See all</u>`,rows[0]&&rows[0].img,rows[0]&&dClean(rows[0].name).name,'stock')}
+  else if(m.low&&m.low.value)add('info','alert',`<b>${m.low.value}</b> finished product${m.low.value===1?' is':'s are'} running low. Plan production before they sell out. <u>See all</u>`,null,null,'stock');
   const ag=dSec(m.ca,'aging');if(m.owe&&m.owe.value){const late=ag&&ag.rows?ag.rows.filter(r=>!/not yet|current|not due/i.test(r.name)).reduce((a,r)=>a+(Number(r.value)||0),0):0;add(late?'bad':'info','refund',`Customers owe you <b>${dMf(m.owe.value)}</b>${late?`, of which <b>${dMf(late)}</b> is overdue`:''}.`)}
   const hm=m.sh&&m.sh.heat;if(hm){let b=[0,0,0];hm.forEach((r,w)=>r.forEach((v,h)=>{if(v>b[0])b=[v,w,h]}));if(b[0]>1)add('info','chat',`Most orders arrive on <b>${['Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays','Sundays'][b[1]]}</b> around <b>${b[2]}:00</b>. Time posts and budget boosts for just before then.`)}
   if(ss&&m.sh.abandoned&&m.sh.abandoned.monthValue)add('info','bag',`<b>${dMf(m.sh.abandoned.monthValue)}</b> was left in ${m.sh.abandoned.monthCount} unfinished carts this period (${dP(m.sh.abandoned.monthRate)} of checkouts).`);
@@ -927,7 +941,7 @@ function dHero(m){
 }
 function dInsightsHTML(m){
   const list=dInsights(m);if(!list.length)return '';
-  return `<section class="dx-ins">${list.slice(0,8).map(x=>`<div class="dx-in ${x.tone}"><span>${dIco(x.ico)}</span><p>${x.html}</p>${dTh(x.img,x.name,48)}</div>`).join('')}</section>`;
+  return `<section class="dx-ins">${list.slice(0,8).map(x=>`<div class="dx-in ${x.tone}${x.act?' click':''}"${x.act?` role="button" tabindex="0" data-act="dx-ins" data-k="${x.act}" title="Click to see the full list"`:''}><span>${dIco(x.ico)}</span><p>${x.html}</p>${dTh(x.img,x.name,48)}</div>`).join('')}</section>`;
 }
 function dSalesHTML(m){
   const D=S.dash;
@@ -1034,7 +1048,7 @@ function dProfitHTML(m){
 }
 function dStockHTML(m){
   const stock=dGate(['stock'],()=>{const sale=m.ssale,val=m.sval;
-    const list=(t,c)=>{const rows=(t&&t.breakdown&&t.breakdown.rows)||[];return rows.length?`<ul class="dx-ol">${rows.slice(0,6).map(r=>`<li><span class="dx-lt" title="${esc(r.name)}">${dTh(r.img,r.name,32)}<em>${esc(r.name)}</em></span><b style="color:${c}">${dN(r.units)} left</b></li>`).join('')}${rows.length>6?`<li class="muted">+${rows.length-6} more</li>`:''}</ul>`:'<p class="muted dx-empty">None 🎉</p>'};
+    const list=(t,c)=>{const rows=(t&&t.breakdown&&t.breakdown.rows)||[];return rows.length?`<ul class="dx-ol">${rows.slice(0,6).map(r=>`<li><span class="dx-lt" title="${esc(dClean(r.name).name)}">${dTh(r.img,dClean(r.name).name,32)}<em>${esc(dClean(r.name).name)}</em></span><b style="color:${c}">${dN(r.units)} left</b></li>`).join('')}${rows.length>6?`<li class="muted">+${rows.length-6} more</li>`:''}</ul>${rows.length>6?`<button class="btn sm ghost" style="margin-top:8px" data-act="dx-ins" data-k="stock">See all ${rows.length} →</button>`:''}`:'<p class="muted dx-empty">None 🎉</p>'};
     return `<div class="dx-stats">${val?dStat('Stock value at cost',dMf(val.value),null,false,val.sub?esc(val.sub):'',DC.odoo):''}${sale?dStat('Value at sale price',dMf(sale.value),null,false,sale.sub?esc(sale.sub):'',DC.good):''}${m.sunits?dStat('Units sold',dN(m.sunits.value),pvPct(m.sunits.value,m.sunits.prev),false,'',DC.odoo):''}</div>
       <div class="dx-two"><div><h4 class="dx-h4" style="color:${DC.bad}">Out of stock · ${m.oos?m.oos.value:0}</h4>${list(m.oos,DC.bad)}</div><div><h4 class="dx-h4" style="color:${DC.amber}">Running low · ${m.low?m.low.value:0}</h4>${list(m.low,DC.amber)}</div></div>`},260);
   const sold=dGate(['stock'],()=>{const s=dSec(m.st,'sold');return dBars(((s&&s.rows)||[]).slice(0,8).map(r=>({l:r.name,v:r.value,img:r.img,s:dN(r.units)+' units'})),{color:DC.odoo,rank:1})},260);
@@ -1945,6 +1959,8 @@ document.addEventListener('click',async e=>{
   else if(a==='dash-refresh')loadDash(true,false);
   else if(a==='zoom'){e.preventDefault();e.stopPropagation();zoomOpen(b.dataset.src,b.dataset.cap)}
   else if(a==='zoom-close')zoomClose();
+  else if(a==='dx-ins'){if(b.dataset.k==='stock')dStockModal()}
+  else if(a==='dxm-close')dxModalClose();
   else if(a==='dash-csv')dashCSV();
   else if(a==='dash-print')window.print();
   else if(a==='dx-set'){S.dash[b.dataset.k]=b.dataset.v;dashFill()}
