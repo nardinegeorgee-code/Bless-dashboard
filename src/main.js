@@ -15,7 +15,7 @@ const ROLES=[
 const ROLE=Object.fromEntries(ROLES.map(r=>[r.key,r]));
 const TYPES={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml',mp4:'video/mp4',webm:'video/webm',pdf:'application/pdf',txt:'text/plain',csv:'text/csv',md:'text/markdown',json:'application/json'};
 
-const S={reads:new Set(),seenUnread:null,comments:[],revs:[],thr:{},draft:{},amend:null,amendFiles:[],shop:{month:'',metric:'revenue',best:'units',geo:'countries',data:null,loading:false,err:'',syncing:false,syncMsg:''},sel:new Set(),assets:true,lastJson:'',users:[],instructions:[],subs:[],usersReady:false,screen:null,me:null,route:'home',param:null,
+const S={ov:{role:'',period:'all',open:''},reads:new Set(),seenUnread:null,comments:[],revs:[],thr:{},draft:{},amend:null,amendFiles:[],shop:{month:'',metric:'revenue',best:'units',geo:'countries',data:null,loading:false,err:'',syncing:false,syncMsg:''},sel:new Set(),assets:true,lastJson:'',users:[],instructions:[],subs:[],usersReady:false,screen:null,me:null,route:'home',param:null,
   sendRoles:new Set(),sendUsers:new Set(),fRole:'',fUser:'',fKind:'',pwOpen:null,picked:{}};
 
 /* ---------- helpers ---------- */
@@ -202,27 +202,52 @@ function update(){
 }
 
 function greeting(){const h=new Date().getHours();return h<12?'Good morning':h<18?'Good afternoon':'Good evening'}
+const OV_PERIODS=[['all','All time',0],['7','Last 7 days',7],['30','Last 30 days',30],['month','This month',-1]];
+function ovCut(){const p=S.ov.period;if(p==='all')return 0;if(p==='month'){const d=new Date();return new Date(d.getFullYear(),d.getMonth(),1).getTime()}return Date.now()-Number(p)*864e5}
+function ovFilters(){
+  const o=S.ov,sel=(k,opts)=>`<select class="input" data-ov="${k}" aria-label="${k}">${opts.map(([v,l])=>`<option value="${esc(v)}"${o[k]===v?' selected':''}>${esc(l)}</option>`).join('')}</select>`;
+  return `<div class="ovfilters"><span class="eyebrow">Filter</span>${sel('role',[['','All roles'],...ROLES.filter(r=>r.key!=='super_admin').map(r=>[r.key,r.label])])}${sel('period',OV_PERIODS.map(p=>[p[0],p[1]]))}${(o.role||o.period!=='all')?'<button class="btn sm" data-act="ov-reset">Clear filters</button>':''}<span class="muted" style="font-size:.85rem">Click a card to open its report.</span></div>`;
+}
+function ovDetail(k,team,ins,subs){
+  const th=a=>`<thead><tr>${a.map(x=>`<th>${x}</th>`).join('')}</tr></thead>`,days=t=>Math.max(0,Math.floor((Date.now()-t)/864e5));
+  const rl=r=>(ROLES.find(x=>x.key===r)||{label:r}).label, rec=i=>recipients(i).filter(u=>!S.ov.role||u.role===S.ov.role);
+  let title,body;
+  if(k==='team'){title='Team members';
+    body=`<table class="dt">${th(['Person','Role','Instructions received','Responded','Waiting'])}<tbody>${team.map(u=>{const mine=ins.filter(i=>rec(i).some(x=>x.id===u.id)),done=mine.filter(i=>responded(i.id,u.id)).length;return `<tr><td><b>${esc(u.username)}</b></td><td>${esc(rl(u.role))}</td><td class="num">${mine.length}</td><td class="num">${done}</td><td class="num">${mine.length-done?`<b style="color:var(--warn)">${mine.length-done}</b>`:0}</td></tr>`}).join('')}</tbody></table>`}
+  else if(k==='sent'){title='Instructions sent';
+    body=`<table class="dt">${th(['Instruction','Sent','To','Responded'])}<tbody>${ins.map(i=>{const r=rec(i),d=r.filter(u=>responded(i.id,u.id)).length;return `<tr class="clk" data-act="go" data-route="ins" data-param="${i.id}"><td><b>${esc(i.title)}</b></td><td>${fmtDate(i.createdAt)}</td><td>${esc(r.length+' people')}</td><td class="num">${d}/${r.length}</td></tr>`}).join('')}</tbody></table>`}
+  else if(k==='waiting'){title='Still waiting for a response';
+    const rows=[];ins.forEach(i=>rec(i).filter(u=>!responded(i.id,u.id)).forEach(u=>rows.push({i,u,d:days(i.createdAt)})));rows.sort((a,b)=>b.d-a.d);
+    body=`<table class="dt">${th(['Person','Role','Instruction','Sent','Waiting'])}<tbody>${rows.map(({i,u,d})=>`<tr class="clk" data-act="go" data-route="ins" data-param="${i.id}"><td><b>${esc(u.username)}</b></td><td>${esc(rl(u.role))}</td><td>${esc(i.title)}</td><td>${fmtDate(i.createdAt)}</td><td class="num">${d} day${d===1?'':'s'}</td></tr>`).join('')}</tbody></table>`}
+  else{title='Files received';
+    body=`<table class="dt">${th(['Person','Role','For instruction','Files','Received'])}<tbody>${subs.map(x=>{const i=S.instructions.find(q=>q.id===x.instructionId);return `<tr class="clk" data-act="go" data-route="content"><td><b>${esc(x.username)}</b></td><td>${esc(rl(x.role))}</td><td>${esc(i?i.title:'No instruction')}</td><td class="num">${(x.files||[]).length}</td><td>${fmtDate(x.createdAt)}</td></tr>`}).join('')}</tbody></table>`}
+  const n=(k==='team'?team.length:k==='sent'?ins.length:k==='files'?subs.length:0);
+  const empty=/<tbody><\/tbody>/.test(body);
+  return `<section class="panel ovdet"><div class="item-top"><h2>${title}</h2><button class="btn sm" data-act="ov-kpi" data-k="${k}">Close</button></div>${empty?'<p class="muted">Nothing here for the filters chosen.</p>':`<div class="tablewrap">${body}</div>`}</section>`;
+}
 function overviewHTML(){
-  const team=S.users.filter(u=>u.role!=='super_admin');
-  let open=0,total=0;S.instructions.forEach(i=>recipients(i).forEach(u=>{total++;if(!responded(i.id,u.id))open++}));
+  const cut=ovCut(),fr=S.ov.role;
+  const team=S.users.filter(u=>u.role!=='super_admin'&&(!fr||u.role===fr));
+  const insAll=S.instructions.filter(i=>i.createdAt>=cut&&(!fr||recipients(i).some(u=>u.role===fr))),subsF=S.subs.filter(x=>x.createdAt>=cut&&(!fr||x.role===fr));
+  let open=0,total=0;insAll.forEach(i=>recipients(i).filter(u=>!fr||u.role===fr).forEach(u=>{total++;if(!responded(i.id,u.id))open++}));
   const answered=total-open,rate=total?Math.round(answered/total*100):0;
-  const files=S.subs.reduce((n,s)=>n+(s.files||[]).length,0);
+  const files=subsF.reduce((n,s)=>n+(s.files||[]).length,0);
   const today=new Date().toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'});
   const hero=`<section class="hero"><div class="hero-top"><div><span class="eyebrow">${esc(today)}</span><div class="hero-n sm">${greeting()}, ${esc(S.me.username)}</div>
     <p class="hero-sub">${open?`<b>${open}</b> response${open===1?'':'s'} still waiting from your team.`:(S.instructions.length?'Everyone has responded. Nothing is waiting on you.':'Send your first instruction to get the team moving.')}</p></div>
     <div class="hero-actions"><button class="btn dark" data-act="go" data-route="send">New instruction</button><button class="btn light" data-act="go" data-route="content">All content</button><button class="btn light" data-act="go" data-route="shop">Shopify</button></div></div></section>`;
-  const kpi=(k,c,l,v,sub)=>`<div class="kcard" style="--kc:${c}">${ico(k,c)}<div><span class="eyebrow">${l}</span><div class="kn">${v}</div><small class="muted">${sub}</small></div></div>`;
-  const kpis=`<div class="kgrid">${kpi('users','#7B4FA0','Team members',team.length,ROLES.filter(r=>r.key!=='super_admin'&&S.users.some(u=>u.role===r.key)).length+' roles in use')}
-    ${kpi('send','#F28D3A','Instructions sent',S.instructions.length,'briefs to the team')}
-    ${kpi('clock',open?'#C2410C':'#2C7A4B','Awaiting response',open,open?'across '+S.instructions.filter(i=>recipients(i).some(u=>!responded(i.id,u.id))).length+' instructions':'all caught up')}
-    ${kpi('file','#0F766E','Files received',files,S.subs.length+' submissions')}</div>`;
+  const kpi=(k,c,l,v,sub,key)=>`<button type="button" class="kcard kbtn${S.ov.open===key?' on':''}" style="--kc:${c}" data-act="ov-kpi" data-k="${key}" aria-expanded="${S.ov.open===key}">${ico(k,c)}<div><span class="eyebrow">${l}</span><div class="kn">${v}</div><small class="muted">${sub}</small></div><svg class="kcaret" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>`;
+  const kpis=`<div class="kgrid">${kpi('users','#7B4FA0','Team members',team.length,ROLES.filter(r=>r.key!=='super_admin'&&team.some(u=>u.role===r.key)).length+' roles in use','team')}
+    ${kpi('send','#F28D3A','Instructions sent',insAll.length,'briefs to the team','sent')}
+    ${kpi('clock',open?'#C2410C':'#2C7A4B','Awaiting response',open,open?'across '+insAll.filter(i=>recipients(i).some(u=>(!fr||u.role===fr)&&!responded(i.id,u.id))).length+' instructions':'all caught up','waiting')}
+    ${kpi('file','#0F766E','Files received',files,subsF.length+' submissions','files')}</div>${S.ov.open?ovDetail(S.ov.open,team,insAll,subsF):''}`;
   const maxR=Math.max(1,...ROLES.map(r=>S.users.filter(u=>u.role===r.key&&u.role!=='super_admin').length));
   const roles=ROLES.filter(r=>r.key!=='super_admin').map(r=>{const n=S.users.filter(u=>u.role===r.key).length;return `<div class="rolebar"><span class="rdot" style="background:var(${r.tok})"></span><span class="rl">${r.label}</span><span class="rbar"><i style="width:${Math.max(n?6:0,n/maxR*100)}%;background:var(${r.tok})"></i></span><b class="mono">${n}</b></div>`}).join('');
   const side=`<div class="two"><section class="panel"><h2>Team response rate</h2>${total?`<div class="cust">${donut([{v:answered,c:'#F28D3A',l:'Responded'},{v:open,c:'#CBB7D8',l:'Waiting'}],rate+'%','responded')}<div class="legend"><div><i style="background:#F28D3A"></i><b>${answered}</b> responses received</div><div><i style="background:#CBB7D8"></i><b>${open}</b> still waiting</div><p class="muted" style="font-size:.82rem;margin:6px 0 0">Counted across every person each instruction was sent to.</p></div></div>`:'<p class="muted">Send an instruction to start tracking responses.</p>'}</section>
     <section class="panel"><div class="item-top"><h2>Your team</h2><button class="btn sm" data-act="go" data-route="team">View all</button></div>${team.length?`<div class="rolebars">${roles}</div>`:'<p class="muted">Add team members on the Users page.</p>'}</section></div>`;
   const waiting=S.instructions.map(i=>({i,w:recipients(i).filter(u=>!responded(i.id,u.id))})).filter(x=>x.w.length).sort((x,y)=>y.w.length-x.w.length).slice(0,4);
   const attn=waiting.length?`<section class="panel"><div><h2>Needs a nudge</h2><p class="muted">Instructions with the most people still to respond.</p></div><div class="attn">${waiting.map(({i,w})=>`<button class="arow" data-act="go" data-route="ins" data-param="${i.id}"><b>${esc(i.title)}</b><span class="muted">${w.slice(0,4).map(u=>esc(u.username)).join(', ')}${w.length>4?' +'+(w.length-4)+' more':''}</span><span class="pill new">${w.length} waiting</span></button>`).join('')}</div></section>`:'';
-  return `<div style="display:grid;gap:18px">${hero}${kpis}${side}${attn}
+  return `<div style="display:grid;gap:18px">${hero}${ovFilters()}${kpis}${side}${attn}
     <section style="display:grid;gap:12px"><div class="item-top"><h2>Latest instructions</h2><button class="btn sm" data-act="go" data-route="send">See all</button></div>${S.instructions.length?`<div class="list">${S.instructions.slice(0,5).map(insRowAdmin).join('')}</div>`:empty('No instructions yet','Send your first brief from Send instruction.')}</section>
     <section style="display:grid;gap:12px"><div class="item-top"><h2>Latest from the team</h2><button class="btn sm" data-act="go" data-route="content">See all</button></div>${listOrEmpty(S.subs.slice(0,6),'Nothing received yet','Responses and uploads from your team land here.')}</section></div>`;
 }
@@ -1170,6 +1195,8 @@ document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
   if(a==='go'){e.preventDefault();go(b.dataset.route,b.dataset.param)}
   else if(a==='side-toggle')toggleSide();
+  else if(a==='ov-kpi'){S.ov.open=S.ov.open===b.dataset.k?'':b.dataset.k;$('#view').innerHTML=overviewHTML()}
+  else if(a==='ov-reset'){S.ov.role='';S.ov.period='all';$('#view').innerHTML=overviewHTML()}
   else if(a==='logout')logout();
   else if(a==='shop-sync')runSync();
   else if(a==='ev-reload')loadEval();
@@ -1328,3 +1355,5 @@ boot();
   document.addEventListener('pointerup',end);document.addEventListener('pointercancel',end);
   document.addEventListener('dblclick',e=>{const t=e.target.closest&&e.target.closest('aside.viz .viz-t');if(!t)return;const v=t.closest('.viz');delete pos[keyOf(v)];v.style.transform=''});
 })();
+
+document.addEventListener('change',e=>{const t=e.target;if(t&&t.dataset&&t.dataset.ov&&S.route==='home'&&isAdmin()){S.ov[t.dataset.ov]=t.value;$('#view').innerHTML=overviewHTML()}});
