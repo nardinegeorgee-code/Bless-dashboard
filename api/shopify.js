@@ -181,7 +181,9 @@ export default route(async (req, res) => {
       if (Object.keys(pics).length) await q`INSERT INTO shop_cache (key, fetched_at, payload) VALUES (${pk}, ${Date.now()}, ${JSON.stringify(pics)}::jsonb) ON CONFLICT (key) DO UPDATE SET fetched_at = EXCLUDED.fetched_at, payload = EXCLUDED.payload`;
     }
   } catch (e) { pics = {}; }
-  const picOf = (t) => { const k = String(t || '').trim().toLowerCase(); return pics[k] || pics[k.split(' – ')[0]] || pics[k.split(' - ')[0]] || ''; };
+  const norm = (t) => String(t || '').toLowerCase().replace(/[\u2013\u2014\u2012\u2212-]+/g, '-').replace(/\s+/g, ' ').replace(/\s*-\s*/g, ' - ').trim();
+  const nPics = new Map(Object.entries(pics).map(([k, v]) => [norm(k), v]));
+  const picOf = (t) => { const k = norm(t); return nPics.get(k) || nPics.get(k.split(' - ')[0]) || ''; };
   const withPic = (list) => list.map((p) => { const img = picOf(p.title); return img ? { ...p, img } : p; });
 
   await sendCached(req, res, 'shop', {

@@ -1102,3 +1102,23 @@ body.zoomed{overflow:hidden}
 .dx-card[style*="span 3"] .dx-stats,.dx-card[style*="span 4"] .dx-stats{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
 .dx-warn{color:#FBBF24!important;cursor:help}
 .dx-hm>b{white-space:normal;overflow-wrap:anywhere}
+.dx-heat{position:relative}
+.dx-hc{cursor:crosshair;transition:transform .1s,box-shadow .1s}
+.dx-hc.hl{box-shadow:0 0 0 1.5px color-mix(in srgb,var(--ink) 45%,transparent) inset}
+.dx-hc:hover{transform:scale(1.25);box-shadow:0 0 0 2px var(--ink);position:relative;z-index:2;border-radius:5px}
+.dx-hw.hl,.dx-hh.hl{color:var(--ink);font-weight:700}
+.dx-htip{position:absolute;z-index:6;pointer-events:none;width:230px;padding:12px 14px;border-radius:14px;background:color-mix(in srgb,var(--card) 94%,#000);border:1px solid var(--line);box-shadow:0 16px 40px -10px rgba(0,0,0,.65);display:grid;gap:3px;font-size:.8rem}
+.dx-htip[hidden]{display:none}
+.dx-htip b{font-size:.86rem}.dx-htip .n{font-size:1.5rem;font-weight:800;color:#2DD4BF;line-height:1.1}.dx-htip .n small{font-size:.78rem;font-weight:600;color:var(--muted)}
+.dx-htip em{font-style:normal;font-weight:700}.dx-htip small{color:var(--muted);font-size:.74rem}
+.dx-hchips{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:14px}
+.dx-hchips span{padding:9px 11px;border-radius:12px;background:color-mix(in srgb,#2DD4BF 8%,transparent);border:1px solid color-mix(in srgb,#2DD4BF 22%,var(--line));display:grid;gap:1px}
+.dx-hchips small{font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}.dx-hchips b{font-size:.95rem}.dx-hchips em{font-style:normal;font-size:.74rem;color:var(--muted)}
+@media (hover:none){.dx-hc:hover{transform:none}}
+.dx-hw.hl,.dx-hh.hl{font-weight:inherit;color:var(--ink);text-shadow:0 0 0 currentColor}
+.dx-hc:hover{transform:none;outline:2px solid var(--ink);outline-offset:0}
+.dx-hh{white-space:nowrap;overflow:visible}
+.dx-hr{contain:layout}
+.dx-th.ph{display:grid;place-items:center;cursor:default;font-weight:700;color:var(--muted);font-size:calc(var(--ts)*.42)}.dx-th.ph:hover{transform:none;box-shadow:none;border-color:var(--line)}.dx-th.ph::after{display:none}
+.dx-heat{overflow:visible}
+@media (max-width:520px){.dx-heat{overflow-x:auto}.dx-htip{width:200px}}

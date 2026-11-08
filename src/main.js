@@ -778,7 +778,7 @@ function dStat(label,value,delta,goodDown,sub,color){
 }
 function dSeg(name,cur,opts){return `<div class="dx-seg" role="group">${opts.map(([v,l])=>`<button class="${cur===v?'on':''}" data-act="dx-set" data-k="${name}" data-v="${v}" aria-pressed="${cur===v}">${l}</button>`).join('')}</div>`}
 function dTh(img,name,size){
-  if(!img)return '';size=size||34;const big=picUrl(img,1200),sm=picUrl(img,size*3);
+  if(!img)return name?`<span class="dx-th ph" style="--ts:${(size||34)}px" aria-hidden="true">${esc(String(name).trim().charAt(0).toUpperCase())}</span>`:'';size=size||34;const big=picUrl(img,1200),sm=picUrl(img,size*3);
   return `<button type="button" class="dx-th" style="--ts:${size}px" data-act="zoom" data-src="${esc(big)}" data-cap="${esc(name||'')}" aria-label="Enlarge picture of ${esc(name||'product')}" title="Click to enlarge"><img src="${esc(sm)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest('button').remove()"></button>`;
 }
 function zoomOpen(src,cap){
@@ -849,6 +849,24 @@ function dChartHover(el,ev){
   tip.hidden=false;const tw=tip.offsetWidth;tip.style.left=Math.max(4,Math.min(W-tw-4,cx+(cx>W/2?-tw-14:14)))+'px';tip.style.top=(pt+8)+'px';
 }
 document.addEventListener('pointermove',e=>{const el=e.target.closest&&e.target.closest('.ch');if(el)dChartHover(el,e)});
+function heatTip(e){
+  const c=e.target.closest&&e.target.closest('.dx-hc'),root=document.querySelector('.dx-heat');if(!root)return;
+  const tip=root.querySelector('.dx-htip');
+  root.querySelectorAll('.hl').forEach(x=>x.classList.remove('hl'));
+  if(!c){tip.hidden=true;return}
+  const w=+c.dataset.w,x=+c.dataset.x,v=+c.dataset.v,d=JSON.parse(root.dataset.heat),FULL=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  const h12=n=>{n=((n%24)+24)%24;return (n%12||12)+(n<12?' AM':' PM')};
+  const share=d.tot?v/d.tot*100:0,ratio=d.avg?v/d.avg:0;
+  const verdict=!v?'No orders in this hour':ratio>=2?'Much busier than a typical hour':ratio>=1.2?'Busier than a typical hour':ratio>=.8?'About a typical hour':'Quieter than a typical hour';
+  root.querySelectorAll(`[data-row="${w}"] .dx-hc,[data-x="${x}"]`).forEach(n=>n.classList.add('hl'));
+  const hw=root.querySelector(`[data-hw="${w}"]`);if(hw)hw.classList.add('hl');const hh=root.querySelector(`[data-hh="${x}"]`);if(hh)hh.classList.add('hl');
+  tip.innerHTML=`<b>${FULL[w]}, ${h12(x)} – ${h12(x+1)}</b><span class="n">${v}<small> order${v===1?'':'s'}</small></span><em>${verdict}</em><small>${v?share.toFixed(1)+'% of all orders in this period':'Try boosting posts here only if other signals are strong'}</small><small>Typical hour: ${d.avg.toFixed(1)} orders</small>`;
+  tip.hidden=false;const r=root.getBoundingClientRect(),cr=c.getBoundingClientRect(),tw=tip.offsetWidth,th=tip.offsetHeight;
+  let L=cr.left-r.left+cr.width/2-tw/2;L=Math.max(0,Math.min(r.width-tw,L));let T=cr.top-r.top-th-10;if(T<0)T=cr.bottom-r.top+10;
+  tip.style.left=L+'px';tip.style.top=T+'px';
+}
+document.addEventListener('pointermove',heatTip);
+document.addEventListener('pointerout',e=>{const root=document.querySelector('.dx-heat');if(root&&!e.relatedTarget||(root&&e.relatedTarget&&!root.contains(e.relatedTarget)))heatTip({target:document.body})});
 document.addEventListener('pointerout',e=>{const el=e.target.closest&&e.target.closest('.ch');if(el&&!el.contains(e.relatedTarget)){const t=el.querySelector('.ch-tip'),l=el.querySelector('.ch-x');if(t)t.hidden=true;if(l)l.style.display='none'}});
 let dResizeT;window.addEventListener('resize',()=>{clearTimeout(dResizeT);dResizeT=setTimeout(()=>{if(S.route==='dash')dSizeCharts()},150)});
 
@@ -924,8 +942,15 @@ function dSalesHTML(m){
   },300);
   const tools=`<div class="row">${dSeg('dayM',D.dayM,[['revenue','Revenue'],['orders','Orders']])}<label class="dx-chk"><input type="checkbox" data-dx="dayCmp" ${D.dayCmp?'checked':''}> Compare</label></div>`;
   const stats=dGate(['shop'],()=>{const s=m.ss,p=s.previous||{};return `<div class="dx-stats">${dStat('Revenue',dMf(s.revenue),s.change.revenue,false,'',DC.shop)}${dStat('Orders',dN(s.orders),s.change.orders,false,'',DC.shop)}${dStat('Average order',dMf(s.aov),pvPct(s.aov,p.aov),false,'',DC.shop)}${dStat('Items sold',dN(s.units),s.change.units,false,'',DC.shop)}${dStat('Refunds',dMf(s.refunds),pvPct(s.refunds,p.refunds),true,dP(s.refundRate)+' of revenue',DC.bad)}${dStat('Cancelled',dN(s.cancelled||0),null,true,dP(s.cancelRate||0)+' of orders',DC.bad)}</div>`},120);
-  const heat=dGate(['shop'],()=>{const h=m.sh.heat;if(!h)return '<p class="muted dx-empty">Not available for this period.</p>';const mx=Math.max(1,...h.flat());const W=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-    return `<div class="dx-heat"><div class="dx-hr"><span></span>${Array.from({length:24},(_,i)=>`<span class="dx-hh">${i%3===0?i:''}</span>`).join('')}</div>${h.map((r,w)=>`<div class="dx-hr"><span class="dx-hw">${W[w]}</span>${r.map((v,hh)=>`<span class="dx-hc" style="--a:${v?(.12+.88*v/mx).toFixed(2):0}" title="${W[w]} ${hh}:00 · ${v} order${v===1?'':'s'}"></span>`).join('')}</div>`).join('')}<div class="dx-hk"><span>Fewer</span><i></i><span>More orders</span></div></div>`},200);
+  const heat=dGate(['shop'],()=>{const h=m.sh.heat;if(!h)return '<p class="muted dx-empty">Not available for this period.</p>';
+    const FULL=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],W=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const h12=x=>{const n=x%24;return (n%12||12)+(n<12?' AM':' PM')};
+    const tot=h.flat().reduce((a,b)=>a+b,0),mx=Math.max(1,...h.flat()),avg=tot/168;
+    const byDay=h.map(r=>r.reduce((a,b)=>a+b,0)),byHour=Array.from({length:24},(_,i)=>h.reduce((a,r)=>a+r[i],0));
+    const bd=byDay.indexOf(Math.max(...byDay)),bh=byHour.indexOf(Math.max(...byHour)),qd=byDay.indexOf(Math.min(...byDay));
+    let top=[0,0,0];h.forEach((r,w)=>r.forEach((v,x)=>{if(v>top[0])top=[v,w,x]}));
+    const chips=tot?`<div class="dx-hchips"><span><small>Busiest day</small><b>${FULL[bd]}</b><em>${byDay[bd]} orders</em></span><span><small>Busiest hour</small><b>${h12(bh)}</b><em>${byHour[bh]} orders</em></span><span><small>Peak slot</small><b>${W[top[1]]} ${h12(top[2])}</b><em>${top[0]} orders</em></span><span><small>Quietest day</small><b>${FULL[qd]}</b><em>${byDay[qd]} orders</em></span></div>`:'';
+    return `<p class="muted dx-note" style="margin:0 0 10px">Each square is one hour of one weekday, added up over the whole period. <b>Darker means more orders.</b> Point at a square for details.</p><div class="dx-heat" data-heat="${esc(JSON.stringify({h,tot,avg}))}"><div class="dx-hr"><span></span>${Array.from({length:24},(_,i)=>`<span class="dx-hh" data-hh="${i}">${i%3===0?h12(i).replace(' ',''):''}</span>`).join('')}</div>${h.map((r,w)=>`<div class="dx-hr" data-row="${w}"><span class="dx-hw" data-hw="${w}">${W[w]}</span>${r.map((v,hh)=>`<span class="dx-hc" data-w="${w}" data-x="${hh}" data-v="${v}" style="--a:${v?(.14+.86*v/mx).toFixed(2):0}"></span>`).join('')}</div>`).join('')}<div class="dx-hk"><span>Fewer</span><i></i><span>More orders</span></div><div class="dx-htip" hidden></div></div>${chips}`},200);
   const prods=dGate(['shop'],()=>`<div class="row dx-tl">${dSeg('prodBy',D.prodBy,[['revenue','By revenue'],['units','By units']])}<input class="input dx-q" id="dx-pq" data-dxq="prodQ" placeholder="Search products" value="${esc(D.prodQ)}"></div><div id="dx-prods">${dProdList(m)}</div>`,240);
   const geo=dGate(['shop'],()=>{const L=(rows,c)=>dBars((rows||[]).slice(0,5).map(r=>({l:r.name||r.country||r.city||'Unknown',v:r.revenue,c,s:dN(r.orders)+' orders'})),{rank:1});return `<h4 class="dx-h4" style="margin-top:0">Countries</h4>${L(m.sh.countries,DC.blue)}<h4 class="dx-h4">Cities</h4>${L(m.sh.cities,DC.pink)}`},240);
   const cust=dGate(['shop'],()=>{const c=m.sh.customers;if(!c)return '<p class="muted dx-empty">No customer data.</p>';return dDonut([{l:'Returning customers',v:c.repeat,c:DC.shop,f:dN(c.repeat)},{l:'First-time customers',v:c.fresh,c:DC.pink,f:dN(c.fresh)},{l:'Guest checkouts',v:c.guest,c:'#94A3B8',f:dN(c.guest)}],dP(c.repeatRate),'returning')},200);
