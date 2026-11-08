@@ -1931,57 +1931,106 @@ addEventListener('pagehide',()=>{atTick();atSend()});
 setInterval(atTick,4000);
 
 S.act={days:30,data:null,loading:false,err:'',open:'',log:'20'};
-const ACT_PAGES={home:'Overview',send:'Send instruction',content:'All content',eval:'Evaluation',shop:'Shopify',odoo:'Odoo',meta:'Meta Ads',team:'Team by role',notes:'Notifications',users:'Users',act:'Activity',ins:'Instruction',uploads:'My uploads',login:'Signed in'};
+const ACT_PAGES={hub:'Home',dash:'Dashboards',priv:'User privileges',instructions:'Instructions',home:'Team overview',send:'Send instruction',content:'All content',eval:'Evaluation',shop:'Shopify',odoo:'Odoo',meta:'Meta Ads',team:'Team by role',notes:'Notifications',users:'Users',act:'Activity',ins:'Instruction',uploads:'My uploads',login:'Signed in'};
 function actPage(k){const [r,t]=String(k).split(':');const nm=ACT_PAGES[r]||r;if(!t)return nm;const tab=r==='shop'?(AN_TABS.find(x=>x[0]===t)||[])[1]:({pnl:'Profit & loss',trial:'Trial balance',balance:'Balance sheet',hr:'HR',in:'Stock in',out:'Stock out'})[t]||t;return nm+' · '+(tab||t).toString().replace(/^./,c=>c.toUpperCase())}
 function actDur(sec){sec=Math.round(sec||0);if(sec<60)return sec+'s';const m=Math.floor(sec/60);if(m<60)return m+'m '+String(sec%60).padStart(2,'0')+'s';const h=Math.floor(m/60);return h+'h '+String(m%60).padStart(2,'0')+'m'}
-function actAgo(t){if(!t)return 'Never';const d=Date.now()-t;if(d<90e3)return 'Just now';if(d<36e5)return Math.round(d/6e4)+' min ago';if(d<864e5)return Math.round(d/36e5)+' h ago';return Math.round(d/864e5)+' days ago'}
+function actAgo(t){if(!t)return 'Never';const d=Date.now()-t;if(d<90e3)return 'Just now';if(d<36e5)return Math.round(d/6e4)+' min ago';if(d<864e5)return Math.round(d/36e5)+' h ago';const n=Math.round(d/864e5);return n+(n===1?' day ago':' days ago')}
 function actAt(t){return new Date(t).toLocaleString('en-GB',{timeZone:'Africa/Cairo',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:false})}
-async function loadAct(){
-  if(S.act.loading)return;S.act.loading=true;S.act.err='';if(S.route==='act')renderAct();
+async function loadAct(silent){
+  if(S.act.loading)return;S.act.loading=true;S.act.err='';if(S.route==='act'&&!silent)renderAct();
   try{S.act.data=await api('GET','/api/auth?action=activity&days='+S.act.days)}catch(e){S.act.err=e.message}
   S.act.loading=false;if(S.route==='act')renderAct();
 }
-function actBars(items,w,h,fmt){
-  const mx=Math.max(1,...items.map(i=>i.v)),n=items.length,bw=(w-30)/n;
-  return `<svg class="oi-chart" viewBox="0 0 ${w} ${h}" role="img">${[0,.5,1].map(f=>`<line class="oi-gl" x1="30" x2="${w}" y1="${(h-22)*(1-f)+4}" y2="${(h-22)*(1-f)+4}"/>`).join('')}<text class="oi-axis" x="26" y="${10}" text-anchor="end">${mx}</text><text class="oi-axis" x="26" y="${h-18}" text-anchor="end">0</text>${items.map((i,k)=>{const bh=Math.max(i.v?2:0,(h-26)*i.v/mx);return `<rect class="oi-bar" x="${30+k*bw+bw*.15}" y="${h-22-bh}" width="${bw*.7}" height="${bh}" rx="3" fill="var(--accent)" data-tip="${esc(i.tip)}"/>`}).join('')}${items.map((i,k)=>i.l&&(n<=14||k%Math.ceil(n/12)===0)?`<text class="oi-axis" x="${30+k*bw+bw/2}" y="${h-6}" text-anchor="middle">${esc(i.l)}</text>`:'').join('')}</svg>`;
+const acPct=(a,b)=>b>0?Math.round((a-b)/b*1000)/10:(a>0?null:0);
+const acDelta=(a,b)=>{const c=acPct(a,b);return c===null?'<span class="ac-new">new</span>':c===0&&!a?'':chip(c)};
+const acInit=n=>String(n||'?').trim().charAt(0).toUpperCase();
+function acSpark(vals,color,w,h){
+  w=w||110;h=h||30;const mx=Math.max(1,...vals),n=vals.length,bw=w/n;
+  return `<svg class="ac-sp" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true">${vals.map((v,i)=>v?`<rect x="${(i*bw+.5).toFixed(1)}" y="${(h-Math.max(2,h*v/mx)).toFixed(1)}" width="${Math.max(1,bw-1).toFixed(1)}" height="${Math.max(2,h*v/mx).toFixed(1)}" rx="1.5" fill="${color||'var(--accent)'}" opacity=".9"/>`:`<rect x="${(i*bw+.5).toFixed(1)}" y="${h-1.5}" width="${Math.max(1,bw-1).toFixed(1)}" height="1.5" fill="var(--line)"/>`).join('')}</svg>`;
 }
+/* bars for the chosen days, with the same-length period before drawn as a dashed line */
+function acDaily(d,metric){
+  const cur=d.daily.map(x=>metric==='secs'?Math.round(x.secs/60):metric==='users'?x.users:x.views),prev=d.prevDaily.map(x=>metric==='secs'?Math.round(x.secs/60):metric==='users'?x.users:x.views);
+  const W=720,H=230,pl=40,pr=10,pt=14,pb=26,iw=W-pl-pr,ih=H-pt-pb,n=cur.length,bw=iw/n;
+  const mx=dNice(Math.max(1,...cur,...prev)),y=v=>pt+ih-ih*v/mx,x=i=>pl+bw*i+bw/2;
+  const unit=metric==='secs'?' min':'';let g='';
+  for(let k=0;k<=4;k++){const yy=pt+ih-ih*k/4;g+=`<line x1="${pl}" x2="${W-pr}" y1="${yy}" y2="${yy}" class="ch-g"/><text x="${pl-7}" y="${yy+4}" text-anchor="end" class="ch-t">${dN(mx*k/4)}</text>`}
+  const step=Math.ceil(n/9);
+  const bars=cur.map((v,i)=>{const dd=d.daily[i],lab=dd.day.slice(5).replace('-','/');const L=(i%step===0||i===n-1&&(n-1)%step>=step*.6)?`<text x="${x(i)}" y="${H-8}" text-anchor="middle" class="ch-t">${lab}</text>`:'';
+    return `<g class="ac-bar"><rect x="${(pl+bw*i).toFixed(1)}" y="${pt}" width="${bw.toFixed(1)}" height="${ih}" fill="transparent"><title>${dd.day} · ${dd.views} page views · ${dd.users} ${dd.users===1?'person':'people'} · ${actDur(dd.secs)} · ${dd.sessions} session${dd.sessions===1?'':'s'}</title></rect>${v?`<rect x="${(x(i)-Math.min(22,bw*.7)/2).toFixed(1)}" y="${y(v).toFixed(1)}" width="${Math.min(22,bw*.7).toFixed(1)}" height="${(pt+ih-y(v)).toFixed(1)}" rx="3.5" fill="var(--accent)" opacity=".92" pointer-events="none"/>`:''}${L}</g>`}).join('');
+  const line=prev.map((v,i)=>(i?'L':'M')+x(i).toFixed(1)+','+y(v).toFixed(1)).join('');
+  return `<svg class="ac-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Activity per day">${g}${bars}${prev.some(v=>v)?`<path d="${line}" fill="none" stroke="var(--muted)" stroke-width="1.8" stroke-dasharray="5 5" opacity=".75" pointer-events="none"/>`:''}</svg>`;
+}
+function acHeat(d){
+  const H=d.heat,mx=Math.max(1,...H.flat()),W=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],FULL=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  const h12=n=>(n%12||12)+(n<12?' AM':' PM'),tot=H.flat().reduce((a,b)=>a+b,0);
+  if(!tot)return '<p class="muted">No page views in this range yet.</p>';
+  return `<div class="ac-heat"><div class="ac-hr"><span></span>${Array.from({length:24},(_,i)=>`<span class="ac-hh">${i%3===0?h12(i).replace(' ',''):''}</span>`).join('')}</div>${H.map((r,w)=>`<div class="ac-hr"><span class="ac-hw">${W[w]}</span>${r.map((v,h)=>`<span class="ac-hc" style="--a:${v?(.16+.84*v/mx).toFixed(2):0}" title="${FULL[w]}, ${h12(h)} – ${h12((h+1)%24)}: ${v} page view${v===1?'':'s'}${v?' · '+actDur(d.heatSecs[w][h])+' on pages':''}"></span>`).join('')}</div>`).join('')}<div class="ac-hk"><span>Quiet</span><i></i><span>Busy</span></div></div>`;
+}
+function acRing(score){
+  const c=score>=66?DC.good:score>=33?DC.amber:'#F87171',r=15,C=2*Math.PI*r;
+  return `<span class="ac-ring" title="Engagement ${score} of 100: how often they come back, how much time they spend and how many sessions they have" style="--ac:${c}"><svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="${r}" fill="none" stroke="var(--line)" stroke-width="4"/><circle cx="20" cy="20" r="${r}" fill="none" stroke="${c}" stroke-width="4" stroke-linecap="round" stroke-dasharray="${C*score/100} ${C}" transform="rotate(-90 20 20)"/></svg><b>${score}</b></span>`;
+}
+const acDev=k=>k==='mobile'?'Phone':k==='desktop'?'Computer':k||'–';
 function actModal(d){
   const u=d.users.find(x=>x.id===S.act.open);if(!u)return '';
-  const mx=Math.max(1,...u.pages.map(p=>p.secs)),ev=u.recent||[];
+  const mx=Math.max(1,...u.pages.map(p=>p.secs)),mxh=Math.max(1,...u.hours);
+  const kp=[['Page views',u.visits,acDelta(u.visits,u.prev.visits)],['Time spent',actDur(u.secs),acDelta(u.secs,u.prev.secs)],['Sessions',u.sessions,''],['Avg session',u.sessions?actDur(u.avgSession):'–',''],['Longest session',u.sessions?actDur(u.longestSession):'–',''],['Active days',u.activeDays+' / '+d.days,acDelta(u.activeDays,u.prev.activeDays)],['Sign-ins',u.logins,''],['Day streak',u.streak,'']];
   return `<div class="amod" data-act="act-close" role="dialog" aria-modal="true" aria-label="Activity of ${esc(u.username)}"><div class="amod-box" onclick="event.stopPropagation()">
-    <div class="amod-h"><div><h2>${esc(u.username)}</h2><div class="row">${roleChip(u.role)}<span class="muted">${u.online?'Online now':u.lastSeen?'Last seen '+actAgo(u.lastSeen)+' · '+actAt(u.lastSeen):'Never opened the hub'}</span></div></div><button class="btn ghost" data-act="act-close" aria-label="Close">✕</button></div>
-    <div class="amod-kpis">${[['Sign-ins',u.logins],['Page views',u.visits],['Time spent',actDur(u.secs)],['Avg / visit',u.visits?actDur(u.avgVisit):'–'],['Active days',u.activeDays]].map(([l,v])=>`<div><span class="eyebrow">${l}</span><b>${v}</b></div>`).join('')}</div>
+    <div class="amod-h"><div class="ac-who"><span class="ac-av">${esc(acInit(u.username))}</span><div><h2>${esc(u.username)}</h2><div class="row">${roleChip(u.role)}<span class="muted">${u.online?'<span class="act-dot on"></span>Online now'+(u.current?' · '+esc(actPage(u.current.page)):''):u.lastSeen?'Last seen '+actAgo(u.lastSeen)+' · '+actAt(u.lastSeen):'Never opened the hub'}</span></div></div></div><button class="btn ghost" data-act="act-close" aria-label="Close">✕</button></div>
+    <div class="ac-mk">${kp.map(([l,v,dl])=>`<div><span class="eyebrow">${l}</span><b>${v}</b>${dl?`<em>${dl}</em>`:''}</div>`).join('')}</div>
+    <div class="ac-two"><div><h3>Page views per day</h3>${acSpark(u.spark,'var(--accent)',320,54)}<p class="muted ac-cap">Engagement score <b>${u.score}</b>/100 · ${u.pagesPerSession||0} pages per session · mostly on ${esc(acDev(u.device))}</p></div>
+    <div><h3>Hours of the day (Cairo)</h3>${acSpark(u.hours,DC.blue,320,54)}<p class="muted ac-cap">${u.visits?'Most active around '+((h=>(h%12||12)+(h<12?' AM':' PM'))(u.hours.indexOf(mxh))):'No activity in this range'}</p></div></div>
     <h3>Pages opened · last ${d.days} days</h3>
     ${u.pages.length?`<div class="oi-hbs">${u.pages.map(p=>`<div class="oi-hb"><span class="oi-hl" title="${esc(actPage(p.page))}">${esc(actPage(p.page))}</span><span class="oi-ht"><i style="width:${p.secs/mx*100}%;background:var(--accent)"></i></span><span class="oi-hv">${p.visits}× · ${actDur(p.secs)}</span></div>`).join('')}</div>`:'<p class="muted">No pages opened in this range.</p>'}
+    <h3>Sessions</h3>
+    ${u.sessionList.length?`<div class="tablewrap amod-log"><table class="dt"><thead><tr><th>Started</th><th class="num">Length</th><th class="num">Pages</th><th>Visited</th><th>Device</th></tr></thead><tbody>${u.sessionList.map(x=>`<tr><td class="mono">${actAt(x.start)}</td><td class="num">${actDur(x.secs)}</td><td class="num">${x.views}</td><td class="ac-path">${x.pages.map(pg=>esc(actPage(pg))).join(' → ')||'–'}</td><td>${esc(acDev(x.device))}</td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">No sessions in this range.</p>'}
     <h3>Timeline</h3>
-    <div class="tablewrap amod-log"><table class="dt"><thead><tr><th>When</th><th>What</th><th class="num">Time on page</th><th>Device</th></tr></thead><tbody>${ev.map(r=>`<tr><td class="mono">${actAt(r.at)}</td><td>${r.kind==='login'?'<b>Signed in</b>':esc(actPage(r.page))}</td><td class="num">${r.kind==='login'?'–':actDur(r.secs)}</td><td>${esc(r.device)}</td></tr>`).join('')||'<tr><td colspan="4" class="muted">Nothing recorded.</td></tr>'}</tbody></table></div>
+    <div class="tablewrap amod-log"><table class="dt"><thead><tr><th>When</th><th>What</th><th class="num">Time on page</th><th>Device</th></tr></thead><tbody>${(u.recent||[]).map(r=>`<tr><td class="mono">${actAt(r.at)}</td><td>${r.kind==='login'?'<b>Signed in</b>':esc(actPage(r.page))}</td><td class="num">${r.kind==='login'?'–':actDur(r.secs)}</td><td>${esc(acDev(r.device))}</td></tr>`).join('')||'<tr><td colspan="4" class="muted">Nothing recorded.</td></tr>'}</tbody></table></div>
   </div></div>`;
 }
 function renderAct(){
   const L=$('#live');if(!L)return;const A=S.act,d=A.data;
-  const head=`<div class="head"><div><h1>Activity</h1><p>Who is using the hub, which pages they open and for how long. Times are Cairo time.</p></div><div class="row"><div class="seg" role="group" aria-label="Range">${[[7,'7 days'],[30,'30 days'],[90,'90 days']].map(([n,l])=>`<button type="button" class="segb${A.days===n?' on':''}" data-act="act-days" data-n="${n}">${l}</button>`).join('')}</div><button class="btn" data-act="act-refresh">Refresh</button></div></div>`;
+  const head=`<div class="head"><div><h1>Activity</h1><p>Who is using the hub, what they open and for how long. Times are Cairo time.${d?` <span class="ac-upd"><i></i>Updated ${actAgo(d.now)}</span>`:''}</p></div><div class="row"><div class="seg" role="group" aria-label="Range">${[[7,'7 days'],[30,'30 days'],[90,'90 days']].map(([n,l])=>`<button type="button" class="segb${A.days===n?' on':''}" data-act="act-days" data-n="${n}">${l}</button>`).join('')}</div><button class="btn" data-act="act-refresh">${A.loading?'Refreshing…':'Refresh'}</button></div></div>`;
   if(!d){L.innerHTML=head+(A.err?`<div class="empty"><b>Could not load activity</b><p>${esc(A.err)}</p><button class="btn" data-act="act-refresh">Try again</button></div>`:`<div class="empty"><p>Loading activity…</p></div>`);if(!A.loading&&!A.err)loadAct();return}
-  const tot=d.users.reduce((a,u)=>({v:a.v+u.visits,s:a.s+u.secs,l:a.l+u.logins}),{v:0,s:0,l:0});
-  const active=d.users.filter(u=>u.visits||u.logins).length,online=d.users.filter(u=>u.online).length;
-  const strip=`<div class="oi-strip">${[['Online now',online,online?'seen in the last 3 minutes':'nobody right now'],['Active people',active+' / '+d.users.length,'opened the hub in '+d.days+' days'],['Page views',tot.v,tot.l+' sign-ins'],['Time spent',actDur(tot.s),'active time on pages'],['Avg per visit',actDur(tot.v?tot.s/tot.v:0),'per page opened']].map(([l,v,sub])=>`<div class="oi-st"><span class="eyebrow">${l}</span><b class="oi-big">${v}</b><span class="muted">${sub}</span></div>`).join('')}</div>`;
-  // daily chart over the full range
-  const days=[];const dk=t=>new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Cairo'}).format(t);
-  const map=new Map(d.daily.map(x=>[x.day,x]));
-  for(let i=d.days-1;i>=0;i--){const k=dk(d.now-i*864e5),x=map.get(k)||{visits:0,users:0,secs:0};days.push({v:x.visits,l:k.slice(5).replace('-','/'),tip:k+' · '+x.visits+' page views · '+x.users+' people · '+actDur(x.secs)})}
-  const hrs=d.hours.map((v,h)=>({v,l:String(h).padStart(2,'0'),tip:String(h).padStart(2,'0')+':00 · '+v+' page views'}));
+  const T=d.totals,P=d.prev,card=(t,sub,body,cls)=>`<section class="viz oi-card ${cls||''}"><div><h3>${t}</h3>${sub?`<p class="muted">${sub}</p>`:''}</div>${body}</section>`;
+  // right now
+  const on=d.users.filter(u=>u.online),lastAny=d.users.reduce((a,u)=>Math.max(a,u.lastSeen||0),0);
+  const now=`<section class="ac-now"><div class="ac-nh"><span class="ac-pulse${on.length?' on':''}"></span><b>${on.length?on.length+' online right now':'Nobody online right now'}</b><span class="muted">${on.length?'seen in the last 3 minutes':lastAny?'last activity '+actAgo(lastAny):'no activity recorded yet'}</span></div>${on.length?`<div class="ac-nl">${on.map(u=>`<button class="ac-np" data-act="act-open" data-id="${u.id}"><span class="ac-av">${esc(acInit(u.username))}</span><span><b>${esc(u.username)}</b><small>${u.current?esc(actPage(u.current.page))+' · '+esc(acDev(u.current.device)):'Signed in'}</small></span></button>`).join('')}</div>`:''}</section>`;
+  // headline numbers with comparison and a mini chart
+  const kp=[['Page views',T.views,P.views,d.daily.map(x=>x.views),DC.odoo],['Active people',T.active+' / '+T.people,P.active,d.daily.map(x=>x.users),DC.shop,T.active],['Sessions',T.sessions,P.sessions,d.daily.map(x=>x.sessions),DC.meta],['Time spent',actDur(T.secs),P.secs,d.daily.map(x=>x.secs),DC.blue,T.secs],['Avg session',actDur(T.sessions?T.secs/T.sessions:0),P.sessions?P.secs/P.sessions:0,null,DC.pink,T.sessions?T.secs/T.sessions:0],['Sign-ins',T.logins,P.logins,d.daily.map(x=>x.logins),DC.amber]];
+  const strip=`<div class="ac-kpis">${kp.map(([l,v,pv,sp,c,num])=>`<div class="ac-k" style="--kc:${c}"><span class="eyebrow">${l}</span><b>${v}</b><div class="ac-kf"><span>${acDelta(num!==undefined?num:(typeof v==='number'?v:0),pv)}<small>vs previous ${d.days} days</small></span>${sp?acSpark(sp,c,86,26):''}</div></div>`).join('')}</div>`;
+  // plain-language findings
+  const ins=[];const act=d.users.filter(u=>u.visits).sort((a,b)=>b.secs-a.secs);
+  if(act[0])ins.push(['star',`<b>${esc(act[0].username)}</b> spent the most time: <b>${actDur(act[0].secs)}</b> over ${act[0].activeDays} day${act[0].activeDays===1?'':'s'}.`]);
+  const ph=d.hours.indexOf(Math.max(...d.hours));if(Math.max(...d.hours)>0)ins.push(['clock',`The hub is busiest around <b>${(ph%12||12)+(ph<12?' AM':' PM')}</b> (Cairo).`]);
+  if(d.pages[0])ins.push(['dash',`Most opened page: <b>${esc(actPage(d.pages[0].page))}</b> with ${d.pages[0].visits} views.`]);
+  const quiet=d.users.filter(u=>u.role!=='super_admin'&&(!u.lastSeen||u.lastSeen<d.now-7*864e5));if(quiet.length)ins.push(['alert',`<b>${quiet.length}</b> ${quiet.length===1?'person has':'people have'} not opened the hub in 7+ days: ${quiet.slice(0,4).map(u=>esc(u.username)).join(', ')}${quiet.length>4?' and '+(quiet.length-4)+' more':''}.`]);
+  const insHTML=ins.length?`<section class="ac-ins">${ins.map(([i,t])=>`<div class="ac-in"><span>${dIco(i)}</span><p>${t}</p></div>`).join('')}</section>`:'';
+  // charts
+  const metric=A.metric||'views';
+  const daily=card('Activity per day',`Solid bars are this period. The dashed line is the ${d.days} days before it.`,`<div class="seg ac-tools" role="group">${[['views','Page views'],['users','People'],['secs','Minutes']].map(([k,l])=>`<button type="button" class="segb${metric===k?' on':''}" data-act="act-metric" data-k="${k}">${l}</button>`).join('')}</div>${acDaily(d,metric)}`);
+  const heat=card('When people use the hub','Weekday and hour of day. Darker means more page views. Point at a square for the exact number.',acHeat(d));
   const mxP=Math.max(1,...d.pages.map(p=>p.visits));
-  const pagesHB=d.pages.length?`<div class="oi-hbs">${d.pages.slice(0,10).map(p=>`<div class="oi-hb"><span class="oi-hl" title="${esc(actPage(p.page))}">${esc(actPage(p.page))}</span><span class="oi-ht"><i style="width:${p.visits/mxP*100}%;background:var(--accent)"></i></span><span class="oi-hv">${p.visits} · ${actDur(p.secs)}</span></div>`).join('')}</div>`:'<p class="muted">No page views yet.</p>';
-  const card=(t,sub,body)=>`<section class="viz oi-card"><div><h3>${t}</h3><p class="muted">${sub}</p></div>${body}</section>`;
-  const charts=`<div class="oi-grid wide">${card('Page views per day','Every page opened, by day.',actBars(days,520,190))}${card('Busiest hours','When the hub is used, across the whole range.',actBars(hrs,520,190))}</div><div class="oi-grid wide">${card('Most opened pages','Page views and total time spent.',pagesHB)}${card('Who spends the most time','Total active time per person.',(()=>{const t=d.users.filter(u=>u.secs).sort((a,b)=>b.secs-a.secs).slice(0,8),mx=Math.max(1,...t.map(u=>u.secs));return t.length?`<div class="oi-hbs">${t.map(u=>`<div class="oi-hb"><span class="oi-hl" title="${esc(u.username)}">${esc(u.username)}</span><span class="oi-ht"><i style="width:${u.secs/mx*100}%;background:var(--role-${({super_admin:'sa',graphic_designer:'gd',media_buyer:'mb',content_creator:'cc',moderator:'mo',pr:'pr',ecommerce:'ec',ceo:'ceo'})[u.role]||'sa'})"></i></span><span class="oi-hv">${actDur(u.secs)}</span></div>`).join('')}</div>`:'<p class="muted">No time recorded yet.</p>'})())}</div>`;
-  const rows=d.users.map(u=>{
-    const top=u.pages[0],dev=Object.entries(u.devices).sort((a,b)=>b[1]-a[1])[0],open=false;
-    const st=u.online?'<span class="act-dot on"></span>Online':u.lastSeen?`<span class="act-dot"></span>${actAgo(u.lastSeen)}`:'<span class="act-dot off"></span>Never opened';
-    return `<tr class="actrow${open?' open':''}" data-act="act-open" data-id="${u.id}" tabindex="0"><td><b>${esc(u.username)}</b> ${roleChip(u.role)}</td><td>${st}</td><td class="num">${u.logins}</td><td class="num">${u.visits}</td><td class="num">${actDur(u.secs)}</td><td class="num">${u.visits?actDur(u.avgVisit):'–'}</td><td class="num">${u.activeDays}</td><td>${top?esc(actPage(top.page)):'–'}</td><td>${dev?dev[0]:'–'}</td></tr>`;
+  const pg=card('Most opened pages','Views, total time and the average stay per view.',d.pages.length?`<div class="ac-pl">${d.pages.slice(0,14).map(p=>`<div class="ac-pr"><span class="ac-pn" title="${esc(actPage(p.page))}">${esc(actPage(p.page))}</span><span class="oi-ht"><i style="width:${p.visits/mxP*100}%;background:var(--accent)"></i></span><span class="ac-pv"><b>${p.visits}</b> views · ${actDur(p.secs)} · ${p.users} ${p.users===1?'person':'people'} ${acDelta(p.visits,p.prev)}</span></div>`).join('')}</div>`:'<p class="muted">No page views yet.</p>');
+  const devs=Object.entries(d.devices||{});const devC={mobile:DC.pink,desktop:DC.blue};
+  const dev=card('Devices','Where page views come from.',devs.length?dDonut(devs.map(([k,v])=>({l:acDev(k),v,c:devC[k]||DC.amber,f:v+' views'})),d.totals.views,'views'):'<p class="muted">No data yet.</p>');
+  const roleT={};d.users.forEach(u=>{if(u.secs){const r=(ROLE[u.role]||{label:u.role}).label;roleT[r]=(roleT[r]||0)+u.secs}});const rr=Object.entries(roleT).sort((a,b)=>b[1]-a[1]),mxr=Math.max(1,...rr.map(x=>x[1]));
+  const roles=card('Time by role','Which teams spend the most time in the hub.',rr.length?`<div class="oi-hbs">${rr.map(([l,v])=>`<div class="oi-hb"><span class="oi-hl">${esc(l)}</span><span class="oi-ht"><i style="width:${v/mxr*100}%;background:${DC.odoo}"></i></span><span class="oi-hv">${actDur(v)}</span></div>`).join('')}</div>`:'<p class="muted">No time recorded yet.</p>');
+  // people
+  const sort=A.sort||'secs';const people=d.users.slice().sort((a,b)=>sort==='name'?a.username.localeCompare(b.username):sort==='last'?(b.lastSeen||0)-(a.lastSeen||0):sort==='score'?b.score-a.score:sort==='visits'?b.visits-a.visits:b.secs-a.secs);
+  const rows=people.map(u=>{
+    const top=u.pages[0],st=u.online?'<span class="act-dot on"></span>Online':u.lastSeen?`<span class="act-dot"></span>${actAgo(u.lastSeen)}`:'<span class="act-dot off"></span>Never opened';
+    return `<tr class="actrow" data-act="act-open" data-id="${u.id}" tabindex="0"><td><span class="ac-who"><span class="ac-av sm">${esc(acInit(u.username))}</span><span><b>${esc(u.username)}</b><br>${roleChip(u.role)}</span></span></td><td>${st}</td><td>${acRing(u.score)}</td><td class="num">${u.visits} ${acDelta(u.visits,u.prev.visits)}</td><td class="num">${actDur(u.secs)}</td><td class="num">${u.sessions}</td><td class="num">${u.sessions?actDur(u.avgSession):'–'}</td><td class="num">${u.activeDays}</td><td>${acSpark(u.spark,'var(--accent)',90,24)}</td><td>${top?esc(actPage(top.page)):'–'}</td><td>${u.device?esc(acDev(u.device)):'–'}</td></tr>`;
   }).join('');
-  const users=`<section class="viz"><div><h3>People</h3><p class="muted">Click a person to see every page they opened, with timing.</p></div><div class="tablewrap"><table class="dt acttable"><thead><tr><th>Person</th><th>Status</th><th class="num">Sign-ins</th><th class="num">Page views</th><th class="num">Time spent</th><th class="num">Avg / visit</th><th class="num">Active days</th><th>Favourite page</th><th>Device</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
-  const nlog=Number(A.log),log=d.recent.slice(0,nlog);
-  const logT=`<section class="viz"><div class="row" style="justify-content:space-between"><div><h3>Latest activity</h3><p class="muted">Most recent sign-ins and pages opened.</p></div><div class="seg" role="group">${['20','50','150'].map(n=>`<button type="button" class="segb${A.log===n?' on':''}" data-act="act-log" data-n="${n}">${n}</button>`).join('')}</div></div><div class="tablewrap"><table class="dt"><thead><tr><th>When</th><th>Person</th><th>What</th><th class="num">Time on page</th><th>Device</th></tr></thead><tbody>${log.map(r=>`<tr><td class="mono">${actAt(r.at)}</td><td>${esc(r.username)}</td><td>${r.kind==='login'?'<b>Signed in</b>':'Opened '+esc(actPage(r.page))}</td><td class="num">${r.kind==='login'?'–':actDur(r.secs)}</td><td>${esc(r.device)}</td></tr>`).join('')||'<tr><td colspan="5" class="muted">Nothing recorded yet.</td></tr>'}</tbody></table></div></section>`;
-  L.innerHTML=head+strip+charts+users+logT+(d.truncated?'<p class="muted">Showing the most recent 30,000 events.</p>':'')+actModal(d);
+  const sortSel=`<select class="select ac-sort" id="act-sort" aria-label="Sort people">${[['secs','Most time'],['visits','Most page views'],['score','Engagement'],['last','Last seen'],['name','Name']].map(([k,l])=>`<option value="${k}" ${sort===k?'selected':''}>Sort: ${l}</option>`).join('')}</select>`;
+  const users=`<section class="viz"><div class="row" style="justify-content:space-between"><div><h3>People</h3><p class="muted">Click a person for their sessions, pages and full timeline. The ring is an engagement score out of 100.</p></div>${sortSel}</div><div class="tablewrap"><table class="dt acttable"><thead><tr><th>Person</th><th>Status</th><th>Engagement</th><th class="num">Page views</th><th class="num">Time spent</th><th class="num">Sessions</th><th class="num">Avg session</th><th class="num">Active days</th><th>Trend</th><th>Favourite page</th><th>Device</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
+  // timeline
+  const nlog=Number(A.log),uf=A.user||'',kf=A.kind||'';
+  let all=d.recent.filter(r=>(!uf||r.userId===uf)&&(!kf||(kf==='login'?r.kind==='login':r.kind!=='login')));const log=all.slice(0,nlog);
+  const filt=`<select class="select ac-sort" id="act-user" aria-label="Filter by person"><option value="">Everyone</option>${d.users.map(u=>`<option value="${u.id}" ${uf===u.id?'selected':''}>${esc(u.username)}</option>`).join('')}</select><select class="select ac-sort" id="act-kind" aria-label="Filter by type"><option value="">All events</option><option value="login" ${kf==='login'?'selected':''}>Sign-ins</option><option value="view" ${kf==='view'?'selected':''}>Page views</option></select>`;
+  const logT=`<section class="viz"><div class="row" style="justify-content:space-between"><div><h3>Latest activity</h3><p class="muted">Most recent sign-ins and pages opened.</p></div><div class="row">${filt}<div class="seg" role="group">${['20','50','150'].map(n=>`<button type="button" class="segb${A.log===n?' on':''}" data-act="act-log" data-n="${n}">${n}</button>`).join('')}</div></div></div><div class="tablewrap"><table class="dt"><thead><tr><th>When</th><th>Person</th><th>What</th><th class="num">Time on page</th><th>Device</th></tr></thead><tbody>${log.map(r=>`<tr><td class="mono">${actAt(r.at)}</td><td>${esc(r.username)}</td><td>${r.kind==='login'?'<b>Signed in</b>':esc(actPage(r.page))}</td><td class="num">${r.kind==='login'?'–':actDur(r.secs)}</td><td>${esc(acDev(r.device))}</td></tr>`).join('')||'<tr><td colspan="5" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></section>`;
+  L.innerHTML=head+now+strip+insHTML+`<div class="ac-grid">${daily}${heat}${pg}<div class="ac-side">${dev}${roles}</div></div>`+users+logT+(d.truncated?'<p class="muted">Showing the most recent 80,000 events.</p>':'')+actModal(d);
 }
 
 /* ---------- events ---------- */
@@ -2014,6 +2063,7 @@ document.addEventListener('click',async e=>{
   else if(a==='act-open'){S.act.open=b.dataset.id;renderAct()}
   else if(a==='act-close'){S.act.open='';renderAct()}
   else if(a==='act-log'){S.act.log=b.dataset.n;renderAct()}
+  else if(a==='act-metric'){S.act.metric=b.dataset.k;renderAct()}
   else if(a==='theme-toggle')toggleTheme();
   else if(a==='ov-kpi'){S.ov.open=S.ov.open===b.dataset.k?'':b.dataset.k;S.ov.q='';S.ov.f='';S.ov.who='';S.ov.d='';S.ov.sk='';ovRender()}
   else if(a==='ov-sort'){const i=b.dataset.i;if(String(S.ov.sk)===i)S.ov.sd=S.ov.sd==='asc'?'desc':'asc';else{S.ov.sk=i;S.ov.sd='asc'}ovRender()}
@@ -2106,6 +2156,9 @@ document.addEventListener('change',async e=>{
   else if(t.id==='ev-month'){loadEval(t.value)}
   else if(t.id==='shop-metric'){S.shop.metric=t.value;renderShop()}
   else if(t.dataset.act==='an-metric'){S.an.metric[t.dataset.id]=t.value;S.route==='meta'?renderMeta():S.route==='odoo'?renderOdoo():renderShop()}
+  else if(t.id==='act-sort'){S.act.sort=t.value;renderAct()}
+  else if(t.id==='act-user'){S.act.user=t.value;renderAct()}
+  else if(t.id==='act-kind'){S.act.kind=t.value;renderAct()}
   else if(t.id==='f-role'){S.fRole=t.value;update()}
   else if(t.id==='f-user'){S.fUser=t.value;update()}
   else if(t.id==='f-kind'){S.fKind=t.value;update()}
@@ -2194,3 +2247,5 @@ function ovRefreshTable(keepFocus){
 }
 document.addEventListener('input',e=>{const t=e.target;if(t&&t.dataset&&t.dataset.ovq&&S.route==='home'){S.ov.q=t.value;ovRefreshTable()}});
 document.addEventListener('change',e=>{const t=e.target;if(!t||!t.dataset||S.route!=='home')return;if(t.dataset.ovf){S.ov.f=t.value;ovRefreshTable()}else if(t.dataset.ovw){S.ov.who=t.value;ovRefreshTable()}else if(t.dataset.ovd){S.ov.d=t.value;ovRefreshTable()}});
+
+setInterval(()=>{if(S.route==='act'&&S.me&&!document.hidden&&S.act.data&&!S.act.open)loadAct(true)},60000);
