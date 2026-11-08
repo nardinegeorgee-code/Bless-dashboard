@@ -603,3 +603,11 @@ body.side-min .sidetog .ni{transform:rotate(180deg)}
 .ovdet{animation:ovdrop .18s ease-out}
 @keyframes ovdrop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 .ovdet .dt tr.clk{cursor:pointer}.ovdet .dt tr.clk:hover td{background:var(--surface-2)}
+
+.ovtabs{position:sticky;top:0;z-index:20;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:8px 6px;margin:0 -6px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.ovtabs::-webkit-scrollbar{display:none}
+.ovtabs button{flex:none;border:0;background:none;padding:8px 14px;border-radius:999px;font:inherit;font-weight:700;font-size:.88rem;color:var(--muted);cursor:pointer;white-space:nowrap;transition:background .15s,color .15s}
+.ovtabs button:hover{background:var(--surface-2);color:var(--ink)}
+.ovtabs button.on{background:var(--accent-soft);color:var(--ink);box-shadow:inset 0 -2px 0 var(--accent,#C05A1F)}
+.ovsec{scroll-margin-top:64px}
+html{scroll-behavior:auto}

@@ -185,7 +185,7 @@ function mount(){
 function update(){
   if(S.screen!=='app')return;renderNav();notifyNew();
   const L=$('#live');if(!L)return;const r=S.route;
-  if(r==='home'&&isAdmin())L.innerHTML=overviewHTML();
+  if(r==='home'&&isAdmin()){L.innerHTML=overviewHTML();ovSpy()}
   else if(r==='home')L.innerHTML=inboxHTML();
   else if(r==='ins')updateIns();
   else if(r==='uploads')L.innerHTML=listOrEmpty(S.subs.filter(s=>s.userId===S.me.id),'Nothing uploaded yet','Files you upload, with or without an instruction, appear here.');
@@ -247,10 +247,34 @@ function overviewHTML(){
     <section class="panel"><div class="item-top"><h2>Your team</h2><button class="btn sm" data-act="go" data-route="team">View all</button></div>${team.length?`<div class="rolebars">${roles}</div>`:'<p class="muted">Add team members on the Users page.</p>'}</section></div>`;
   const waiting=S.instructions.map(i=>({i,w:recipients(i).filter(u=>!responded(i.id,u.id))})).filter(x=>x.w.length).sort((x,y)=>y.w.length-x.w.length).slice(0,4);
   const attn=waiting.length?`<section class="panel"><div><h2>Needs a nudge</h2><p class="muted">Instructions with the most people still to respond.</p></div><div class="attn">${waiting.map(({i,w})=>`<button class="arow" data-act="go" data-route="ins" data-param="${i.id}"><b>${esc(i.title)}</b><span class="muted">${w.slice(0,4).map(u=>esc(u.username)).join(', ')}${w.length>4?' +'+(w.length-4)+' more':''}</span><span class="pill new">${w.length} waiting</span></button>`).join('')}</div></section>`:'';
-  return `<div style="display:grid;gap:18px">${hero}${ovFilters()}${kpis}${side}${attn}
-    <section style="display:grid;gap:12px"><div class="item-top"><h2>Latest instructions</h2><button class="btn sm" data-act="go" data-route="send">See all</button></div>${S.instructions.length?`<div class="list">${S.instructions.slice(0,5).map(insRowAdmin).join('')}</div>`:empty('No instructions yet','Send your first brief from Send instruction.')}</section>
-    <section style="display:grid;gap:12px"><div class="item-top"><h2>Latest from the team</h2><button class="btn sm" data-act="go" data-route="content">See all</button></div>${listOrEmpty(S.subs.slice(0,6),'Nothing received yet','Responses and uploads from your team land here.')}</section></div>`;
+  const secs=[['ov-summary','Summary'],['ov-team','Response & team'],...(attn?[['ov-nudge','Needs a nudge']]:[]),['ov-latest','Latest instructions'],['ov-files','From the team']];
+  const tabs=`<nav class="ovtabs" aria-label="Sections">${secs.map(([id,l])=>`<button type="button" data-act="ov-tab" data-sec="${id}"${S.ovSec===id?' class="on" aria-current="true"':''}>${l}</button>`).join('')}</nav>`;
+  return `<div style="display:grid;gap:18px">${hero}${ovFilters()}${tabs}<div id="ov-summary" class="ovsec">${kpis}</div><div id="ov-team" class="ovsec">${side}</div>${attn?`<div id="ov-nudge" class="ovsec">${attn}</div>`:''}
+    <section id="ov-latest" class="ovsec" style="display:grid;gap:12px"><div class="item-top"><h2>Latest instructions</h2><button class="btn sm" data-act="go" data-route="send">See all</button></div>${S.instructions.length?`<div class="list">${S.instructions.slice(0,5).map(insRowAdmin).join('')}</div>`:empty('No instructions yet','Send your first brief from Send instruction.')}</section>
+    <section id="ov-files" class="ovsec" style="display:grid;gap:12px"><div class="item-top"><h2>Latest from the team</h2><button class="btn sm" data-act="go" data-route="content">See all</button></div>${listOrEmpty(S.subs.slice(0,6),'Nothing received yet','Responses and uploads from your team land here.')}</section></div>`;
 }
+
+function ovRender(){$('#view').innerHTML=overviewHTML();ovSpy()}
+function ovSetHash(id){try{history.replaceState(null,'','#home'+(id?':'+id:''))}catch(e){}}
+let ovLock=0;
+function ovMark(id){S.ovSec=id;document.querySelectorAll('.ovtabs button').forEach(b=>{const on=b.dataset.sec===id;b.classList.toggle('on',on);if(on){b.setAttribute('aria-current','true');const bar=b.parentNode;if(bar.scrollWidth>bar.clientWidth)bar.scrollTo({left:b.offsetLeft-bar.clientWidth/2+b.offsetWidth/2,behavior:'smooth'})}else b.removeAttribute('aria-current')})}
+function ovSpy(){
+  if(S.route!=='home'||!isAdmin())return;
+  const bar=document.querySelector('.ovtabs');if(!bar)return;
+  const ids=[...bar.querySelectorAll('button')].map(b=>b.dataset.sec);
+  if(S.ovPending){const id=S.ovPending;S.ovPending=null;const el=document.getElementById(id);if(el){ovMark(id);requestAnimationFrame(()=>el.scrollIntoView());return}}
+  const keep=S.ovSec;S.ovSec=null;ovLock=0;ovOnScroll();if(!S.ovSec)ovMark(ids.includes(keep)?keep:ids[0])
+}
+function ovOnScroll(){
+  if(Date.now()<ovLock||S.route!=='home'||!isAdmin())return;
+  const bar=document.querySelector('.ovtabs');if(!bar)return;
+  const line=bar.getBoundingClientRect().bottom+30;let cur=null;
+  document.querySelectorAll('.ovsec').forEach(el=>{if(el.getBoundingClientRect().top<=line)cur=el.id});
+  if((window.innerHeight+window.scrollY)>=document.documentElement.scrollHeight-4){const all=document.querySelectorAll('.ovsec');cur=all[all.length-1].id}
+  if(!cur)cur=document.querySelector('.ovsec')?.id;
+  if(cur&&cur!==S.ovSec){ovMark(cur);ovSetHash(cur===document.querySelector('.ovsec').id?'':cur)}
+}
+let ovTick=0;window.addEventListener('scroll',()=>{if(ovTick)return;ovTick=requestAnimationFrame(()=>{ovTick=0;ovOnScroll()})},{passive:true});
 function insRowAdmin(i){
   const rec=recipients(i);const done=rec.filter(u=>responded(i.id,u.id)).length;const pct=rec.length?Math.round(done/rec.length*100):0;
   return `<button class="item" data-act="go" data-route="ins" data-param="${i.id}"><div class="item-top"><h3>${esc(i.title)}</h3><span class="mono muted">${fmtDate(i.createdAt)}</span></div>
@@ -1195,8 +1219,9 @@ document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
   if(a==='go'){e.preventDefault();go(b.dataset.route,b.dataset.param)}
   else if(a==='side-toggle')toggleSide();
-  else if(a==='ov-kpi'){S.ov.open=S.ov.open===b.dataset.k?'':b.dataset.k;$('#view').innerHTML=overviewHTML()}
-  else if(a==='ov-reset'){S.ov.role='';S.ov.period='all';$('#view').innerHTML=overviewHTML()}
+  else if(a==='ov-kpi'){S.ov.open=S.ov.open===b.dataset.k?'':b.dataset.k;ovRender()}
+  else if(a==='ov-reset'){S.ov.role='';S.ov.period='all';ovRender()}
+  else if(a==='ov-tab'){const id=b.dataset.sec,el=document.getElementById(id);if(!el)return;ovLock=Date.now()+900;ovMark(id);ovSetHash(id);el.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'})}
   else if(a==='logout')logout();
   else if(a==='shop-sync')runSync();
   else if(a==='ev-reload')loadEval();
@@ -1339,7 +1364,7 @@ document.addEventListener('submit',async e=>{
   else if(k==='up-free')submitUpload('free');
 });
 
-(function(){try{const h=location.hash.slice(1);if(h.startsWith('ins-')){S.route='ins';S.param=h.slice(4)}else if(['home','uploads','notes','team','send','content','users','shop','eval','odoo','meta'].includes(h))S.route=h}catch(e){}})();
+(function(){try{let h=location.hash.slice(1);if(h.startsWith('home:')){S.ovSec=S.ovPending=h.slice(5);h='home'}if(h.startsWith('ins-')){S.route='ins';S.param=h.slice(4)}else if(['home','uploads','notes','team','send','content','users','shop','eval','odoo','meta'].includes(h))S.route=h}catch(e){}})();
 boot();
 
 /* Side charts (pies and bar panels) can be dragged out of the way. Position is remembered while the page is open; double-click the title to put it back. */
@@ -1356,4 +1381,4 @@ boot();
   document.addEventListener('dblclick',e=>{const t=e.target.closest&&e.target.closest('aside.viz .viz-t');if(!t)return;const v=t.closest('.viz');delete pos[keyOf(v)];v.style.transform=''});
 })();
 
-document.addEventListener('change',e=>{const t=e.target;if(t&&t.dataset&&t.dataset.ov&&S.route==='home'&&isAdmin()){S.ov[t.dataset.ov]=t.value;$('#view').innerHTML=overviewHTML()}});
+document.addEventListener('change',e=>{const t=e.target;if(t&&t.dataset&&t.dataset.ov&&S.route==='home'&&isAdmin()){S.ov[t.dataset.ov]=t.value;ovRender()}});
