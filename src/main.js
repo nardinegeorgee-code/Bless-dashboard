@@ -299,13 +299,21 @@ const pvAgo=t=>{if(!t)return '';const m=Math.round((Date.now()-t)/6e4);return m<
 /** Show whatever was saved last (instantly), then refresh it behind the scenes when it is older than 10 minutes. */
 async function pvRun(key,force){
   const P=S.pulse,[url,set,cacheable]=pvJob(key);delete P.err[key];P.upd=P.upd||{};P.busy=P.busy||{};
+  const get=async(suffix,retry)=>{
+    try{const d=await api('GET',url+suffix,null,65000);if(d&&d.configured===false)throw new Error('Not connected yet. Add its keys in Vercel, then reload.');return d}
+    catch(e){
+      // The server keeps working after we stop waiting and saves its answer, so one more try a few seconds later is usually instant.
+      if(!retry&&/taking longer|Server error|went wrong|reach the server/i.test(e.message||'')){await new Promise(r=>setTimeout(r,4000));return get(suffix,true)}
+      throw e}
+  };
   let at=force?0:(P.upd[key]||0);
   if(!P[key]&&cacheable&&!force){
-    try{const d=await api('GET',url+'&stale=1',null,50000);if(d&&d.configured===false)throw new Error('Not connected yet. Add its keys in Vercel, then reload.');set(d);at=P.upd[key]=d._cachedAt||Date.now();P.done[key]=1;pvFill()}catch(e){if(!P[key]){P.err[key]=e.message||'Could not load';P.done[key]=1;pvFill();return}}
+    try{const d=await get('&stale=1');set(d);at=P.upd[key]=d._cachedAt||Date.now();P.done[key]=1;pvFill()}
+    catch(e){P.err[key]=e.message||'Could not load';P.done[key]=1;pvFill();return}
   }
   if(at&&Date.now()-at<10*60e3){P.done[key]=1;pvFill();return}
   P.busy[key]=1;pvFill();
-  try{const d=await api('GET',url+(force?'&refresh=1':''),null,50000);if(d&&d.configured===false)throw new Error('Not connected yet. Add its keys in Vercel, then reload.');set(d);P.upd[key]=Date.now()}
+  try{const d=await get(force?'&refresh=1':'');set(d);P.upd[key]=Date.now()}
   catch(e){if(!P[key])P.err[key]=e.message||'Could not load'}
   delete P.busy[key];P.done[key]=1;pvFill();
 }
@@ -316,7 +324,8 @@ async function loadPulse(force){
   if(!force&&Date.now()-P.at<60e3){pvFill();return}
   P.loading=true;P.at=Date.now();P.err={};
   const iv=setInterval(pvFill,1000);
-  await Promise.all(PV_KEYS.map(k=>pvRun(k,force)));
+  // Odoo answers one thing at a time and Meta rate-limits, so its three requests go in a row instead of all at once
+  await Promise.all([pvRun('shop',force),pvRun('meta',force),pvRun('ev',force),pvRun('act',force),(async()=>{await pvRun('odoo',force);await pvRun('stock',force);await pvRun('trend',force)})()]);
   clearInterval(iv);P.loading=false;pvSave();pvFill();
 }
 function pvFill(){
