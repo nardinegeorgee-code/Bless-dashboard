@@ -15,7 +15,7 @@ const ROLES=[
 const ROLE=Object.fromEntries(ROLES.map(r=>[r.key,r]));
 const TYPES={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml',mp4:'video/mp4',webm:'video/webm',pdf:'application/pdf',txt:'text/plain',csv:'text/csv',md:'text/markdown',json:'application/json'};
 
-const S={ov:{role:'',period:'all',open:'',q:'',f:''},reads:new Set(),seenUnread:null,comments:[],revs:[],thr:{},draft:{},amend:null,amendFiles:[],shop:{month:'',metric:'revenue',best:'units',geo:'countries',data:null,loading:false,err:'',syncing:false,syncMsg:''},sel:new Set(),assets:true,lastJson:'',users:[],instructions:[],subs:[],usersReady:false,screen:null,me:null,route:'home',param:null,
+const S={ov:{role:'',period:'all',open:'',q:'',f:'',who:'',d:'',sk:'',sd:'asc'},reads:new Set(),seenUnread:null,comments:[],revs:[],thr:{},draft:{},amend:null,amendFiles:[],shop:{month:'',metric:'revenue',best:'units',geo:'countries',data:null,loading:false,err:'',syncing:false,syncMsg:''},sel:new Set(),assets:true,lastJson:'',users:[],instructions:[],subs:[],usersReady:false,screen:null,me:null,route:'home',param:null,
   sendRoles:new Set(),sendUsers:new Set(),fRole:'',fUser:'',fKind:'',pwOpen:null,picked:{}};
 
 /* ---------- helpers ---------- */
@@ -212,34 +212,50 @@ function ovCtx(){
   const cut=ovCut(),fr=S.ov.role;
   return {team:S.users.filter(u=>u.role!=='super_admin'&&(!fr||u.role===fr)),ins:S.instructions.filter(i=>i.createdAt>=cut&&(!fr||recipients(i).some(u=>u.role===fr))),subs:S.subs.filter(x=>x.createdAt>=cut&&(!fr||x.role===fr))};
 }
-const OV_STATUS={team:[['','Everyone'],['waiting','Has waiting items'],['clear','All answered']],sent:[['','All instructions'],['full','Fully answered'],['part','Partly answered'],['none','No response yet']],waiting:[['','Any time'],['3','Waiting 3+ days'],['7','Waiting 7+ days'],['14','Waiting 14+ days']],files:[['','All file types'],['image','Images'],['video','Videos'],['doc','Documents'],['other','Other']]};
-const OV_SEARCH={team:'Search a person',sent:'Search an instruction',waiting:'Search a person or instruction',files:'Search a person or instruction'};
+const OV_STATUS={team:[['','All statuses'],['waiting','Has waiting items'],['clear','All answered']],sent:[['','All statuses'],['full','Fully answered'],['part','Partly answered'],['none','No response yet']],waiting:[['','Any waiting time'],['3','Waiting 3+ days'],['7','Waiting 7+ days'],['14','Waiting 14+ days']],files:[['','All file types'],['image','Images'],['video','Videos'],['doc','Documents'],['other','Other']]};
+const OV_SEARCH={team:'Search people or roles',sent:'Search instructions',waiting:'Search people or instructions',files:'Search people or instructions'};
+const OV_DATES=[['','Any date'],['7','Last 7 days'],['30','Last 30 days'],['90','Last 90 days']];
 const ovPlural=(n,w)=>n+' '+w+(n===1?'':'s');
+const ovPlain=h=>String(h).replace(/<[^>]*>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
 function ovTable(k,team,ins,subs){
-  const th=a=>`<thead><tr>${a.map(x=>`<th>${x}</th>`).join('')}</tr></thead>`,days=t=>Math.max(0,Math.floor((Date.now()-t)/864e5));
-  const rl=r=>(ROLES.find(x=>x.key===r)||{label:r}).label,rec=i=>recipients(i).filter(u=>!S.ov.role||u.role===S.ov.role);
-  const q=(S.ov.q||'').trim().toLowerCase(),st=S.ov.f||'',has=(...a)=>!q||a.some(x=>String(x||'').toLowerCase().includes(q));
+  const days=t=>Math.max(0,Math.floor((Date.now()-t)/864e5)),o=S.ov;
+  const rl=r=>(ROLES.find(x=>x.key===r)||{label:r}).label,rec=i=>recipients(i).filter(u=>!o.role||u.role===o.role);
+  const q=(o.q||'').trim().toLowerCase(),st=o.f||'',who=o.who||'',dd=o.d?Date.now()-Number(o.d)*864e5:0,has=(...a)=>!q||a.some(x=>String(x||'').toLowerCase().includes(q));
   const kind=f=>{const t=String(f.type||'');return t.startsWith('image/')?'image':t.startsWith('video/')?'video':/pdf|word|sheet|excel|powerpoint|presentation|text|csv|document/.test(t)?'doc':'other'};
-  let body='',n=0;
-  if(k==='team'){
-    const rows=team.map(u=>{const mine=ins.filter(i=>rec(i).some(x=>x.id===u.id)),done=mine.filter(i=>responded(i.id,u.id)).length;return {u,mine:mine.length,done,wait:mine.length-done}}).filter(r=>has(r.u.username,rl(r.u.role))&&(!st||(st==='waiting'?r.wait>0:r.wait===0)));
-    n=rows.length;body=`<table class="dt">${th(['Person','Role','Instructions received','Responded','Waiting'])}<tbody>${rows.map(r=>`<tr><td><b>${esc(r.u.username)}</b></td><td>${esc(rl(r.u.role))}</td><td class="num">${r.mine}</td><td class="num">${r.done}</td><td class="num">${r.wait?`<b style="color:var(--warn)">${r.wait}</b>`:0}</td></tr>`).join('')}</tbody></table>`}
-  else if(k==='sent'){
-    const rows=ins.map(i=>{const r=rec(i),d=r.filter(u=>responded(i.id,u.id)).length;return {i,n:r.length,d,state:r.length&&d===r.length?'full':d?'part':'none'}}).filter(r=>has(r.i.title)&&(!st||r.state===st));
-    n=rows.length;body=`<table class="dt">${th(['Instruction','Sent','To','Responded'])}<tbody>${rows.map(({i,n:c,d})=>`<tr class="clk" data-act="go" data-route="ins" data-param="${i.id}"><td><b>${esc(i.title)}</b></td><td>${fmtDate(i.createdAt)}</td><td>${esc(ovPlural(c,'person').replace('persons','people'))}</td><td class="num">${d}/${c}</td></tr>`).join('')}</tbody></table>`}
-  else if(k==='waiting'){
-    const rows=[];ins.forEach(i=>rec(i).filter(u=>!responded(i.id,u.id)).forEach(u=>rows.push({i,u,d:days(i.createdAt)})));
-    const f=rows.filter(r=>has(r.u.username,r.i.title,rl(r.u.role))&&(!st||r.d>=Number(st))).sort((a,b)=>b.d-a.d);
-    n=f.length;body=`<table class="dt">${th(['Person','Role','Instruction','Sent','Waiting'])}<tbody>${f.map(({i,u,d})=>`<tr class="clk" data-act="go" data-route="ins" data-param="${i.id}"><td><b>${esc(u.username)}</b></td><td>${esc(rl(u.role))}</td><td>${esc(i.title)}</td><td>${fmtDate(i.createdAt)}</td><td class="num">${ovPlural(d,'day')}</td></tr>`).join('')}</tbody></table>`}
-  else{
-    const rows=subs.filter(x=>{const i=S.instructions.find(z=>z.id===x.instructionId);return has(x.username,i&&i.title,rl(x.role))&&(!st||(x.files||[]).some(f=>kind(f)===st))});
-    n=rows.length;body=`<table class="dt">${th(['Person','Role','For instruction','Files','Received'])}<tbody>${rows.map(x=>{const i=S.instructions.find(z=>z.id===x.instructionId);return `<tr class="clk" data-act="go" data-route="content"><td><b>${esc(x.username)}</b></td><td>${esc(rl(x.role))}</td><td>${esc(i?i.title:'No instruction')}</td><td class="num">${(x.files||[]).length}</td><td>${fmtDate(x.createdAt)}</td></tr>`}).join('')}</tbody></table>`}
-  return {n,html:n?`<div class="tablewrap">${body}</div>`:'<p class="muted">Nothing matches these filters.</p>'};
+  const titleOf=id=>{const i=S.instructions.find(z=>z.id===id);return i?i.title:'No instruction'};
+  let cols,rows=[];
+  const push=(cells,vals,attr)=>rows.push({cells,vals,attr:attr||''});
+  if(k==='team'){cols=[['Person'],['Role'],['Instructions received',1],['Responded',1],['Waiting',1]];
+    team.forEach(u=>{const mine=ins.filter(i=>rec(i).some(x=>x.id===u.id)),done=mine.filter(i=>responded(i.id,u.id)).length,wait=mine.length-done;
+      if(!has(u.username,rl(u.role))||(who&&u.id!==who)||(st&&(st==='waiting'?wait<=0:wait!==0)))return;
+      push([`<b>${esc(u.username)}</b>`,esc(rl(u.role)),mine.length,done,wait?`<b style="color:var(--warn)">${wait}</b>`:'0'],[u.username.toLowerCase(),rl(u.role),mine.length,done,wait])})}
+  else if(k==='sent'){cols=[['Instruction'],['Sent'],['To'],['Responded',1],['Progress']];
+    ins.forEach(i=>{const r=rec(i),d=r.filter(u=>responded(i.id,u.id)).length,state=r.length&&d===r.length?'full':d?'part':'none';
+      if(!has(i.title)||(st&&state!==st)||(dd&&i.createdAt<dd)||(who&&!r.some(u=>u.id===who)))return;
+      const pc=r.length?Math.round(d/r.length*100):0;
+      push([`<b>${esc(i.title)}</b>`,fmtDate(i.createdAt),esc(ovPlural(r.length,'person').replace('persons','people')),d+'/'+r.length,`<span class="ovprog"><i style="width:${pc}%"></i></span><span class="ovpct">${pc}%</span>`],[i.title.toLowerCase(),i.createdAt,r.length,d,pc],`data-act="go" data-route="ins" data-param="${i.id}"`)})}
+  else if(k==='waiting'){cols=[['Person'],['Role'],['Instruction'],['Sent'],['Waiting',1]];
+    ins.forEach(i=>rec(i).filter(u=>!responded(i.id,u.id)).forEach(u=>{const d=days(i.createdAt);
+      if(!has(u.username,i.title,rl(u.role))||(who&&u.id!==who)||(st&&d<Number(st))||(dd&&i.createdAt<dd))return;
+      push([`<b>${esc(u.username)}</b>`,esc(rl(u.role)),esc(i.title),fmtDate(i.createdAt),ovPlural(d,'day')],[u.username.toLowerCase(),rl(u.role),i.title.toLowerCase(),i.createdAt,d],`data-act="go" data-route="ins" data-param="${i.id}"`)}))}
+  else{cols=[['Person'],['Role'],['For instruction'],['Files',1],['Received']];
+    subs.forEach(x=>{const t=titleOf(x.instructionId);
+      if(!has(x.username,t,rl(x.role))||(who&&x.userId!==who)||(st&&!(x.files||[]).some(f=>kind(f)===st))||(dd&&x.createdAt<dd))return;
+      push([`<b>${esc(x.username)}</b>`,esc(rl(x.role)),esc(t),(x.files||[]).length,fmtDate(x.createdAt)],[x.username.toLowerCase(),rl(x.role),t.toLowerCase(),(x.files||[]).length,x.createdAt],'data-act="go" data-route="content"')})}
+  if(o.sk!==undefined&&o.sk!==''&&o.sk<cols.length){const i=Number(o.sk),dir=o.sd==='asc'?1:-1;rows.sort((a,b)=>(a.vals[i]>b.vals[i]?1:a.vals[i]<b.vals[i]?-1:0)*dir)}
+  else if(k==='waiting')rows.sort((a,b)=>b.vals[4]-a.vals[4]);
+  const arrow=i=>Number(o.sk)===i&&o.sk!==''?(o.sd==='asc'?' ▲':' ▼'):'';
+  S.ovLast={name:k,head:cols.map(c=>c[0]),rows:rows.map(r=>r.cells.map(c=>ovPlain(c)))};
+  return {n:rows.length,html:rows.length?`<div class="tablewrap"><table class="dt ovt"><thead><tr>${cols.map((c,i)=>`<th class="${c[1]?'num ':''}srt${Number(o.sk)===i&&o.sk!==''?' on':''}" data-act="ov-sort" data-i="${i}" role="button" tabindex="0">${c[0]}<em>${arrow(i)}</em></th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr class="${r.attr?'clk':''}" ${r.attr}>${r.cells.map((c,i)=>`<td class="${cols[i][1]?'num':''}">${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:'<div class="ovnone"><b>Nothing matches these filters</b><span class="muted">Try a different search or clear the filters.</span></div>'};
 }
 function ovDetail(k,team,ins,subs){
   const title={team:'Team members',sent:'Instructions sent',waiting:'Still waiting for a response',files:'Files received'}[k],t=ovTable(k,team,ins,subs),o=S.ov;
-  return `<section class="panel ovdet"><div class="item-top"><h2>${title}</h2><button class="btn sm" data-act="ov-kpi" data-k="${k}">Close</button></div>
-    <div class="ovfilters"><input class="input" type="search" data-ovq="1" placeholder="${OV_SEARCH[k]}" value="${esc(o.q||'')}" style="min-width:220px"><select class="input" data-ovf="1">${OV_STATUS[k].map(([v,l])=>`<option value="${v}"${(o.f||'')===v?' selected':''}>${l}</option>`).join('')}</select><span class="muted ovcount" style="font-size:.85rem">${t.n} shown</span>${(o.q||o.f)?'<button class="btn sm" data-act="ov-clear-sub">Clear</button>':''}</div>
+  const people=k==='sent'?team:(k==='files'?[...new Map(subs.map(x=>[x.userId,{id:x.userId,username:x.username}])).values()]:team).slice().sort((a,b)=>a.username.localeCompare(b.username));
+  const sel=(key,attr,opts)=>`<select class="ovsel" ${attr}="1" aria-label="${key}">${opts.map(([v,l])=>`<option value="${esc(v)}"${(o[key]||'')===v?' selected':''}>${esc(l)}</option>`).join('')}</select>`;
+  const active=!!(o.q||o.f||o.who||o.d||(o.sk!==undefined&&o.sk!==''));
+  return `<section class="panel ovdet"><div class="item-top"><div><h2>${title}</h2><p class="muted ovcount" style="font-size:.85rem">${t.n} result${t.n===1?'':'s'}</p></div><div class="row" style="gap:8px"><button class="btn sm" data-act="ov-export">Export CSV</button><button class="btn sm" data-act="ov-kpi" data-k="${k}">Close</button></div></div>
+    <div class="ovtool"><label class="ovsr"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.500"/><path d="m20 20-4-4"/></svg><input type="search" data-ovq="1" placeholder="${OV_SEARCH[k]}" value="${esc(o.q||'')}"></label>
+      ${sel('f','data-ovf',OV_STATUS[k])}${sel('who','data-ovw',[['','All people'],...people.map(u=>[u.id,u.username])])}${k==='team'?'':sel('d','data-ovd',OV_DATES)}${active?'<button class="btn sm ghost" data-act="ov-clear-sub">Clear all</button>':''}</div>
     <div class="ovtbl">${t.html}</div></section>`;
 }
 function overviewHTML(){
@@ -1281,8 +1297,10 @@ document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
   if(a==='go'){e.preventDefault();go(b.dataset.route,b.dataset.param)}
   else if(a==='side-toggle')toggleSide();
-  else if(a==='ov-kpi'){S.ov.open=S.ov.open===b.dataset.k?'':b.dataset.k;S.ov.q='';S.ov.f='';ovRender()}
-  else if(a==='ov-clear-sub'){S.ov.q='';S.ov.f='';ovRender()}
+  else if(a==='ov-kpi'){S.ov.open=S.ov.open===b.dataset.k?'':b.dataset.k;S.ov.q='';S.ov.f='';S.ov.who='';S.ov.d='';S.ov.sk='';ovRender()}
+  else if(a==='ov-sort'){const i=b.dataset.i;if(String(S.ov.sk)===i)S.ov.sd=S.ov.sd==='asc'?'desc':'asc';else{S.ov.sk=i;S.ov.sd='asc'}ovRender()}
+  else if(a==='ov-export'){const L=S.ovLast;if(!L)return;const csv=[L.head,...L.rows].map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n'),a2=document.createElement('a');a2.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv'}));a2.download='overview-'+L.name+'.csv';a2.click();setTimeout(()=>URL.revokeObjectURL(a2.href),2000)}
+  else if(a==='ov-clear-sub'){S.ov.q='';S.ov.f='';S.ov.who='';S.ov.d='';S.ov.sk='';ovRender()}
   else if(a==='ov-reset'){S.ov.role='';S.ov.period='all';ovRender()}
   else if(a==='ov-tab'){const id=b.dataset.sec,el=document.getElementById(id);if(!el)return;ovLock=Date.now()+900;ovMark(id);ovSetHash(id);el.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'})}
   else if(a==='logout')logout();
@@ -1446,10 +1464,14 @@ boot();
 
 document.addEventListener('change',e=>{const t=e.target;if(t&&t.dataset&&t.dataset.ov&&S.route==='home'&&isAdmin()){S.ov[t.dataset.ov]=t.value;ovRender()}});
 
-function ovRefreshTable(){
-  const box=document.querySelector('.ovtbl');if(!box||!S.ov.open)return;
-  const c=ovCtx(),t=ovTable(S.ov.open,c.team,c.ins,c.subs);box.innerHTML=t.html;
-  const n=document.querySelector('.ovcount');if(n)n.textContent=t.n+' shown';
+function ovRefreshTable(keepFocus){
+  const box=document.querySelector('.ovdet');if(!box||!S.ov.open)return;
+  const c=ovCtx(),tmp=document.createElement('div');tmp.innerHTML=ovDetail(S.ov.open,c.team,c.ins,c.subs);
+  const nt=tmp.querySelector('.ovtbl'),ot=box.querySelector('.ovtbl');if(ot&&nt)ot.innerHTML=nt.innerHTML;
+  const cn=tmp.querySelector('.ovcount'),oc=box.querySelector('.ovcount');if(oc&&cn)oc.textContent=cn.textContent;
+  const ct=tmp.querySelector('.ovtool'),ot2=box.querySelector('.ovtool');
+  const had=!!ot2.querySelector('[data-act=ov-clear-sub]'),has=!!ct.querySelector('[data-act=ov-clear-sub]');
+  if(had!==has){if(has)ot2.insertAdjacentHTML('beforeend','<button class="btn sm ghost" data-act="ov-clear-sub">Clear all</button>');else ot2.querySelector('[data-act=ov-clear-sub]').remove()}
 }
 document.addEventListener('input',e=>{const t=e.target;if(t&&t.dataset&&t.dataset.ovq&&S.route==='home'){S.ov.q=t.value;ovRefreshTable()}});
-document.addEventListener('change',e=>{const t=e.target;if(t&&t.dataset&&t.dataset.ovf&&S.route==='home'){S.ov.f=t.value;ovRefreshTable()}});
+document.addEventListener('change',e=>{const t=e.target;if(!t||!t.dataset||S.route!=='home')return;if(t.dataset.ovf){S.ov.f=t.value;ovRefreshTable()}else if(t.dataset.ovw){S.ov.who=t.value;ovRefreshTable()}else if(t.dataset.ovd){S.ov.d=t.value;ovRefreshTable()}});
