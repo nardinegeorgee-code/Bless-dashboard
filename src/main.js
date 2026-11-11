@@ -1714,9 +1714,10 @@ function anTable(sec){
     const total=sec.rows.reduce((a,r)=>a+(Number(r[barCol.key])||0),0);
     const anyPic=sec.rows.some(r=>r.img);
     const donut=barCol.barReverse?'':shareDonut(sec,barCol);
+    const jump=!!sec.link&&S.route==='odoo'&&S.od.tab==='brief';
     const lim=sec.initial||0,open=!!S.more[sec.id],hide=lim&&!open&&sec.rows.length>lim?sec.rows.length-lim:0;
     const list=`<div class="rkl">${sec.rows.map((r,i)=>{if(hide&&i>=lim)return '';const v=Number(r[barCol.key])||0,w=barCol.barReverse?(1-Math.min(1,v/maxv)):v/maxv;
-      return `<div class="rkr${anyPic?' hp':''}" data-detail tabindex="0" role="button" aria-expanded="false"><span class="rkn">${i+1}</span>${anyPic?(r.img?pic(r,52):'<span class="pimg ph" aria-hidden="true"></span>'):''}<div class="rkmain"><div class="rkt"><b title="${esc(String(r[nameCol.key]&&r[nameCol.key].text||r[nameCol.key]||''))}">${cellText(r[nameCol.key],nameCol.fmt)}</b><span class="rkv mono">${cellText(r[barCol.key],barCol.fmt)}</span></div><span class="rkbar"><i style="width:${Math.max(2,w*100)}%"></i></span>${rest.length?`<div class="rkchips">${rest.map(c=>rkChip(c,r[c.key])).join('')}</div>`:''}<div class="rkdetail">${rowDetail(sec,r,i,barCol,total)}</div></div></div>`}).join('')}${lim&&sec.rows.length>lim?`<button class="btn sm seemore" data-act="see-more" data-id="${esc(sec.id)}">${hide?'See '+hide+' more':'Show less'}</button>`:''}</div>`;
+      return `<div class="rkr${anyPic?' hp':''}${jump?' jump':''}" ${jump?`data-act="od-tab" data-tab="${esc(sec.link)}" title="Open the full details"`:'data-detail'} tabindex="0" role="button"${jump?'':' aria-expanded="false"'}><span class="rkn">${i+1}</span>${anyPic?(r.img?pic(r,52):'<span class="pimg ph" aria-hidden="true"></span>'):''}<div class="rkmain"><div class="rkt"><b title="${esc(String(r[nameCol.key]&&r[nameCol.key].text||r[nameCol.key]||''))}">${cellText(r[nameCol.key],nameCol.fmt)}</b><span class="rkv mono">${cellText(r[barCol.key],barCol.fmt)}</span></div><span class="rkbar"><i style="width:${Math.max(2,w*100)}%"></i></span>${rest.length?`<div class="rkchips">${rest.map(c=>rkChip(c,r[c.key])).join('')}</div>`:''}${jump?'<span class="rkgo" aria-hidden="true">Open details →</span>':`<div class="rkdetail">${rowDetail(sec,r,i,barCol,total)}</div>`}</div></div>`}).join('')}${lim&&sec.rows.length>lim?`<button class="btn sm seemore" data-act="see-more" data-id="${esc(sec.id)}">${hide?'See '+hide+' more':'Show less'}</button>`:''}</div>`;
     return donut?`<div class="splitc">${list}${donut}</div>`:list;
   }
   if(cols.some(c=>c.rate)){
@@ -1896,7 +1897,7 @@ function anActions(sec){
     +((sec.gaps||[]).length?`<p class="muted" style="font-size:.8rem">Not included, because Odoo did not return it: ${sec.gaps.map(esc).join(' · ')}</p>`:'');
 }
 function anSection(sec){
-  const head=`<div><h2>${esc(sec.title)}</h2>${sec.note?`<p class="muted" style="font-size:.85rem">${esc(sec.note)}</p>`:''}</div>`;
+  const goTab=sec.link&&S.route==='odoo'&&S.od.tab==='brief',head=`<div class="sechead"><div><h2>${esc(sec.title)}</h2>${sec.note?`<p class="muted" style="font-size:.85rem">${esc(sec.note)}</p>`:''}</div>${goTab?`<button class="btn sm" data-act="od-tab" data-tab="${esc(sec.link)}">Open full details →</button>`:''}</div>`;
   if(sec.error)return `<section class="panel an" style="border-color:var(--warn)">${head}<p class="body-text"><b style="color:var(--warn)">This part could not be loaded.</b> ${esc(sec.error)}</p></section>`;
   let body='';
   try{
@@ -2188,7 +2189,7 @@ function arm(btn){if(btn.dataset.armed)return true;btn.dataset.armed='1';btn.cla
 
 function toggleDetail(r){const o=!r.classList.contains('open');r.classList.toggle('open',o);r.setAttribute('aria-expanded',String(o))}
 document.addEventListener('click',e=>{const r=e.target.closest('[data-detail]');if(!r||e.target.closest('a,button,input,select,textarea,[data-act],.rkdetail'))return;toggleDetail(r)});
-document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches&&e.target.matches('[data-detail]')){e.preventDefault();toggleDetail(e.target)}});
+document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches&&e.target.matches('[data-detail]')){e.preventDefault();toggleDetail(e.target)}else if((e.key==='Enter'||e.key===' ')&&e.target.matches&&e.target.matches('.rkr.jump')){e.preventDefault();e.target.click()}});
 document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
   if(a==='go'){e.preventDefault();go(b.dataset.route,b.dataset.param)}

@@ -410,7 +410,9 @@ export function briefSections(cfg, ctx, h) {
   };
 
   const stmt = (style, code, name, now, prev, I, pI) => ({ style, code, name, now, ofRev: I ? pct(now, I) : null, prev, ofRevP: pI ? pct(prev, pI) : null, diff: now - prev, chg: prev ? r1(((now - prev) / Math.abs(prev)) * 100) : null });
-  const sec = (chapter, ...a) => { const run = section(...a); const f = async () => ({ ...(await run()), chapter }); f.sid = a[0]; return f; };
+  // Where each part of the brief is explained in full: clicking it opens that Odoo tab.
+  const LINK = { trend: 'sales', bridge: 'sales', pvm: 'sales', movers: 'sales', segments: 'distributors', abc: 'distributors', quiet: 'distributors', reps: 'people', leaks: 'profit', cover: 'finished', aging: 'in', collect: 'in', suppliers: 'suppliers', prices: 'suppliers', pltrend: 'pnl', pl: 'pnl', bs: 'balance' };
+  const sec = (chapter, ...a) => { const run = section(...a); const f = async () => ({ ...(await run()), chapter, link: LINK[a[0]] || undefined }); f.sid = a[0]; return f; };
   const top3 = (list) => names(list, (r) => `${r.name} (${signed(r.value)})`, 3);
   return [
     sec('Summary', 'actions', `Management summary and priorities (${ctx.monthLabel})`, 'actions', actions),
