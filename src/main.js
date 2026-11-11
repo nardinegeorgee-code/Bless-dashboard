@@ -1856,6 +1856,29 @@ function anSheet(sec){
   ${log}`:`<div class="empty"><b>No courier sheet saved yet</b><span>${ed?'Use Add or update orders above to paste or upload your courier sheet.':'Ask the Super Admin to add the courier sheet.'}</span></div>${log}`}
   </div>`;
 }
+/* ---- Executive brief: bridge chart (what moved a total from one figure to another) ---- */
+function anBridge(sec){
+  const st=(sec.steps||[]).filter(x=>x.total||Math.abs(x.amount)>=.5||x.n);if(st.length<3)return '<p class="muted">Not enough to compare in these two periods.</p>';
+  let run=0;const bars=st.map(x=>{let a,z;if(x.total){a=0;z=x.amount;run=x.amount}else{a=run;run+=x.amount;z=run}return {...x,a,z}});
+  const ends=bars.flatMap(b=>b.total?[b.z]:[b.a,b.z]),hi=Math.max(1,...ends),mn=Math.min(...ends),base=mn>0?Math.max(0,mn-(hi-mn)*.6):Math.min(0,mn);
+  const W=780,H=270,pl=10,pt=30,pb=52,n=bars.length,slot=(W-pl*2)/n,bw=Math.min(78,slot-20),Y=v=>pt+(hi-Math.max(base,v))/(hi-base||1)*(H-pt-pb);
+  const two=s=>{const w=String(s).split(' '),l=[''];w.forEach(x=>{if((l[l.length-1]+' '+x).trim().length>13&&l.length<2)l.push(x);else l[l.length-1]=(l[l.length-1]+' '+x).trim()});return l};
+  let g='';
+  bars.forEach((b,i)=>{const cx=pl+(i+.5)*slot,from=b.total?base:b.a,y1=Y(Math.max(from,b.z)),y2=Y(Math.min(from,b.z)),col=b.total?'var(--accent)':b.amount>=0?'var(--good)':'var(--bad)';
+    g+=`<rect x="${(cx-bw/2).toFixed(1)}" y="${y1.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(2,y2-y1).toFixed(1)}" rx="4" fill="${col}" opacity="${b.total?1:.88}"><title>${esc(b.step)}: ${esc(fv(b.amount,'money'))}</title></rect>`
+      +`<text x="${cx.toFixed(1)}" y="${(y1-7).toFixed(1)}" text-anchor="middle" class="xbr-v" fill="${b.total?'var(--ink)':col}">${b.total?'':b.amount>=0?'+':''}${esc(shortNum(Math.round(b.amount)))}</text>`
+      +two(b.step).map((l,k)=>`<text x="${cx.toFixed(1)}" y="${H-pb+18+k*13}" text-anchor="middle" class="xbr-l">${esc(l)}</text>`).join('');
+    if(i<n-1)g+=`<line x1="${(cx+bw/2).toFixed(1)}" x2="${(cx+slot-bw/2).toFixed(1)}" y1="${Y(b.z).toFixed(1)}" y2="${Y(b.z).toFixed(1)}" class="xbr-c"/>`});
+  const start=bars[0].amount,rows=bars.map(b=>`<tr class="${b.total?'stm stm-total':''}"><td>${esc(b.step)}</td><td class="num mono" style="color:${b.total?'inherit':b.amount>=0?'var(--good)':'var(--bad)'}">${b.total?'':b.amount>=0?'+':''}${esc(fv(b.amount,'money'))}</td><td class="num mono">${b.total||!start?'':(b.amount/start*100).toFixed(1)+'%'}</td><td class="num mono">${b.n===undefined?'':fmtNum(b.n)}</td><td>${esc(b.who||'')}</td></tr>`).join('');
+  return `<div class="xbr"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(sec.title)}">${g}</svg>${base>0?`<p class="muted xbr-n">The two end bars are cut at ${esc(fv(base,'money'))} so the changes between them are easy to see.</p>`:''}</div>
+  <div class="tablewrap"><table class="dt"><thead><tr><th>Step</th><th class="num">Effect on sales</th><th class="num">Of the start</th><th class="num">${esc(sec.unit?sec.unit.charAt(0).toUpperCase()+sec.unit.slice(1):'Count')}</th><th>Mostly</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+/* ---- Executive brief: financial ratios with a benchmark and a verdict ---- */
+function anRatios(sec){
+  const groups=[...new Set(sec.ratios.map(r=>r.group))],lab={good:'Healthy',ok:'Watch',bad:'Weak'};
+  return groups.map(gp=>`<h3 class="sub">${esc(gp)}</h3><div class="rt-grid">${sec.ratios.filter(r=>r.group===gp).map(r=>{const ch=r.prev!==undefined&&r.f!=='money'?r.v-r.prev:null;
+    return `<div class="rt ${r.status||''}"><div class="rt-top"><span>${esc(r.l)}</span>${r.status?`<i class="rt-st">${lab[r.status]}</i>`:''}</div><b>${esc(fv(r.v,r.f))}</b>${r.prev!==undefined?`<small>was ${esc(fv(r.prev,r.f))}${ch!==null&&Math.abs(ch)>=.05?' · '+(ch>0?'▲':'▼')+' '+Math.abs(ch).toFixed(r.f==='x'?2:1)+(r.f==='pct'?' pts':''):''}</small>`:''}${r.bench?`<p class="rt-b">${esc(r.bench)}</p>`:''}<p class="rt-h">${esc(r.how)}</p></div>`}).join('')}</div>`).join('');
+}
 /* ---- Executive brief: ranked actions with the money attached ---- */
 const XB_TONE={bad:'Act now',warn:'Watch closely',info:'Improve',good:'Working well'};
 function anActions(sec){
@@ -1867,7 +1890,8 @@ function anActions(sec){
   const sc=sec.score,has=sc!==null&&sc!==undefined,col=sc>=70?'var(--good)':sc>=45?'var(--warn)':'var(--bad)',tone=v=>v>=.7?'var(--good)':v>=.45?'var(--warn)':'var(--bad)';
   const top=`<div class="xb-top">${has?`<div class="xb-score" style="--sc:${col}"><svg viewBox="0 0 120 120" role="img" aria-label="Business health ${sc} out of 100"><circle cx="60" cy="60" r="52" class="xb-r0"/><circle cx="60" cy="60" r="52" class="xb-r1" stroke-dasharray="${(sc/100*326.7).toFixed(1)} 326.7" transform="rotate(-90 60 60)"/><text x="60" y="66" text-anchor="middle" class="xb-sn">${sc}</text><text x="60" y="84" text-anchor="middle" class="xb-sl">of 100</text></svg><div><span class="eyebrow">Business health</span><b>${sc>=70?'Strong':sc>=45?'Steady':'Needs attention'}</b><small>${now?now+' to act on now':todo.length?todo.length+' to review':'Nothing urgent'}</small></div></div>`:''}
     ${(sec.parts||[]).length?`<ul class="xb-parts">${sec.parts.map(p=>`<li><div><span>${esc(p.l)}</span><small>${esc(p.t)}</small></div><span class="xb-pb"><i style="width:${Math.max(3,Math.round(p.v*100))}%;background:${tone(p.v)}"></i></span></li>`).join('')}</ul>`:''}</div>`;
-  return top+(todo.length?`<div class="xb-list">${todo.map((x,k)=>card(x,k+1)).join('')}</div>`:'<p class="muted">Nothing needs your attention in this period.</p>')
+  const memo=(sec.memo||[]).length?`<div class="xb-memo"><span class="eyebrow">Management summary</span>${sec.memo.map(x=>`<p>${esc(x)}</p>`).join('')}</div>`:'';
+  return top+memo+(todo.length?`<h3 class="sub">Priorities, ranked by the money attached</h3><div class="xb-list">${todo.map((x,k)=>card(x,k+1)).join('')}</div>`:'<p class="muted">Nothing needs your attention in this period.</p>')
     +(good.length?`<h3 class="sub">What is working</h3><div class="xb-list">${good.map(x=>card(x,0)).join('')}</div>`:'')
     +((sec.gaps||[]).length?`<p class="muted" style="font-size:.8rem">Not included, because Odoo did not return it: ${sec.gaps.map(esc).join(' · ')}</p>`:'');
 }
@@ -1876,7 +1900,7 @@ function anSection(sec){
   if(sec.error)return `<section class="panel an" style="border-color:var(--warn)">${head}<p class="body-text"><b style="color:var(--warn)">This part could not be loaded.</b> ${esc(sec.error)}</p></section>`;
   let body='';
   try{
-    body=sec.kind==='actions'?anActions(sec):sec.kind==='kpi'?anKpi(sec):sec.kind==='funnel'?anFunnel(sec):sec.kind==='trend'?trendMonthChart(sec)+anTrend(sec):sec.kind==='table'?(sec.id==='months'?monthsChart(sec):'')+anTable(sec):sec.kind==='reps'?anReps(sec):sec.kind==='cohort'?anCohort(sec):sec.kind==='audit'?anAudit(sec):sec.kind==='campaigns'?metaCampaigns(sec):sec.kind==='manual'?anManual(sec):sec.kind==='sheet'?anSheet(sec):sec.kind==='text'?`<ul class="gaps">${sec.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>`:'';
+    body=sec.kind==='actions'?anActions(sec):sec.kind==='bridge'?anBridge(sec):sec.kind==='ratios'?anRatios(sec):sec.kind==='kpi'?anKpi(sec):sec.kind==='funnel'?anFunnel(sec):sec.kind==='trend'?trendMonthChart(sec)+anTrend(sec):sec.kind==='table'?(sec.id==='months'?monthsChart(sec):'')+anTable(sec):sec.kind==='reps'?anReps(sec):sec.kind==='cohort'?anCohort(sec):sec.kind==='audit'?anAudit(sec):sec.kind==='campaigns'?metaCampaigns(sec):sec.kind==='manual'?anManual(sec):sec.kind==='sheet'?anSheet(sec):sec.kind==='text'?`<ul class="gaps">${sec.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>`:'';
   }catch(e){body=`<p class="muted">Could not show this part (${esc(e.message)}).</p>`}
   return `<section class="panel an${sec.kind==='text'?' soft':''}">${head}${body}</section>`;
 }
@@ -1902,7 +1926,7 @@ function odHeroSpec(tab,secs){
   return {label:main,value:fv(m.value,m.fmt),chip:m.prev!==undefined&&m.prev?chip(Math.round((m.value-m.prev)/m.prev*1000)/10,m.goodDown):'',minis,spark:rows?rows.map(r=>r.values[key]):null,sel:rows?rows.findIndex(r=>r.key===perMonthSel()):-1,rows};
 }
 function odooHero(d){
-  const sp=odHeroSpec(d.tab,d.sections),info={brief:'What needs your attention, ranked by money',suppliers:'Who you buy from and what you owe',raw:'Raw materials: stock and buying',packaging:'Packaging: stock and buying',finished:'Finished goods: stock and sales',inventory:'All stock, by type',sales:'Orders and invoices',distributors:'Your distributors and what they owe',people:'Sales per salesperson',profit:'Revenue, product cost and ad spend',in:'Invoices and what customers owe',out:'Bills and what you owe',trial:'Debit and credit by account',pnl:'Income, expenses and net profit',balance:'Assets, liabilities and equity at the end date',hr:'People and attendance'}[d.tab];
+  const sp=odHeroSpec(d.tab,d.sections),info={brief:'Management report',suppliers:'Who you buy from and what you owe',raw:'Raw materials: stock and buying',packaging:'Packaging: stock and buying',finished:'Finished goods: stock and sales',inventory:'All stock, by type',sales:'Orders and invoices',distributors:'Your distributors and what they owe',people:'Sales per salesperson',profit:'Revenue, product cost and ad spend',in:'Invoices and what customers owe',out:'Bills and what you owe',trial:'Debit and credit by account',pnl:'Income, expenses and net profit',balance:'Assets, liabilities and equity at the end date',hr:'People and attendance'}[d.tab];
   const rows=sp.rows||(()=>{const t=d.sections.find(x=>x.id==='trend'&&!x.error);return t?t.rows:null})();
   return `<section class="hero"><div class="hero-top"><div><span class="eyebrow">Odoo${d.company?' · '+esc(d.company):''} · ${esc(d.monthLabel)}</span>${sp.value?`<div class="hero-n${sp.small?' sm':''}">${sp.value}</div><div><span class="hero-vs">${esc(sp.label)}</span> ${sp.chip||''}</div>`:`<div class="hero-n sm">${esc(info)}</div>`}${d.version?`<div><span class="hero-vs">Odoo ${esc(d.version)}</span></div>`:''}</div>
     <div style="display:grid;gap:10px;justify-items:end"><div class="hero-actions"><button class="btn light" data-act="od-refresh" ${S.od.loading?'disabled':''}>${S.od.loading?'Loading…':'Refresh numbers'}</button></div>
@@ -1968,8 +1992,16 @@ function renderOdoo(){
   if(d.configured===false){L.innerHTML=tabs+odooSetup(d.missing);return}
   const y=window.scrollY;
   L.innerHTML=tabs+dateBar(d)+odooHero(d)
-    +(od.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(od.err)}</p></div>`:'')+highlights(d.sections)+d.sections.map(anSection).join('');
+    +(od.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(od.err)}</p></div>`:'')+(d.tab==='brief'?briefBody(d):highlights(d.sections)+d.sections.map(anSection).join(''));
   window.scrollTo(0,y);
+}
+/* The brief reads like a report: numbered chapters with a contents bar. */
+function briefBody(d){
+  const ch=[];d.sections.forEach(s=>{const c=s.chapter||'Report';let g=ch.find(x=>x[0]===c);if(!g)ch.push(g=[c,[]]);g[1].push(s)});
+  const no=i=>String(i+1).padStart(2,'0');
+  return `<nav class="xb-nav" aria-label="Report contents">${ch.map((c,i)=>`<button data-act="xb-jump" data-i="${i}"><i>${no(i)}</i>${esc(c[0])}</button>`).join('')}</nav>`
+    +ch.map((c,i)=>`<h2 class="xb-ch" id="xb-ch-${i}"><i>${no(i)}</i>${esc(c[0])}</h2>${c[1].map(anSection).join('')}`).join('')
+    +`<p class="muted" style="font-size:.78rem">Read live from Odoo and kept for 10 minutes. Sales are confirmed orders before tax; financial figures are posted journal entries.</p>`;
 }
 
 /* ---------- Meta Ads ---------- */
@@ -2228,6 +2260,7 @@ document.addEventListener('click',async e=>{
     box.querySelectorAll('.repdet').forEach(d=>d.hidden=true);box.querySelectorAll('.rs').forEach(x=>{x.classList.remove('on');x.setAttribute('aria-expanded','false')});
     if(det&&!was){det.hidden=false;b.classList.add('on');b.setAttribute('aria-expanded','true');box.querySelectorAll('.rs[data-k="'+(k==='invoices'?'invoices':k)+'"]').forEach(x=>x.classList.add('on'))}}
   else if(a==='see-more'){S.more[b.dataset.id]=!S.more[b.dataset.id];S.route==='meta'?renderMeta():S.route==='odoo'?renderOdoo():renderShop()}
+  else if(a==='xb-jump'){const el=document.getElementById('xb-ch-'+b.dataset.i);if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'start'})}
   else if(a==='xb-send'){const sec=((S.od.data&&S.od.data.sections)||[]).find(x=>x.id==='actions'),x=sec&&sec.items[+b.dataset.i];if(x){S.sendDraft={title:String(x.brief?x.brief.title:x.title).slice(0,120),body:x.brief?x.brief.body:x.detail,priority:x.tone==='bad'?'urgent':'high',days:3};go('send')}}
   else if(a==='tpl'){const el=$('#in-b'),tp=BRIEF_TPL[b.dataset.k];if(el&&tp&&(!el.value.trim()||arm(b))){el.value=tp[1];delete b.dataset.armed;b.classList.remove('armed');b.textContent=tp[0];el.focus();briefQ()}}
   else if(a==='od-tab'){S.od.tab=b.dataset.tab;(S.od.last=S.od.last||{})[odGroup(S.od.tab)[0]]=S.od.tab;S.od.err='';loadOdoo()}
