@@ -1876,9 +1876,16 @@ function anBridge(sec){
 }
 /* ---- Executive brief: financial ratios with a benchmark and a verdict ---- */
 function anRatios(sec){
-  const groups=[...new Set(sec.ratios.map(r=>r.group))],lab={good:'Healthy',ok:'Watch',bad:'Weak'};
-  return groups.map(gp=>`<h3 class="sub">${esc(gp)}</h3><div class="rt-grid">${sec.ratios.filter(r=>r.group===gp).map(r=>{const ch=r.prev!==undefined&&r.f!=='money'?r.v-r.prev:null;
-    return `<div class="rt ${r.status||''}"><div class="rt-top"><span>${esc(r.l)}</span>${r.status?`<i class="rt-st">${lab[r.status]}</i>`:''}</div><b>${esc(fv(r.v,r.f))}</b>${r.prev!==undefined?`<small>was ${esc(fv(r.prev,r.f))}${ch!==null&&Math.abs(ch)>=.05?' · '+(ch>0?'▲':'▼')+' '+Math.abs(ch).toFixed(r.f==='x'?2:1)+(r.f==='pct'?' pts':''):''}</small>`:''}${r.bench?`<p class="rt-b">${esc(r.bench)}</p>`:''}<p class="rt-h">${esc(r.how)}</p></div>`}).join('')}</div>`).join('');
+  const groups=[...new Set(sec.ratios.map(r=>r.group))],lab={good:'Healthy',ok:'Watch',bad:'Weak'},tail={good:'Good news',ok:'What to do',bad:'What to do'};
+  const bad=sec.ratios.filter(r=>r.status==='bad').length,ok=sec.ratios.filter(r=>r.status==='ok').length,good=sec.ratios.filter(r=>r.status==='good').length;
+  const key=`<div class="rt-key"><b>How to read this</b><p>Each card answers one plain question about the business. The coloured top line is the verdict: <span class="rtk good">green is healthy</span>, <span class="rtk ok">amber means watch it</span>, <span class="rtk bad">red is weak</span>. "Was" is the earlier period, and the arrow shows whether the number moved the right way (green) or the wrong way (red). ${good+ok+bad?`Right now: ${good} healthy, ${ok} to watch, ${bad} weak.`:''}</p></div>`;
+  return key+groups.map(gp=>`<h3 class="sub">${esc(gp)}</h3><div class="rt-grid">${sec.ratios.filter(r=>r.group===gp).map(r=>{
+    if(r.na)return `<div class="rt na"><div class="rt-top"><span>${esc(r.l)}</span><i class="rt-st">Not available</i></div><p class="rt-q">${esc(r.ask)}</p><p class="rt-read">${esc(r.na)}</p></div>`;
+    const ch=r.prev!==undefined&&r.f!=='money'?r.v-r.prev:null,moved=ch!==null&&Math.abs(ch)>=.05,better=moved&&(r.goodDown?ch<0:ch>0);
+    return `<div class="rt ${r.status||''}"><div class="rt-top"><span>${esc(r.l)}</span>${r.status?`<i class="rt-st">${lab[r.status]}</i>`:''}</div><p class="rt-q">${esc(r.ask||'')}</p><b>${esc(fv(r.v,r.f))}</b>
+      ${r.prev!==undefined?`<small>was ${esc(fv(r.prev,r.f))}${moved?` · <span class="${better?'up':'dn'}">${ch>0?'▲':'▼'} ${Math.abs(ch).toFixed(r.f==='x'?2:1)}${r.f==='pct'?' pts':''} ${better?'better':'worse'}</span>`:''}</small>`:''}
+      ${r.read?`<p class="rt-read">${esc(r.read)}</p>`:''}${r.bench?`<p class="rt-b"><span>Rule of thumb</span> ${esc(r.bench)}</p>`:''}
+      <details class="rt-more"><summary>Why it matters${r.fix?' and what to do':''}</summary>${r.why?`<p><b>Why it matters.</b> ${esc(r.why)}</p>`:''}${r.fix?`<p><b>${tail[r.status]||'What to do'}.</b> ${esc(r.fix)}</p>`:''}<p class="rt-h"><b>How it is worked out.</b> ${esc(r.how||'')}</p></details></div>`}).join('')}</div>`).join('');
 }
 /* ---- Executive brief: ranked actions with the money attached ---- */
 const XB_TONE={bad:'Act now',warn:'Watch closely',info:'Improve',good:'Working well'};

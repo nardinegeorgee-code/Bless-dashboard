@@ -1397,3 +1397,19 @@ h1{font-weight:600;font-size:1.95rem}h2,h3{font-weight:600}
 .rkgo{display:block;margin-top:6px;font-size:.78rem;font-weight:600;color:var(--accent-text);opacity:0;transition:opacity .15s}
 .rkr.jump:hover .rkgo,.rkr.jump:focus-visible .rkgo{opacity:1}
 @media (hover:none){.rkgo{opacity:1}}
+
+/* Ratios in plain words */
+.rt-key{padding:14px 18px;border:1px solid var(--paper-line);border-left:3px solid var(--accent);border-radius:0 12px 12px 0;background:var(--card)}
+.rt-key p{margin:4px 0 0;font-size:.88rem;line-height:1.55;color:var(--muted);max-width:90ch}
+.rtk{font-weight:700}.rtk.good{color:var(--good)}.rtk.ok{color:var(--warn)}.rtk.bad{color:var(--bad)}
+.rt-grid{grid-template-columns:repeat(auto-fill,minmax(270px,1fr))}
+.rt-q{margin:2px 0 4px;font-size:.88rem;line-height:1.4;color:var(--ink);font-weight:600}
+.rt-read{margin:6px 0 0;font-size:.88rem;line-height:1.5}
+.rt-b{margin:6px 0 0;font-size:.8rem;color:var(--muted)}
+.rt-b span{font-family:var(--f-mono);font-size:.64rem;letter-spacing:.06em;text-transform:uppercase;margin-right:4px;color:var(--accent-text)}
+.rt small .up{color:var(--good);font-weight:600}.rt small .dn{color:var(--bad);font-weight:600}
+.rt-more{margin-top:8px;border-top:1px solid var(--paper-line);padding-top:8px}
+.rt-more summary{cursor:pointer;font-size:.82rem;font-weight:600;color:var(--accent-text)}
+.rt-more p{margin:8px 0 0;font-size:.82rem;line-height:1.5;color:var(--muted)}
+.rt-more p b{color:var(--ink)}
+.rt.na{border-top-color:var(--paper-line);opacity:.85}
