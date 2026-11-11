@@ -180,8 +180,11 @@ function mount(){
   else if(S.route==='team')v.innerHTML=`<div class="head"><div><h1>Team by role</h1><p>Every username, grouped by role.</p></div></div><div id="live"></div>`;
   else if(S.route==='send')v.innerHTML=`<div class="head"><div><h1>Send instruction</h1><p>Write the brief, then choose whole roles, specific people, or both.</p></div></div>
     <form class="panel" data-form="send">
-      <div class="field"><label for="in-t">Title</label><input class="input" id="in-t" maxlength="120" placeholder="Do the post for Friday's offer" required></div>
-      <div class="field"><label for="in-b">Instructions</label><textarea class="textarea" id="in-b" placeholder="Sizes, copy, deadline, references…" required></textarea></div>
+      <div class="field"><label>Start from a template</label><div class="checks">${Object.entries(BRIEF_TPL).map(([k,v])=>`<button type="button" class="btn sm" data-act="tpl" data-k="${k}">${v[0]}</button>`).join('')}</div></div>
+      <div class="field"><label for="in-t">Title</label><input class="input" id="in-t" maxlength="120" placeholder="Three story designs for Friday's offer" required></div>
+      <div class="field"><label for="in-b">Instructions</label><textarea class="textarea" id="in-b" style="min-height:190px" placeholder="Goal, what to send back, sizes, the exact text, references…" required></textarea></div>
+      <div class="bq" id="in-q"></div>
+      <div class="sendrow"><div class="field"><label for="in-due">Deadline</label><input class="input" type="date" id="in-due" min="${isoDay(Date.now())}"></div><div class="field"><label for="in-pri">Priority</label><select class="select" id="in-pri"><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></div></div>
       <div class="field"><label>Send to roles</label><div class="checks" id="in-roles">${ROLES.filter(r=>r.key!=='super_admin'&&r.key!=='ceo').map(r=>`<label class="check"><input type="checkbox" id="role-${r.key}" value="${r.key}" data-act="pick-role" ${S.sendRoles.has(r.key)?'checked':''}>${roleChip(r.key)}</label>`).join('')}</div></div>
       <div class="field"><label>Or send to specific people</label><div id="in-people"></div></div>
       <div class="row" style="justify-content:space-between"><span class="muted" id="in-count"></span><button class="btn primary" type="submit">Send instruction</button></div>
@@ -192,7 +195,7 @@ function mount(){
     <select class="select" id="f-user" style="width:auto" aria-label="Filter by person"></select>
     <select class="select" id="f-kind" style="width:auto" aria-label="Filter by type"><option value="">Responses and uploads</option><option value="resp" ${S.fKind==='resp'?'selected':''}>Responses to instructions</option><option value="free" ${S.fKind==='free'?'selected':''}>Uploads without instruction</option></select></div><div id="live"></div>`;
   else if(S.route==='eval'){v.innerHTML=`<div class="head"><div><h1>Team evaluation</h1><p>Monthly KPIs and ranking. You enter the speed and accuracy percentages; HR gives behaviour once a month.</p></div></div><div id="live"></div>`;if(!S.ev.data&&!S.ev.loading)loadEval();else renderEval(true)}
-  else if(S.route==='odoo'){v.innerHTML=`<div class="head"><div><h1>Odoo</h1><p>Supply, sales and finance, read live from Odoo.</p></div></div><div id="live"></div>`;if(!S.od.cache[S.od.tab+'|'+(S.od.month||'')]&&!S.od.loading)loadOdoo();else renderOdoo()}
+  else if(S.route==='odoo'){v.innerHTML=`<div class="head"><div><h1>Odoo</h1><p>The executive brief first, then supply, sales and finance, read live from Odoo.</p></div></div><div id="live"></div>`;if(!S.od.cache[S.od.tab+'|'+(S.od.month||'')]&&!S.od.loading)loadOdoo();else renderOdoo()}
   else if(S.route==='meta'){v.innerHTML=`<div class="head"><div><h1>Meta Ads</h1><p>Facebook and Instagram advertising, read live from Meta. Pause campaigns and change budgets from here.</p></div></div><div id="live"></div>`;if(!S.meta.cache[S.meta.tab+'|'+(S.meta.month||'')]&&!S.meta.loading)loadMeta();else renderMeta()}
   else if(S.route==='shop'){v.innerHTML=`<div class="head"><div><h1>Shopify</h1><p>Sales, funnel, products, customer experience and retention, one tab each.</p></div></div><div id="live"></div>`;if(S.an.tab==='overview'){if(!S.shop.data&&!S.shop.loading)loadShop()}else loadAn();}
   else if(S.route==='act')v.innerHTML=`<div id="live"></div>`;
@@ -524,15 +527,63 @@ function ovOnScroll(){
   if(cur&&cur!==S.ovSec){ovMark(cur);ovSetHash(cur===document.querySelector('.ovsec').id?'':cur)}
 }
 let ovTick=0;window.addEventListener('scroll',()=>{if(ovTick)return;ovTick=requestAnimationFrame(()=>{ovTick=0;ovOnScroll()})},{passive:true});
+/* ---- Instructions: deadline, priority and a guided brief ---- */
+const PRI={urgent:['Urgent',0],high:['High',1],normal:['Normal',2]};
+const isoDay=ms=>{const d=new Date(ms);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
+const dayLabel=ms=>new Date(ms).toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});
+const isLate=(i,uid)=>!!i.dueAt&&i.dueAt<Date.now()&&!responded(i.id,uid);
+function dueTag(i,done){
+  if(!i.dueAt)return '';
+  if(done)return `<span class="pill due">Due ${esc(dayLabel(i.dueAt))}</span>`;
+  const ms=i.dueAt-Date.now();
+  if(ms<0){const d=Math.floor(-ms/864e5);return `<span class="pill late">Overdue${d?' by '+d+(d===1?' day':' days'):''}</span>`}
+  const d=Math.round((new Date(isoDay(i.dueAt)+'T12:00').getTime()-new Date(isoDay(Date.now())+'T12:00').getTime())/864e5);
+  return `<span class="pill ${d<=1?'soon':'due'}">${d<=0?'Due today':d===1?'Due tomorrow':'Due in '+d+' days'}</span>`;
+}
+const priTag=i=>i.priority&&i.priority!=='normal'&&PRI[i.priority]?`<span class="pill ${i.priority}">${PRI[i.priority][0]}</span>`:'';
+const BRIEF_TPL={
+  design:['Design','Goal (what this design must achieve): \n\nWhat to deliver (how many designs, for which platform): \n\nSizes and format: \n\nText that must appear, word for word: \n\nProducts, prices and offer: \n\nReferences (links or examples of the style): \n\nDone when: '],
+  ads:['Ad campaign','Goal and the number to hit (sales, cost per purchase, reach): \n\nProduct or offer: \n\nAudience: \n\nBudget and dates: \n\nCreative to use: \n\nSend back: results after 3 days with spend, purchases and cost per purchase.'],
+  content:['Content','Goal (what the viewer should do or feel): \n\nWhat to deliver (reel, post, story; how many): \n\nKey message and the words that must be said: \n\nProducts to show: \n\nLength and format: \n\nReferences (links): \n\nDone when: '],
+  sales:['Sales follow-up','Goal (amount to sell or collect): \n\nCustomers to contact: \n\nWhat to offer or ask for: \n\nWhat to do if they say no: \n\nSend back: a list with each customer, the result and the next date.'],
+  report:['Report','Question this report must answer: \n\nPeriod and data to use: \n\nFormat (table, chart, one page): \n\nWho will read it: \n\nDone when: ']};
+function briefChecks(title,body,due){
+  const b=String(body||''),blank=(b.match(/:[ \t]*(\n|$)/g)||[]).length;
+  return [
+    [title.trim().length>=12,'Make the title say the task, for example "Three story designs for Friday\'s offer".'],
+    [/goal|so that|in order to|objective|purpose|هدف/i.test(b)&&b.length>40,'Say the goal: what result you want and why it matters.'],
+    [/deliver|send back|format|size|file|post|reel|video|design|report|list|table|photo|story/i.test(b),'Say exactly what to send back (how many, which format and size).'],
+    [/\d/.test(b),'Add a number: a quantity, a target, a price or a size.'],
+    [!!due||/deadline|before|by (sun|mon|tue|wed|thu|fri|sat|tomorrow|today|\d)/i.test(b),'Set a deadline so it does not drift.'],
+    [/https?:|reference|example|attached|like the|same as|مثال/i.test(b),'Add a reference: a link or an example of what good looks like.'],
+    [b.trim().length>=120&&!blank,blank?'Fill in the empty lines of the template ('+blank+' left).':'Add more detail; short briefs come back wrong and cost a second round.']];
+}
+function briefQ(){
+  const el=$('#in-q');if(!el)return;
+  const c=briefChecks($('#in-t').value,$('#in-b').value,$('#in-due').value),ok=c.filter(x=>x[0]).length,pc=Math.round(ok/c.length*100),miss=c.filter(x=>!x[0]);
+  const lab=pc>=85?'Clear brief':pc>=55?'Almost there':'Too thin',col=pc>=85?'var(--ok)':pc>=55?'var(--warn)':'var(--danger)';
+  el.innerHTML=`<div class="bq-top"><span class="eyebrow">Brief quality</span><b style="color:${col}">${lab}</b><span class="mono muted">${ok} of ${c.length}</span></div><div class="bar"><i style="width:${pc}%;background:${col}"></i></div>${miss.length?`<ul>${miss.slice(0,3).map(x=>`<li>${esc(x[1])}</li>`).join('')}</ul>`:'<p class="muted">Everything a good brief needs is here.</p>'}`;
+}
+function sendStats(){
+  const ins=S.instructions;if(!ins.length)return '';
+  let open=0,late=0,asked=0,done=0;const times=[];
+  for(const i of ins){const rec=recipients(i);let waiting=0;for(const u of rec){asked++;const first=S.subs.filter(s=>s.instructionId===i.id&&s.userId===u.id).sort((a,b)=>a.createdAt-b.createdAt)[0];if(first){done++;times.push(first.createdAt-i.createdAt)}else waiting++}if(waiting){open++;if(i.dueAt&&i.dueAt<Date.now())late++}}
+  times.sort((a,b)=>a-b);const med=times.length?times[Math.floor(times.length/2)]:null;
+  const st=(l,v,s,c)=>`<div class="stat"><div class="eyebrow">${l}</div><div class="n"${c?` style="color:${c}"`:''}>${v}</div><span class="muted mono" style="font-size:.75rem">${s}</span></div>`;
+  return `<div class="stats">${st('Still open',open,'of '+ins.length+' sent')}${st('Past deadline',late,late?'chase these first':'none late',late?'var(--danger)':'')}${st('Answered',asked?Math.round(done/asked*100)+'%':'–',done+' of '+asked+' requests')}${st('Typical reply time',med===null?'–':ovcDur(med),'from sending to first reply')}</div>`;
+}
 function insRowAdmin(i){
   const rec=recipients(i);const done=rec.filter(u=>responded(i.id,u.id)).length;const pct=rec.length?Math.round(done/rec.length*100):0;
   return `<button class="item" data-act="go" data-route="ins" data-param="${i.id}"><div class="item-top"><h3>${esc(i.title)}</h3><span class="mono muted">${fmtDate(i.createdAt)}</span></div>
-    <div class="row">${targetChips(i)}</div><div class="row" style="gap:12px"><div class="bar" style="flex:1;min-width:120px"><i style="width:${pct}%"></i></div><span class="mono muted">${done}/${rec.length} responded</span></div></button>`;
+    <div class="row">${priTag(i)}${dueTag(i,done===rec.length&&rec.length>0)}${targetChips(i)}</div><div class="row" style="gap:12px"><div class="bar" style="flex:1;min-width:120px"><i style="width:${pct}%"></i></div><span class="mono muted">${done}/${rec.length} responded</span></div></button>`;
 }
 function inboxHTML(){
   const list=myInstructions();
   if(!list.length)return empty('No instructions yet','When the Super Admin sends you a brief, it shows up here.');
-  return `<div class="list">${list.map(i=>{const d=responded(i.id);return `<button class="item" data-act="go" data-route="ins" data-param="${i.id}"><div class="item-top"><h3>${esc(i.title)}</h3><span class="pill ${d?'done':'new'}">${d?'Responded':'New'}</span></div><p class="snippet">${esc(i.body)}</p><span class="mono muted">${fmtDate(i.createdAt)}</span></button>`}).join('')}</div>`;
+  const pr=i=>(PRI[i.priority]||PRI.normal)[1],todo=list.filter(i=>!responded(i.id)),late=todo.filter(i=>isLate(i)).length;
+  const sorted=list.slice().sort((a,b)=>responded(a.id)-responded(b.id)||pr(a)-pr(b)||(a.dueAt||Infinity)-(b.dueAt||Infinity)||b.createdAt-a.createdAt);
+  return `<div class="stats"><div class="stat"><div class="eyebrow">To do</div><div class="n">${todo.length}</div></div><div class="stat"><div class="eyebrow">Past deadline</div><div class="n"${late?' style="color:var(--danger)"':''}>${late}</div></div><div class="stat"><div class="eyebrow">Done</div><div class="n">${list.length-todo.length}</div></div></div>
+  <div class="list">${sorted.map(i=>{const d=responded(i.id);return `<button class="item${!d&&isLate(i)?' late':''}" data-act="go" data-route="ins" data-param="${i.id}"><div class="item-top"><h3>${esc(i.title)}</h3><span class="row" style="gap:6px">${priTag(i)}${dueTag(i,d)}<span class="pill ${d?'done':'new'}">${d?'Responded':'To do'}</span></span></div><p class="snippet">${esc(i.body)}</p><span class="mono muted">Sent ${fmtDate(i.createdAt)}</span></button>`}).join('')}</div>`;
 }
 function allNotes(){return S.comments.filter(c=>c.userId!==S.me.id).sort((a,b)=>b.createdAt-a.createdAt)}
 function unreadNotes(){return allNotes().filter(c=>!S.reads.has(c.id))}
@@ -557,10 +608,10 @@ function updateIns(){
   const i=S.instructions.find(x=>x.id===S.param);
   if(!i){$('#live').innerHTML=empty('Instruction not found','It may have been deleted.');$('#live2').innerHTML='';document.querySelectorAll('[data-form="up-resp"]').forEach(f=>f.closest('.panel').hidden=true);return}
   const head=`<div class="panel"><div class="item-top"><div style="display:grid;gap:6px;min-width:0"><span class="eyebrow">Instruction · ${fmtDate(i.createdAt)}</span><h1>${esc(i.title)}</h1></div>
-    ${isAdmin()?`<button class="btn sm danger" data-act="del-ins" data-id="${i.id}">Delete</button>`:''}</div><p class="body-text">${esc(i.body)}</p><div class="row"><span class="eyebrow">Sent to</span>${targetChips(i)}</div></div>`;
+    ${isAdmin()?`<button class="btn sm danger" data-act="del-ins" data-id="${i.id}">Delete</button>`:''}</div><p class="body-text">${esc(i.body)}</p>${i.dueAt||priTag(i)?`<div class="row"><span class="eyebrow">Deadline</span>${i.dueAt?`<b>${esc(dayLabel(i.dueAt))}</b>`:'<span class="muted">none</span>'}${dueTag(i,!isAdmin()&&responded(i.id))}${priTag(i)}</div>`:''}<div class="row"><span class="eyebrow">Sent to</span>${targetChips(i)}</div></div>`;
   if(isAdmin()){
     const rec=recipients(i);const subs=S.subs.filter(s=>s.instructionId===i.id);
-    $('#live').innerHTML=head+`<div class="panel"><h2>Who has responded</h2>${rec.length?`<div class="checks">${rec.map(u=>`<span class="check" style="cursor:default">${responded(i.id,u.id)?'<span class="pill done">Done</span>':'<span class="pill new">Waiting</span>'}<span class="mono">${esc(u.username)}</span></span>`).join('')}</div>`:'<p class="muted">Nobody currently holds the roles or names this was sent to.</p>'}</div>`;
+    $('#live').innerHTML=head+`<div class="panel"><h2>Who has responded</h2>${rec.length?`<div class="checks">${rec.map(u=>`<span class="check" style="cursor:default">${responded(i.id,u.id)?'<span class="pill done">Done</span>':isLate(i,u.id)?'<span class="pill late">Late</span>':'<span class="pill new">Waiting</span>'}<span class="mono">${esc(u.username)}</span></span>`).join('')}</div>`:'<p class="muted">Nobody currently holds the roles or names this was sent to.</p>'}</div>`;
     $('#live2').innerHTML=`<section style="display:grid;gap:12px"><h2>Responses (${subs.length})</h2>${listOrEmpty(subs,'No responses yet','Files sent back for this instruction appear here.',true)}</section>`;
   }else{
     $('#live').innerHTML=head;
@@ -574,7 +625,9 @@ function updateSend(){
   const ppl=S.users.filter(u=>u.role!=='super_admin');
   $('#in-people').innerHTML=ppl.length?`<div class="people">${ppl.map(u=>`<label class="check"><span class="row" style="gap:8px"><input type="checkbox" id="pu-${u.id}" value="${u.id}" data-act="pick-user" ${S.sendUsers.has(u.id)?'checked':''}><span class="mono">${esc(u.username)}</span></span>${roleChip(u.role)}</label>`).join('')}</div>`:'<p class="muted">Add team members on the Users page first.</p>';
   updateSendCount();
-  $('#live').innerHTML=`<section style="display:grid;gap:12px"><h2>Sent instructions</h2>${S.instructions.length?`<div class="list">${S.instructions.map(insRowAdmin).join('')}</div>`:empty('Nothing sent yet','Instructions you send appear here with their response progress.')}</section>`;
+  if(S.sendDraft){const d=S.sendDraft;S.sendDraft=null;$('#in-t').value=d.title;$('#in-b').value=d.body;$('#in-pri').value=d.priority||'normal';if(d.days)$('#in-due').value=isoDay(Date.now()+d.days*864e5)}
+  briefQ();
+  $('#live').innerHTML=sendStats()+`<section style="display:grid;gap:12px"><h2>Sent instructions</h2>${S.instructions.length?`<div class="list">${S.instructions.map(insRowAdmin).join('')}</div>`:empty('Nothing sent yet','Instructions you send appear here with their response progress.')}</section>`;
 }
 function updateSendCount(){
   const n=recipients({roles:[...S.sendRoles],userIds:[...S.sendUsers]}).length;
@@ -1803,12 +1856,27 @@ function anSheet(sec){
   ${log}`:`<div class="empty"><b>No courier sheet saved yet</b><span>${ed?'Use Add or update orders above to paste or upload your courier sheet.':'Ask the Super Admin to add the courier sheet.'}</span></div>${log}`}
   </div>`;
 }
+/* ---- Executive brief: ranked actions with the money attached ---- */
+const XB_TONE={bad:'Act now',warn:'Watch closely',info:'Improve',good:'Working well'};
+function anActions(sec){
+  const all=(sec.items||[]).map((x,i)=>({...x,i})),todo=all.filter(x=>x.tone!=='good'),good=all.filter(x=>x.tone==='good'),now=todo.filter(x=>x.tone==='bad').length;
+  const card=(x,n)=>`<article class="xb-a ${x.tone}"><span class="xb-n">${n||'✓'}</span><div class="xb-main"><div class="xb-tags"><span class="xb-tag">${esc(x.area)}</span><span class="xb-tone">${XB_TONE[x.tone]||''}</span>${x.owner?`<span class="xb-own">With ${esc(x.owner)}</span>`:''}</div><h3>${esc(x.title)}</h3><p>${esc(x.detail)}</p>
+    <div class="xb-btns">${x.tab?`<button class="btn sm" data-act="od-tab" data-tab="${esc(x.tab)}">Open the details</button>`:''}${isAdmin()&&x.tone!=='good'?`<button class="btn sm primary" data-act="xb-send" data-i="${x.i}">Send as instruction</button>`:''}</div>
+    ${x.breakdown&&x.breakdown.rows.length?`<details class="xb-more"><summary>See the full list (${x.breakdown.rows.length})</summary>${breakdownHtml({...x.breakdown,plain:true})}</details>`:''}</div>
+    ${x.impact!==null&&x.impact!==undefined?`<div class="xb-imp"><b>${esc(fv(x.impact,'money'))}</b><span>${esc(x.unit||'')}</span></div>`:''}</article>`;
+  const sc=sec.score,has=sc!==null&&sc!==undefined,col=sc>=70?'var(--good)':sc>=45?'var(--warn)':'var(--bad)',tone=v=>v>=.7?'var(--good)':v>=.45?'var(--warn)':'var(--bad)';
+  const top=`<div class="xb-top">${has?`<div class="xb-score" style="--sc:${col}"><svg viewBox="0 0 120 120" role="img" aria-label="Business health ${sc} out of 100"><circle cx="60" cy="60" r="52" class="xb-r0"/><circle cx="60" cy="60" r="52" class="xb-r1" stroke-dasharray="${(sc/100*326.7).toFixed(1)} 326.7" transform="rotate(-90 60 60)"/><text x="60" y="66" text-anchor="middle" class="xb-sn">${sc}</text><text x="60" y="84" text-anchor="middle" class="xb-sl">of 100</text></svg><div><span class="eyebrow">Business health</span><b>${sc>=70?'Strong':sc>=45?'Steady':'Needs attention'}</b><small>${now?now+' to act on now':todo.length?todo.length+' to review':'Nothing urgent'}</small></div></div>`:''}
+    ${(sec.parts||[]).length?`<ul class="xb-parts">${sec.parts.map(p=>`<li><div><span>${esc(p.l)}</span><small>${esc(p.t)}</small></div><span class="xb-pb"><i style="width:${Math.max(3,Math.round(p.v*100))}%;background:${tone(p.v)}"></i></span></li>`).join('')}</ul>`:''}</div>`;
+  return top+(todo.length?`<div class="xb-list">${todo.map((x,k)=>card(x,k+1)).join('')}</div>`:'<p class="muted">Nothing needs your attention in this period.</p>')
+    +(good.length?`<h3 class="sub">What is working</h3><div class="xb-list">${good.map(x=>card(x,0)).join('')}</div>`:'')
+    +((sec.gaps||[]).length?`<p class="muted" style="font-size:.8rem">Not included, because Odoo did not return it: ${sec.gaps.map(esc).join(' · ')}</p>`:'');
+}
 function anSection(sec){
   const head=`<div><h2>${esc(sec.title)}</h2>${sec.note?`<p class="muted" style="font-size:.85rem">${esc(sec.note)}</p>`:''}</div>`;
   if(sec.error)return `<section class="panel an" style="border-color:var(--warn)">${head}<p class="body-text"><b style="color:var(--warn)">This part could not be loaded.</b> ${esc(sec.error)}</p></section>`;
   let body='';
   try{
-    body=sec.kind==='kpi'?anKpi(sec):sec.kind==='funnel'?anFunnel(sec):sec.kind==='trend'?trendMonthChart(sec)+anTrend(sec):sec.kind==='table'?(sec.id==='months'?monthsChart(sec):'')+anTable(sec):sec.kind==='reps'?anReps(sec):sec.kind==='cohort'?anCohort(sec):sec.kind==='audit'?anAudit(sec):sec.kind==='campaigns'?metaCampaigns(sec):sec.kind==='manual'?anManual(sec):sec.kind==='sheet'?anSheet(sec):sec.kind==='text'?`<ul class="gaps">${sec.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>`:'';
+    body=sec.kind==='actions'?anActions(sec):sec.kind==='kpi'?anKpi(sec):sec.kind==='funnel'?anFunnel(sec):sec.kind==='trend'?trendMonthChart(sec)+anTrend(sec):sec.kind==='table'?(sec.id==='months'?monthsChart(sec):'')+anTable(sec):sec.kind==='reps'?anReps(sec):sec.kind==='cohort'?anCohort(sec):sec.kind==='audit'?anAudit(sec):sec.kind==='campaigns'?metaCampaigns(sec):sec.kind==='manual'?anManual(sec):sec.kind==='sheet'?anSheet(sec):sec.kind==='text'?`<ul class="gaps">${sec.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>`:'';
   }catch(e){body=`<p class="muted">Could not show this part (${esc(e.message)}).</p>`}
   return `<section class="panel an${sec.kind==='text'?' soft':''}">${head}${body}</section>`;
 }
@@ -1834,7 +1902,7 @@ function odHeroSpec(tab,secs){
   return {label:main,value:fv(m.value,m.fmt),chip:m.prev!==undefined&&m.prev?chip(Math.round((m.value-m.prev)/m.prev*1000)/10,m.goodDown):'',minis,spark:rows?rows.map(r=>r.values[key]):null,sel:rows?rows.findIndex(r=>r.key===perMonthSel()):-1,rows};
 }
 function odooHero(d){
-  const sp=odHeroSpec(d.tab,d.sections),info={suppliers:'Who you buy from and what you owe',raw:'Raw materials: stock and buying',packaging:'Packaging: stock and buying',finished:'Finished goods: stock and sales',inventory:'All stock, by type',sales:'Orders and invoices',distributors:'Your distributors and what they owe',people:'Sales per salesperson',profit:'Revenue, product cost and ad spend',in:'Invoices and what customers owe',out:'Bills and what you owe',trial:'Debit and credit by account',pnl:'Income, expenses and net profit',balance:'Assets, liabilities and equity at the end date',hr:'People and attendance'}[d.tab];
+  const sp=odHeroSpec(d.tab,d.sections),info={brief:'What needs your attention, ranked by money',suppliers:'Who you buy from and what you owe',raw:'Raw materials: stock and buying',packaging:'Packaging: stock and buying',finished:'Finished goods: stock and sales',inventory:'All stock, by type',sales:'Orders and invoices',distributors:'Your distributors and what they owe',people:'Sales per salesperson',profit:'Revenue, product cost and ad spend',in:'Invoices and what customers owe',out:'Bills and what you owe',trial:'Debit and credit by account',pnl:'Income, expenses and net profit',balance:'Assets, liabilities and equity at the end date',hr:'People and attendance'}[d.tab];
   const rows=sp.rows||(()=>{const t=d.sections.find(x=>x.id==='trend'&&!x.error);return t?t.rows:null})();
   return `<section class="hero"><div class="hero-top"><div><span class="eyebrow">Odoo${d.company?' · '+esc(d.company):''} · ${esc(d.monthLabel)}</span>${sp.value?`<div class="hero-n${sp.small?' sm':''}">${sp.value}</div><div><span class="hero-vs">${esc(sp.label)}</span> ${sp.chip||''}</div>`:`<div class="hero-n sm">${esc(info)}</div>`}${d.version?`<div><span class="hero-vs">Odoo ${esc(d.version)}</span></div>`:''}</div>
     <div style="display:grid;gap:10px;justify-items:end"><div class="hero-actions"><button class="btn light" data-act="od-refresh" ${S.od.loading?'disabled':''}>${S.od.loading?'Loading…':'Refresh numbers'}</button></div>
@@ -1874,9 +1942,9 @@ function anReps(sec){
   return `${sec.source?`<p class="muted" style="font-size:.85rem">${esc(sec.source)}</p>`:''}<h3 class="sub">Everyone</h3>${team}<h3 class="sub" style="margin-top:22px">Each salesperson</h3><p class="muted" style="font-size:.85rem">Click any line to see the detail behind it.</p>${sec.people.map(one).join('')}`;
 }
 /* ---------- Odoo ---------- */
-const OD_GROUPS=[['supply','Supply',[['suppliers','Suppliers'],['raw','Raw materials'],['packaging','Packaging'],['finished','Finished goods'],['inventory','All stock']]],['sales','Sales',[['sales','Sales'],['distributors','Distributors'],['people','Salespeople']]],['finance','Finance',[['profit','Cost & profit'],['in','Money in'],['out','Money out'],['trial','Trial balance'],['pnl','Profit & loss'],['balance','Balance sheet']]],['team','Team',[['hr','Employees']]]];
+const OD_GROUPS=[['brief','Executive brief',[['brief','Executive brief']]],['supply','Supply',[['suppliers','Suppliers'],['raw','Raw materials'],['packaging','Packaging'],['finished','Finished goods'],['inventory','All stock']]],['sales','Sales',[['sales','Sales'],['distributors','Distributors'],['people','Salespeople']]],['finance','Finance',[['profit','Cost & profit'],['in','Money in'],['out','Money out'],['trial','Trial balance'],['pnl','Profit & loss'],['balance','Balance sheet']]],['team','Team',[['hr','Employees']]]];
 const odGroup=t=>OD_GROUPS.find(g=>g[2].some(x=>x[0]===t))||OD_GROUPS[0];
-S.od={tab:'suppliers',month:'',cache:{},loading:false,err:'',data:null};
+S.od={tab:'brief',month:'',cache:{},loading:false,err:'',data:null};
 async function loadOdoo(_m,refresh){
   const od=S.od;
   const key=od.tab+'|'+perQuery();
@@ -2160,6 +2228,8 @@ document.addEventListener('click',async e=>{
     box.querySelectorAll('.repdet').forEach(d=>d.hidden=true);box.querySelectorAll('.rs').forEach(x=>{x.classList.remove('on');x.setAttribute('aria-expanded','false')});
     if(det&&!was){det.hidden=false;b.classList.add('on');b.setAttribute('aria-expanded','true');box.querySelectorAll('.rs[data-k="'+(k==='invoices'?'invoices':k)+'"]').forEach(x=>x.classList.add('on'))}}
   else if(a==='see-more'){S.more[b.dataset.id]=!S.more[b.dataset.id];S.route==='meta'?renderMeta():S.route==='odoo'?renderOdoo():renderShop()}
+  else if(a==='xb-send'){const sec=((S.od.data&&S.od.data.sections)||[]).find(x=>x.id==='actions'),x=sec&&sec.items[+b.dataset.i];if(x){S.sendDraft={title:String(x.brief?x.brief.title:x.title).slice(0,120),body:x.brief?x.brief.body:x.detail,priority:x.tone==='bad'?'urgent':'high',days:3};go('send')}}
+  else if(a==='tpl'){const el=$('#in-b'),tp=BRIEF_TPL[b.dataset.k];if(el&&tp&&(!el.value.trim()||arm(b))){el.value=tp[1];delete b.dataset.armed;b.classList.remove('armed');b.textContent=tp[0];el.focus();briefQ()}}
   else if(a==='od-tab'){S.od.tab=b.dataset.tab;(S.od.last=S.od.last||{})[odGroup(S.od.tab)[0]]=S.od.tab;S.od.err='';loadOdoo()}
   else if(a==='od-refresh')loadOdoo(undefined,true);
   else if(a==='meta-tab'){S.meta.tab=b.dataset.tab;S.meta.err='';loadMeta()}
@@ -2267,8 +2337,9 @@ document.addEventListener('submit',async e=>{
   else if(k==='send'){
     const title=$('#in-t').value.trim(),body=$('#in-b').value.trim(),err=$('#in-err');
     if(!S.sendRoles.size&&!S.sendUsers.size)return err.textContent='Choose at least one role or person.';
-    try{await api('POST','/api/instructions',{title,body,roles:[...S.sendRoles],userIds:[...S.sendUsers]});await sync();
-      S.sendRoles.clear();S.sendUsers.clear();$('#in-t').value='';$('#in-b').value='';err.textContent='';f.querySelectorAll('input[type=checkbox]').forEach(c=>c.checked=false);updateSendCount();toast('Instruction sent')}
+    const due=$('#in-due').value,dueAt=due?new Date(due+'T23:59:00').getTime():null;
+    try{await api('POST','/api/instructions',{title,body,roles:[...S.sendRoles],userIds:[...S.sendUsers],dueAt,priority:$('#in-pri').value});await sync();
+      S.sendRoles.clear();S.sendUsers.clear();$('#in-t').value='';$('#in-b').value='';$('#in-due').value='';$('#in-pri').value='normal';briefQ();err.textContent='';f.querySelectorAll('input[type=checkbox]').forEach(c=>c.checked=false);updateSendCount();toast('Instruction sent')}
     catch(x){err.textContent=x.message||'Could not send. Try again.'}
   }
   else if(k==='adduser'){
@@ -2324,3 +2395,4 @@ setInterval(()=>{if(S.route==='act'&&S.me&&!document.hidden&&S.act.data&&!S.act.
 
 document.addEventListener('input',e=>{const t=e.target;if(t&&t.id==='sh-q'){const H=shS();H.q=t.value;H.n=50;shRender()}});
 ['dragover','dragleave','drop'].forEach(ev=>document.addEventListener(ev,e=>{const d=e.target.closest&&e.target.closest('.sh-drop');if(!d)return;e.preventDefault();if(ev==='dragover')d.classList.add('over');else d.classList.remove('over');if(ev==='drop'){const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];if(f)(async()=>{try{const rows=/\.xlsx$/i.test(f.name)?parseXlsx(await f.arrayBuffer()):parseDelim(await f.text());sheetSend(rows,f.name)}catch(x){toast(x.message||'Could not read that file')}})()}}));
+document.addEventListener('input',e=>{const t=e.target;if(t&&(t.id==='in-t'||t.id==='in-b'||t.id==='in-due')&&S.route==='send')briefQ()});

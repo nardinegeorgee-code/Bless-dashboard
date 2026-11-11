@@ -4,10 +4,11 @@ import { odooConfig, odooVersion, call, sr, nm, nid, fieldsOf, needModel } from 
 import { parsePeriod, monthPeriod, dayList } from './_period.js';
 import { adSpend, profitTiles } from './_profit.js';
 import { shopConfig, fetchSkuImages } from './_shopify.js';
+import { briefSections } from './_brief.js';
 
 const TZ = process.env.DASHBOARD_TZ || 'Africa/Cairo';
 
-const TABS = ['suppliers', 'raw', 'packaging', 'finished', 'inventory', 'sales', 'distributors', 'people', 'profit', 'in', 'out', 'trial', 'pnl', 'balance', 'hr'];
+const TABS = ['brief', 'suppliers', 'raw', 'packaging', 'finished', 'inventory', 'sales', 'distributors', 'people', 'profit', 'in', 'out', 'trial', 'pnl', 'balance', 'hr'];
 const pad = (n) => String(n).padStart(2, '0');
 const n0 = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const pct = (a, b) => (b ? (a / b) * 100 : 0);
@@ -137,6 +138,8 @@ function build(tab, cfg, ctx) {
   const { month, s, e, ps, pe, today } = ctx;
   const memo = {};
   const once = (k, fn) => (memo[k] = memo[k] || fn());
+
+  if (tab === 'brief') return briefSections(cfg, ctx, { section, tile, bd, COL, costsOf, daily, sum, pct, n0, dt, dtEnd });
 
   const products = () => once('products', async () => {
     const f = await needModel(cfg, 'product.product', 'Inventory');
@@ -428,7 +431,7 @@ function build(tab, cfg, ctx) {
     }, 'A distributor is a customer with a confirmed order. Contacts of one company are counted together.'),
     section('customers', `Top customers (${ctx.monthLabel})`, 'table', async () => {
       const [list, inv] = await Promise.all([
-        sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(s)], ['date_order', '<=', dtEnd(e)]], ['name', 'partner_id', 'amount_total', 'date_order'], { app: 'Sales', limit: 20000 }),
+        sr(cfg, 'sale.order', [['state', 'in', ['sale', 'done']], ['date_order', '>=', dt(s)], ['date_order', '<=', dtEnd(e)]], ['name', 'partner_id', 'amount_total', 'date_order', 'user_id'], { app: 'Sales', limit: 20000 }),
         sr(cfg, 'account.move', [['move_type', 'in', ['out_invoice', 'out_refund']], ['state', '=', 'posted'], ['invoice_date', '>=', s], ['invoice_date', '<=', e]], ['name', 'partner_id', 'move_type', 'invoice_date', 'invoice_date_due', 'amount_total_signed', 'amount_residual', 'payment_state'], { app: 'Accounting', limit: 20000 }),
       ]);
       // Contacts of a company are counted under the company, so orders and invoices of the same customer meet.
@@ -437,14 +440,14 @@ function build(tab, cfg, ctx) {
       const who = (x) => top.get(nid(x.partner_id)) || nm(x.partner_id) || 'Unknown';
       const m = new Map();
       const get = (k) => { if (!m.has(k)) m.set(k, { name: k, value: 0, orders: 0, invoices: 0, invoiced: 0, orderRows: [], invRows: [] }); return m.get(k); };
-      for (const o of list) { const g = get(who(o)); g.value += n0(o.amount_total); g.orders++; g.orderRows.push({ name: o.name, date: String(o.date_order).slice(0, 10), amount: n0(o.amount_total) }); }
+      for (const o of list) { const g = get(who(o)); g.value += n0(o.amount_total); g.orders++; g.orderRows.push({ name: o.name, date: String(o.date_order).slice(0, 10), sales: nm(o.user_id) || '–', amount: n0(o.amount_total) }); }
       const pay = { paid: 'Paid', not_paid: 'Not paid', partial: 'Partly paid', in_payment: 'In payment', reversed: 'Reversed' };
       for (const x of inv) { const g = get(who(x)); const v = amt(x); g.invoices++; g.invoiced += v; g.invRows.push({ name: x.name, date: x.invoice_date, amount: v, owed: resid(x), status: pay[x.payment_state] || String(x.payment_state || '–').replace(/_/g, ' ') }); }
       const rowsOut = [...m.values()].filter((g) => g.orders).sort((a, b) => b.value - a.value).slice(0, 300).map((g) => ({ name: g.name, value: g.value, orders: g.orders, invoices: g.invoices, invoiced: g.invoiced,
         breakdown: { plain: true, summary: [{ l: 'Orders', v: g.orders, f: 'int' }, { l: 'Order value', v: g.value, f: 'money' }, { l: 'Invoices', v: g.invoices, f: 'int' }, { l: 'Invoiced', v: g.invoiced, f: 'money' }],
           columns: [{ key: 'name', label: 'Invoice', fmt: 'str' }, { key: 'date', label: 'Date', fmt: 'str' }, { key: 'amount', label: 'Amount', fmt: 'money' }, { key: 'owed', label: 'Still owed', fmt: 'money' }, { key: 'status', label: 'Payment', fmt: 'str' }],
           rows: g.invRows.sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 100), more: Math.max(0, g.invRows.length - 100), note: g.invRows.length ? undefined : 'No invoices were issued to this customer in this period.',
-          extra: [{ title: 'Orders', columns: [{ key: 'name', label: 'Order', fmt: 'str' }, { key: 'date', label: 'Date', fmt: 'str' }, { key: 'amount', label: 'Value', fmt: 'money' }], rows: g.orderRows.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 100) }] } }));
+          extra: [{ title: 'Orders', columns: [{ key: 'name', label: 'Order', fmt: 'str' }, { key: 'date', label: 'Date', fmt: 'str' }, { key: 'sales', label: 'Salesperson', fmt: 'str' }, { key: 'amount', label: 'Value', fmt: 'money' }], rows: g.orderRows.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 100) }] } }));
       return { initial: 10, columns: [{ key: 'name', label: 'Customer', fmt: 'str' }, { key: 'value', label: 'Order value', fmt: 'money', bar: true }, { key: 'orders', label: 'Orders', fmt: 'int' }, { key: 'invoices', label: 'Invoices', fmt: 'int' }, { key: 'invoiced', label: 'Invoiced', fmt: 'money' }], rows: rowsOut.map((r) => ({ ...r, only: true })), empty: 'No confirmed orders in this period.' };
     }, 'Click a customer to see each invoice and order. Orders and invoices of a company\'s contacts are counted together.'),
     section('cities', `Sales by city (${ctx.monthLabel})`, 'table', async () => {
@@ -636,10 +639,10 @@ function build(tab, cfg, ctx) {
     section('products', `Top products sold (${ctx.monthLabel})`, 'table', async () => {
       const list = await sr(cfg, 'sale.order.line', [['order_id.state', 'in', ['sale', 'done']], ['order_id.date_order', '>=', dt(s)], ['order_id.date_order', '<=', dtEnd(e)]], ['product_id', 'product_uom_qty', 'price_subtotal'], { app: 'Sales', limit: 20000 });
       const m = new Map(); list.forEach((l) => { const k = nm(l.product_id) || 'Other'; const g = m.get(k) || { name: k, pid: nid(l.product_id), value: 0, units: 0 }; g.value += n0(l.price_subtotal); g.units += n0(l.product_uom_qty); m.set(k, g); });
-      const top = [...m.values()].sort((a, b) => b.value - a.value).slice(0, 10);
+      const top = [...m.values()].sort((a, b) => b.value - a.value).slice(0, 100);
       const costs = await costsOf(cfg, top.map((g) => g.pid));
       top.forEach((g) => { const c = costs.get(g.pid); if (c !== undefined) { g.cost = c; g.totalCost = c * g.units; g.profit = g.value - g.totalCost; g.margin = g.value ? (g.profit / g.value) * 100 : null; } });
-      return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'value', label: 'Sales (before tax)', fmt: 'money', bar: true }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'cost', label: 'Unit cost', fmt: 'money2' }, { key: 'totalCost', label: 'Total cost', fmt: 'money' }, { key: 'profit', label: 'Profit', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' }], rows: await addPictures(cfg, top), empty: 'No sales lines in this period.' };
+      return { initial: 10, columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'value', label: 'Sales (before tax)', fmt: 'money', bar: true }, { key: 'units', label: 'Units', fmt: 'int' }, { key: 'cost', label: 'Unit cost', fmt: 'money2' }, { key: 'totalCost', label: 'Total cost', fmt: 'money' }, { key: 'profit', label: 'Profit', fmt: 'money' }, { key: 'margin', label: 'Margin', fmt: 'pct' }], rows: await addPictures(cfg, top), empty: 'No sales lines in this period.' };
     }),
   ];
 
