@@ -16,12 +16,16 @@ export default route(async (req, res) => {
     .filter((r) => ROLES.includes(r) && r !== 'super_admin' && r !== 'ceo');
   const userIds = [...new Set(Array.isArray(req.body?.userIds) ? req.body.userIds : [])]
     .map(String).slice(0, 500);
+  // Deadline: a time in milliseconds, at most two years ahead. Priority: normal, high or urgent.
+  const dueRaw = Number(req.body?.dueAt), now = Date.now();
+  const dueAt = Number.isFinite(dueRaw) && dueRaw > now - 864e5 && dueRaw < now + 730 * 864e5 ? Math.round(dueRaw) : null;
+  const priority = ['normal', 'high', 'urgent'].includes(req.body?.priority) ? req.body.priority : 'normal';
   if (!title || !body) throw new HttpError(400, 'Add a title and the instructions.');
   if (!roles.length && !userIds.length) throw new HttpError(400, 'Choose at least one role or person.');
 
   const rows = await q`
-    INSERT INTO instructions (id, title, body, roles, user_ids, created_by, created_at)
-    VALUES (${rid('i')}, ${title}, ${body}, ${JSON.stringify(roles)}::jsonb, ${JSON.stringify(userIds)}::jsonb, ${admin.id}, ${Date.now()})
+    INSERT INTO instructions (id, title, body, roles, user_ids, created_by, created_at, due_at, priority)
+    VALUES (${rid('i')}, ${title}, ${body}, ${JSON.stringify(roles)}::jsonb, ${JSON.stringify(userIds)}::jsonb, ${admin.id}, ${now}, ${dueAt}, ${priority})
     RETURNING *`;
   res.json({ instruction: mapInstruction(rows[0]) });
 });

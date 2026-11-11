@@ -85,3 +85,10 @@ Admin-only **Meta Ads** page with two tabs, read live from Meta's Marketing API 
 The token stays on the server and is sent to Meta in a request header. Pausing and budget changes need `ads_management`; without it the page still shows reports and Meta's error is shown if you try to change something. Campaigns with a lifetime budget, or with budgets set per ad set, can be paused but their budget is not editable here.
 
 Note: Vercel's free (Hobby) plan allows 12 serverless functions per project, and `api/meta.js` is the 12th.
+
+## Executive brief (Odoo) and guided instructions
+
+- **Odoo, Executive brief** (`api/_brief.js`, tab `brief`, the first Odoo tab): reads sales orders, salespeople, distributors, open invoices and bills, purchase orders, product costs, stock and the posted journals together. It returns a health score, a list of actions ranked by the money attached to each, a scorecard, and tables for salespeople, quiet distributors, collections, low-margin products, supplier dependence, and a short P&L and balance sheet. Each Odoo app is optional; a missing one is named at the bottom of the action list.
+- Rules used: a distributor is "quiet" after 45 days without an order (and at least two orders in the last 6 months); a product "leaks" margin when it is 8 points under the average gross margin or sold at a loss; a supplier above 40% of buying and a customer above 30% of sales are flagged.
+- **Send as instruction**: every action can be turned into a ready-written instruction for the team.
+- **Instructions** now have a deadline and a priority (columns `due_at`, `priority`, added automatically), templates, and a live "Brief quality" check. The team's inbox shows what is to do, what is late, and sorts urgent and soonest first.

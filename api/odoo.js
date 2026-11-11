@@ -4,10 +4,11 @@ import { odooConfig, odooVersion, call, sr, nm, nid, fieldsOf, needModel } from 
 import { parsePeriod, monthPeriod, dayList } from './_period.js';
 import { adSpend, profitTiles } from './_profit.js';
 import { shopConfig, fetchSkuImages } from './_shopify.js';
+import { briefSections } from './_brief.js';
 
 const TZ = process.env.DASHBOARD_TZ || 'Africa/Cairo';
 
-const TABS = ['suppliers', 'raw', 'packaging', 'finished', 'inventory', 'sales', 'distributors', 'people', 'profit', 'in', 'out', 'trial', 'pnl', 'balance', 'hr'];
+const TABS = ['brief', 'suppliers', 'raw', 'packaging', 'finished', 'inventory', 'sales', 'distributors', 'people', 'profit', 'in', 'out', 'trial', 'pnl', 'balance', 'hr'];
 const pad = (n) => String(n).padStart(2, '0');
 const n0 = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const pct = (a, b) => (b ? (a / b) * 100 : 0);
@@ -137,6 +138,8 @@ function build(tab, cfg, ctx) {
   const { month, s, e, ps, pe, today } = ctx;
   const memo = {};
   const once = (k, fn) => (memo[k] = memo[k] || fn());
+
+  if (tab === 'brief') return briefSections(cfg, ctx, { section, tile, bd, COL, costsOf, daily, sum, pct, n0, dt, dtEnd });
 
   const products = () => once('products', async () => {
     const f = await needModel(cfg, 'product.product', 'Inventory');

@@ -58,6 +58,8 @@ export function ensureSchema() {
         created_at BIGINT NOT NULL
       )`;
       await q`ALTER TABLE users ADD COLUMN IF NOT EXISTS reports JSONB NOT NULL DEFAULT '[]'`;
+      await q`ALTER TABLE instructions ADD COLUMN IF NOT EXISTS due_at BIGINT`;
+      await q`ALTER TABLE instructions ADD COLUMN IF NOT EXISTS priority TEXT NOT NULL DEFAULT 'normal'`;
       await q`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS rating INTEGER`;
       await q`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS rated_at BIGINT`;
       await q`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS edited_at BIGINT`;
@@ -114,6 +116,8 @@ export const mapInstruction = (r) => ({
   userIds: r.user_ids || [],
   createdBy: r.created_by,
   createdAt: Number(r.created_at),
+  dueAt: r.due_at ? Number(r.due_at) : null,
+  priority: r.priority || 'normal',
 });
 export const mapSubmission = (r) => ({
   id: r.id,
