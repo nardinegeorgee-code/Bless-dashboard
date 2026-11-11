@@ -249,7 +249,7 @@ export function briefSections(cfg, ctx, h) {
     const gm = knownRev ? pct(knownRev - knownCost, knownRev) : null;
     const unknown = L.filter((l) => l.cost === null && l.rev > 0), unknownRev = sum(unknown, 'rev');
     const leaks = gm === null ? [] : known.filter((l) => l.margin < 0 || (l.rev >= allRev * 0.01 && l.margin < gm - 8)).map((l) => ({ pid: l.pid, name: l.name, gain: (l.rev * (gm - l.margin)) / 100, margin: l.margin, rev: l.rev, unit: l.unit, units: l.units })).sort((a, b) => b.gain - a.gain);
-    const cover = L.map((l) => { const x = ST.get(l.pid); if (!x || !x.storable || l.units <= 0) return null; const perDay = l.units / days; return { pid: l.pid, name: l.name, qty: x.qty, perDay, cover: x.qty <= 0 ? 0 : x.qty / perDay, rev: l.rev, units: l.units, week: (l.rev / days) * 7 }; }).filter(Boolean);
+    const cover = L.map((l) => { const x = ST.get(l.pid); if (!x || !x.storable || l.units <= 0) return null; const perDay = l.units / days; return { pid: l.pid, name: l.name, qty: x.qty, perDay, cover: x.qty <= 0 ? 0 : x.qty / perDay, rev: l.rev, units: l.units, week: (l.rev / days) * 7, unitsWeek: perDay * 7 }; }).filter(Boolean);
     const outs = cover.filter((c) => c.qty <= 0), thin = cover.filter((c) => c.qty > 0 && c.cover < 14).sort((a, b) => a.cover - b.cover);
 
     // ratios, from the books
@@ -330,7 +330,7 @@ export function briefSections(cfg, ctx, h) {
       add({ tone: m.outs.length ? 'bad' : 'warn', area: 'Stock', tab: 'finished', impact: wk, unit: 'sales at risk every week',
         title: m.outs.length ? `Restock ${m.outs.length} selling product${m.outs.length === 1 ? '' : 's'} now at zero${m.thin.length ? `, ${m.thin.length} more within two weeks` : ''}` : `${m.thin.length} best seller${m.thin.length === 1 ? '' : 's'} will run out within two weeks`,
         detail: `At the current rate of sale: ${names(list, (o) => `${bare(o.name)} (${o.qty <= 0 ? 'none left' : Math.round(o.cover) + ' days left'})`, 4)}.`,
-        breakdown: bd([{ l: 'Products', v: list.length, f: 'int' }], [COL.name('Product'), COL.int('qty', 'On hand'), { key: 'cover', label: 'Days of cover', fmt: 'num1' }, COL.money('week', 'Sales per week')], list),
+        breakdown: bd([{ l: 'Products', v: list.length, f: 'int' }], [COL.name('Product'), COL.int('qty', 'On hand'), { key: 'cover', label: 'Days of cover', fmt: 'num1' }, COL.int('unitsWeek', 'Units sold per week'), COL.money('week', 'Sales per week')], list),
         brief: { title: 'Restock best sellers before they run out', body: briefText('keep our selling products in stock.', [`Out or nearly out: ${names(list, (o) => `${o.name} (${o.qty <= 0 ? 'zero' : Math.round(o.cover) + ' days left'})`, 8)}.`, 'Confirm the real count in the warehouse against Odoo.', 'Give the date each one will be available again and what is needed to make it happen.'], 'product, real quantity, date back in stock.') } });
     }
     if (m.falling.length) {
@@ -463,7 +463,7 @@ export function briefSections(cfg, ctx, h) {
     }, 'Products at least 8 points under your average gross margin, or sold at a loss. "Profit left" is what they would add at the average margin.'),
     sec('Products and margin', 'cover', 'Stock cover on your best sellers', 'table', async () => {
       const m = await model();
-      return { initial: 10, columns: [COL.name('Product'), { key: 'cover', label: 'Days of cover', fmt: 'num1', bar: true, barReverse: true }, COL.int('qty', 'On hand'), { key: 'perDay', label: 'Sold per day', fmt: 'num1' }, COL.money('week', 'Sales per week')], rows: m.cover.slice().sort((a, b) => a.cover - b.cover).slice(0, 60), empty: 'Stock levels could not be read for the products sold.' };
+      return { initial: 10, columns: [COL.name('Product'), { key: 'cover', label: 'Days of cover', fmt: 'num1', bar: true, barReverse: true }, COL.int('qty', 'On hand'), { key: 'perDay', label: 'Units sold per day', fmt: 'num1' }, COL.int('unitsWeek', 'Units sold per week'), COL.money('week', 'Sales per week')], rows: m.cover.slice().sort((a, b) => a.cover - b.cover).slice(0, 60), empty: 'Stock levels could not be read for the products sold.' };
     }, 'On-hand quantity divided by the rate of sale in this period. Under 14 days needs an order now.'),
 
     sec('Cash and credit', 'aging', 'What customers owe, by age', 'table', async () => {
