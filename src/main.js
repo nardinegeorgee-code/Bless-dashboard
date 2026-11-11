@@ -1681,7 +1681,7 @@ function breakdownHtml(b){
   if(!b)return '';
   const sum=(b.summary||[]).map(x=>`<span class="bk-s"><em>${esc(x.l)}</em><b>${esc(fv(x.v,x.f))}</b></span>`).join('');
   const head=b.columns.map(c=>`<th class="${c.fmt==='str'?'':'num'}">${esc(c.label)}</th>`).join('');
-  const bkRow=(cols,r)=>`<tr>${cols.map((c,ci)=>{const v=r[c.key];const t=v===null||v===undefined?'–':c.fmt==='str'?stTag(v):esc(fv(v,c.fmt));return `<td class="${c.fmt==='str'?'':'num'}">${ci===0&&r.img?`<span class="pcell">${pic(r,32)}<span>${t}</span></span>`:t}</td>`}).join('')}</tr>`;
+  const bkRow=(cols,r)=>`<tr>${cols.map((c,ci)=>{const v=r[c.key];const t=v===null||v===undefined?'–':c.fmt==='str'?stTag(v):cellText(v,c.fmt);return `<td class="${c.fmt==='str'?'':'num'}">${ci===0&&r.img?`<span class="pcell">${pic(r,32)}<span>${t}</span></span>`:t}</td>`}).join('')}</tr>`;
   const body=b.rows.map(r=>bkRow(b.columns,r)).join('');
   const chart=b.plain?'':b.columns[0].key==='step'?waterfall(b):bkBars(b);
   const tbl=b.rows.length?`<div><div class="bk-wrap"><table class="bk-t"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>${b.more?`<p class="muted dn">Showing the first ${b.rows.length}. ${b.more} more are not listed.</p>`:''}</div>`:'';
