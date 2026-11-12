@@ -119,6 +119,7 @@ const NAV_ICON={
   users:'<circle cx="12" cy="8" r="3.500"/><path d="M5 20c0-3.500 3-6 7-6s7 2.500 7 6"/>',
   act:'<path d="M3 12h3.500l2-6 4 12 2.500-8 1.500 2H21"/>',
   uploads:'<path d="M12 16V5M7.500 9.500 12 5l4.500 4.500"/><path d="M5 15v3.500a1.500 1.500 0 0 0 1.500 1.500h11a1.500 1.500 0 0 0 1.500-1.500V15"/>',
+  catalog:'<path d="M5 5.5A1.5 1.5 0 0 1 6.5 4H19v14H6.500A1.500 1.500 0 0 0 5 19.500v-14Z"/><path d="M5 19.500A1.500 1.500 0 0 0 6.500 21H19"/><path d="M9 8.500h6M9 12h4"/>',
   ins:'<rect x="6" y="4.500" width="12" height="16" rx="2"/><path d="M9.500 4.500h5v2.500h-5zM9 11h6M9 14.500h6M9 18h3.500"/>'
 };
 const navIco=k=>`<svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${NAV_ICON[k]||NAV_ICON.home}</svg>`;
@@ -136,10 +137,10 @@ function applySideMin(){document.body.classList.toggle('side-min',sideMin())}
 function toggleSide(){try{localStorage.setItem(SIDE_MIN_KEY,sideMin()?'0':'1')}catch(e){document.body.classList.toggle('side-min')}applySideMin()}
 function navItems(){
   const nu=unreadNotes().length;
-  if(isAdmin())return [['hub','Home'],['dash','Dashboards'],['home','Team overview'],['send','Send instruction'],['content','All content'],['eval','Evaluation'],['team','Team by role'],['notes','Notifications',nu],['act','Activity'],['users','Users'],['priv','User privileges']];
-  if(isCeo())return [['hub','Home'],['dash','Dashboards'],...(myReports().includes('act')?[['act','Activity']]:[])];
+  if(isAdmin())return [['hub','Home'],['dash','Dashboards'],['home','Team overview'],['send','Send instruction'],['content','All content'],['catalog','Catalogue'],['eval','Evaluation'],['team','Team by role'],['notes','Notifications',nu],['act','Activity'],['users','Users'],['priv','User privileges']];
+  if(isCeo())return [['hub','Home'],['dash','Dashboards'],['catalog','Catalogue'],...(myReports().includes('act')?[['act','Activity']]:[])];
   const pending=myInstructions().filter(i=>!responded(i.id)).length;
-  const base=[['home','Instructions',pending],['uploads','My uploads'],['notes','Notifications',nu],['team','Team by role']];
+  const base=[['home','Instructions',pending],['uploads','My uploads'],['catalog','Catalogue'],['notes','Notifications',nu],['team','Team by role']];
   return hasGrants()?[...base,['hub','Reports'],...GRANT.filter(g=>['dash','act'].includes(g[0])&&myReports().includes(g[0])).map(g=>[g[0],g[1]])]:base;
 }
 function showApp(){
@@ -168,7 +169,7 @@ function targetChips(ins){
 /* ---------- views: mount builds static parts (forms), update fills live parts ---------- */
 function mount(){
   const v=$('#view');const r=S.route;
-  if(isCeo()){if(!['hub','dash','shop','odoo','meta'].includes(S.route)&&!(S.route==='act'&&canSee('act')))S.route='hub'}
+  if(isCeo()){if(!['hub','dash','shop','odoo','meta','catalog'].includes(S.route)&&!(S.route==='act'&&canSee('act')))S.route='hub'}
   else if(!isAdmin()&&['hub','dash','send','content','users','priv','shop','eval','odoo','meta','act'].includes(r)){if(!(r==='hub'?hasGrants():canSee(r)))S.route='home'}
   if(S.route==='hub')v.innerHTML=`<div id="live"></div>`;
   else if(S.route==='dash'){v.innerHTML=`<div id="live"></div>`;if(!S.dash.d.shop&&!S.dash.busy)loadDash(false,true)}
@@ -176,6 +177,7 @@ function mount(){
     :`<div class="head"><div><h1>Instructions</h1><p>Briefs from your Super Admin. Open one to send back your files.</p></div><button class="btn" data-act="go" data-route="uploads">Upload without an instruction</button></div><div id="live"></div>`;
   else if(S.route==='ins')v.innerHTML=`<button class="btn ghost back" data-act="go" data-route="${isAdmin()?'send':'home'}">← Back</button><div id="live"></div>${isAdmin()?'':`<div class="panel"><div><h2>Respond</h2><p class="muted">Attach your files and add a note if needed.</p></div>${uploadForm('resp')}</div>`}<div id="live2"></div>`;
   else if(S.route==='uploads')v.innerHTML=`<div class="head"><div><h1>My uploads</h1><p>Everything you have sent. Add files here even when there is no instruction.</p></div></div><div class="panel"><h2>Upload files</h2>${uploadForm('free')}</div><div id="live"></div>`;
+  else if(S.route==='catalog'){S.cat.shown='';if(!S.param)S.cat.edit=null;v.innerHTML=(S.param||S.cat.edit?'':`<div class="head"><div><h1>Catalogue</h1><p>Every product with its picture, code, barcode, how to use it and its design files.</p></div></div>`)+`<div id="live"></div>`}
   else if(S.route==='notes')v.innerHTML=`<div class="head"><div><h1>Notifications</h1><p>Comments on tasks. Click one to open the conversation.</p></div></div><div id="live"></div>`;
   else if(S.route==='team')v.innerHTML=`<div class="head"><div><h1>Team by role</h1><p>Every username, grouped by role.</p></div></div><div id="live"></div>`;
   else if(S.route==='send')v.innerHTML=`<div class="head"><div><h1>Send instruction</h1><p>Write the brief, then choose whole roles, specific people, or both.</p></div></div>
@@ -221,6 +223,7 @@ function update(){
   else if(r==='ins')updateIns();
   else if(r==='uploads')L.innerHTML=listOrEmpty(S.subs.filter(s=>s.userId===S.me.id),'Nothing uploaded yet','Files you upload, with or without an instruction, appear here.');
   else if(r==='notes')L.innerHTML=notesHTML();
+  else if(r==='catalog')renderCat(true);
   else if(r==='team')L.innerHTML=teamHTML();
   else if(r==='send')updateSend();
   else if(r==='content')updateContent();
@@ -2401,7 +2404,7 @@ document.addEventListener('submit',async e=>{
   else if(k==='up-free')submitUpload('free');
 });
 
-(function(){try{let h=location.hash.slice(1);if(h.startsWith('home:')){S.ovSec=S.ovPending=h.slice(5);h='home'}if(h.startsWith('ins-')){S.route='ins';S.param=h.slice(4)}else if(['hub','dash','home','uploads','notes','team','send','content','users','shop','eval','odoo','meta'].includes(h))S.route=h}catch(e){}})();
+(function(){try{let h=location.hash.slice(1);if(h.startsWith('home:')){S.ovSec=S.ovPending=h.slice(5);h='home'}if(h.startsWith('ins-')){S.route='ins';S.param=h.slice(4)}else if(['catalog','hub','dash','home','uploads','notes','team','send','content','users','shop','eval','odoo','meta'].includes(h))S.route=h}catch(e){}})();
 boot();
 
 /* Side charts (pies and bar panels) can be dragged out of the way. Position is remembered while the page is open; double-click the title to put it back. */
@@ -2437,3 +2440,120 @@ setInterval(()=>{if(S.route==='act'&&S.me&&!document.hidden&&S.act.data&&!S.act.
 document.addEventListener('input',e=>{const t=e.target;if(t&&t.id==='sh-q'){const H=shS();H.q=t.value;H.n=50;shRender()}});
 ['dragover','dragleave','drop'].forEach(ev=>document.addEventListener(ev,e=>{const d=e.target.closest&&e.target.closest('.sh-drop');if(!d)return;e.preventDefault();if(ev==='dragover')d.classList.add('over');else d.classList.remove('over');if(ev==='drop'){const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];if(f)(async()=>{try{const rows=/\.xlsx$/i.test(f.name)?parseXlsx(await f.arrayBuffer()):parseDelim(await f.text());sheetSend(rows,f.name)}catch(x){toast(x.message||'Could not read that file')}})()}}));
 document.addEventListener('input',e=>{const t=e.target;if(t&&(t.id==='in-t'||t.id==='in-b'||t.id==='in-due')&&S.route==='send')briefQ()});
+
+/* ==========================================================================
+   Catalogue: every product with its picture, code, barcode, how to use it and design files
+   ========================================================================== */
+S.cat={data:null,busy:false,err:'',q:'',line:'All',edit:null,shown:''};
+async function loadCat(fresh){
+  const c=S.cat;if(c.busy)return;c.busy=true;c.err='';
+  try{c.data=await api('GET','/api/odoo?catalog=1'+(fresh?'&fresh=1':''),null,60000)}catch(e){c.err=e.message}
+  c.busy=false;c.shown='';if(S.route==='catalog')renderCat();
+}
+const catItem=k=>S.cat.data&&S.cat.data.items.find(i=>i.key===k);
+const catImg=i=>(i.photo&&i.photo.url)||i.img||'';
+const catPrice=(d,i)=>i.price>0?(d.currency?d.currency+' ':'')+Number(i.price).toLocaleString(undefined,{maximumFractionDigits:2}):'';
+/* EAN-13 (and 12-digit UPC) drawn as real bars, so it can be scanned from the screen or a print. */
+function ean13(code){
+  let d=String(code||'').replace(/\D/g,'');if(d.length===12)d='0'+d;if(d.length!==13)return '';
+  const n=d.split('').map(Number),chk=(10-n.slice(0,12).reduce((a,x,i)=>a+x*(i%2?3:1),0)%10)%10;if(chk!==n[12])return '';
+  const L=['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'],R=L.map(x=>x.replace(/./g,c=>c==='0'?'1':'0')),G=R.map(x=>x.split('').reverse().join(''));
+  const P=['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'][n[0]];
+  let bits='101';for(let i=1;i<=6;i++)bits+=(P[i-1]==='L'?L:G)[n[i]];bits+='01010';for(let i=7;i<=12;i++)bits+=R[n[i]];bits+='101';
+  const m=2,q=14,w=bits.length*m+q*2;let g='';
+  for(let i=0;i<bits.length;i++)if(bits[i]==='1'){const guard=i<3||(i>=45&&i<50)||i>=92;g+=`<rect x="${q+i*m}" y="6" width="${m}" height="${guard?70:62}"/>`}
+  return `<svg class="bcode" viewBox="0 0 ${w} 92" role="img" aria-label="Barcode ${d}"><rect width="${w}" height="92" fill="#fff"/><g fill="#000">${g}</g><text x="${w/2}" y="88" text-anchor="middle" font-family="monospace" font-size="13" letter-spacing="3" fill="#000">${d}</text></svg>`;
+}
+function catCard(i,d){
+  const img=catImg(i),miss=d.canEdit&&!i.usage;
+  return `<button class="cat-card${i.hidden?' off':''}" data-act="cat-open" data-k="${esc(i.key)}"><span class="cat-pic">${img?`<img loading="lazy" src="${esc(picUrl(img,480))}" alt="">`:''}<span class="cat-ph" aria-hidden="true">No picture</span></span>
+    <span class="cat-body"><b>${esc(i.name)}</b><span class="mono muted">${esc(i.code||'No code')}${i.barcode?' · '+esc(i.barcode):''}</span>
+    <span class="cat-tags"><span class="pill">${esc(i.line)}</span>${i.hidden?'<span class="pill late">Hidden</span>':''}${miss?'<span class="pill soon">No usage brief</span>':''}${i.files.length?`<span class="pill due">${i.files.length} design file${i.files.length===1?'':'s'}</span>`:''}</span></span></button>`;
+}
+function catGrid(){
+  const c=S.cat,d=c.data,q=c.q.trim().toLowerCase();
+  let list=d.items;
+  if(c.line==='__todo')list=list.filter(i=>!i.usage&&!i.hidden);else if(c.line!=='All')list=list.filter(i=>i.line===c.line);
+  if(q)list=list.filter(i=>(i.name+' '+i.code+' '+i.barcode+' '+i.line).toLowerCase().includes(q));
+  if(!list.length)return empty('Nothing found',q?'No product matches "'+c.q+'". Try the code, the barcode or part of the name.':'There are no products in this line yet.');
+  if(c.line!=='All'||q)return `<div class="cat-grid">${list.map(i=>catCard(i,d)).join('')}</div>`;
+  return d.lines.map(l=>{const g=list.filter(i=>i.line===l);return g.length?`<section class="cat-sec"><h2>${esc(l)} <span class="count">${g.length}</span></h2><div class="cat-grid">${g.map(i=>catCard(i,d)).join('')}</div></section>`:''}).join('');
+}
+function catFilesHtml(files,edit){
+  if(!files.length)return edit?'':'<p class="muted">No design files added yet.</p>';
+  return `<div class="cat-files">${files.map((f,k)=>{const isImg=/^image\//.test(f.type);return `<div class="cat-file"><a href="${esc(f.url)}" target="_blank" rel="noopener" ${isImg?`data-act="zoom" data-src="${esc(f.url)}" data-cap="${esc(f.name)}"`:''}>${isImg?`<img loading="lazy" src="${esc(f.url)}" alt="">`:`<span class="cat-ext">${esc((f.name.split('.').pop()||'file').slice(0,4).toUpperCase())}</span>`}</a><span class="nm" title="${esc(f.name)}">${esc(f.name)}</span><span class="row" style="gap:6px"><a class="btn sm" href="${esc(f.url)}" download="${esc(f.name)}" target="_blank" rel="noopener">Download</a>${edit?`<button type="button" class="btn sm ghost" data-act="cat-rmfile" data-i="${k}">Remove</button>`:''}</span></div>`}).join('')}</div>`;
+}
+function catDetail(i,d){
+  const img=catImg(i),bc=ean13(i.barcode),price=catPrice(d,i),desc=i.description||i.odooDesc;
+  return `<button class="btn ghost back" data-act="go" data-route="catalog">← Back to the catalogue</button>
+  <div class="cat-detail"><div class="cat-big">${img?`<img src="${esc(picUrl(img,1000))}" alt="${esc(i.name)}" data-act="zoom" data-src="${esc(picUrl(img,1600))}" data-cap="${esc(i.name)}">`:''}<span class="cat-ph" aria-hidden="true">No picture yet</span></div>
+    <div class="cat-info"><div class="row" style="gap:8px"><span class="pill">${esc(i.line)}</span>${i.hidden?'<span class="pill late">Hidden from the team</span>':''}${i.custom?'<span class="pill due">Added by hand</span>':''}</div>
+      <h1>${esc(i.name)}</h1>
+      <dl class="cat-facts"><div><dt>Code</dt><dd class="mono">${esc(i.code||'–')}</dd></div>${price?`<div><dt>Price</dt><dd>${esc(price)}</dd></div>`:''}${i.group?`<div><dt>Odoo category</dt><dd>${esc(i.group)}</dd></div>`:''}</dl>
+      <div class="cat-bc"><span class="eyebrow">Barcode</span>${i.barcode?(bc||`<b class="mono">${esc(i.barcode)}</b><small class="muted">Shown as a number only: it is not a standard 13-digit barcode.</small>`):'<span class="muted">No barcode in Odoo yet.</span>'}${i.barcode?`<button class="btn sm" data-act="cat-copy" data-v="${esc(i.barcode)}">Copy number</button>`:''}</div>
+      ${d.canEdit?`<div class="row" style="gap:8px"><button class="btn primary" data-act="cat-edit" data-k="${esc(i.key)}">Edit this product</button></div>`:''}</div></div>
+  <section class="panel"><h2>How to use</h2>${i.usage?`<p class="body-text">${esc(i.usage)}</p>`:'<p class="muted">No usage brief yet.</p>'}</section>
+  <section class="panel"><h2>Description</h2>${desc?`<p class="body-text">${esc(desc)}</p>`:'<p class="muted">No description yet.</p>'}</section>
+  <section class="panel"><h2>Design files</h2>${catFilesHtml(i.files,false)}</section>`;
+}
+function catForm(i,d){
+  const e=S.cat.edit,isNew=!i,custom=isNew||i.custom,v=k=>esc(i?i[k]||'':'');
+  return `<button class="btn ghost back" data-act="cat-cancel">← Cancel</button>
+  <form class="panel" data-form="cat"><h2>${isNew?'Add a product by hand':'Edit: '+esc(i.name)}</h2>
+    ${custom?`<div class="sendrow"><div class="field"><label for="ct-name">Name</label><input class="input" id="ct-name" maxlength="200" value="${v('name')}" required></div><div class="field"><label for="ct-code">Code</label><input class="input" id="ct-code" maxlength="80" value="${v('code')}"></div><div class="field"><label for="ct-bar">Barcode number</label><input class="input" id="ct-bar" maxlength="40" inputmode="numeric" value="${v('barcode')}"></div></div>`
+      :'<p class="muted" style="font-size:.85rem">Name, code, barcode and price come from Odoo. Change them there and they update here.</p>'}
+    <div class="field"><label for="ct-line">Line</label><select class="select" id="ct-line">${custom?'':`<option value="">Automatic (from the name: ${esc(guessLineLabel(i))})</option>`}${d.lines.map(l=>`<option value="${esc(l)}" ${i&&!i.auto&&i.line===l?'selected':''}>${esc(l)}</option>`).join('')}</select></div>
+    <div class="field"><label for="ct-use">How to use (short brief)</label><textarea class="textarea" id="ct-use" maxlength="3000" placeholder="Who it is for, how much to apply, on wet or dry hair, how often, what to pair it with…">${v('usage')}</textarea></div>
+    <div class="field"><label for="ct-desc">Description</label><textarea class="textarea" id="ct-desc" maxlength="6000" style="min-height:140px" placeholder="What it is, key ingredients, benefits, size…">${i?esc(i.description||''):''}</textarea>${i&&i.odooDesc&&!i.description?`<span class="muted" style="font-size:.8rem">Left empty, the catalogue shows the sales description from Odoo.</span>`:''}</div>
+    <div class="field"><label for="ct-photo">Product picture</label>${e.photo?`<div class="row" style="gap:10px"><img class="cat-mini" src="${esc(e.photo.url)}" alt=""><button type="button" class="btn sm ghost" data-act="cat-rmphoto">Remove this picture</button></div>`:''}<input class="input" type="file" id="ct-photo" accept="image/png,image/jpeg,image/webp"><span class="muted" style="font-size:.8rem">${custom?'Optional.':'Optional. Without one, the picture from Shopify or Odoo is used.'}</span></div>
+    <div class="field"><label for="ct-files">Design files (label, box, artwork, ads)</label>${catFilesHtml(e.files,true)}<input class="input" type="file" id="ct-files" multiple accept=".png,.jpg,.jpeg,.webp,.gif,.svg,.pdf,.mp4,.webm"><span class="muted" style="font-size:.8rem">Images, PDF or video, up to 20 MB each.</span></div>
+    <label class="check"><input type="checkbox" id="ct-hide" ${i&&i.hidden?'checked':''}> Hide this product from the team's catalogue</label>
+    <div class="row" style="justify-content:space-between">${i&&i.custom?`<button type="button" class="btn ghost" data-act="cat-del" data-k="${esc(i.key)}">Delete product</button>`:'<span></span>'}<button class="btn primary" type="submit">Save</button></div>
+    <div class="err" id="ct-err"></div></form>`;
+}
+const guessLineLabel=i=>i.auto?i.line:'best guess';
+function renderCat(fromSync){
+  const L=$('#live');if(!L)return;const c=S.cat,d=c.data,key=(S.param||'list')+'|'+(c.edit?'edit':'view')+'|'+(d?'d':'n')+'|'+c.err;
+  if(fromSync&&c.shown===key)return;c.shown=key;
+  if(!d){L.innerHTML=c.err?`<div class="empty"><b>Could not load the catalogue</b><span>${esc(c.err)}</span><button class="btn" data-act="cat-refresh">Try again</button></div>`:empty('Loading the catalogue…','Reading the products from Odoo. This can take a few seconds.');if(!c.busy&&!c.err)loadCat();return}
+  if(c.edit){L.innerHTML=catForm(c.edit.key?catItem(c.edit.key):null,d);return}
+  if(S.param){const i=catItem(S.param);L.innerHTML=i?catDetail(i,d):empty('Product not found','It may have been archived in Odoo.')+'<button class="btn" data-act="go" data-route="catalog">Back to the catalogue</button>';return}
+  const n=l=>d.items.filter(i=>i.line===l).length,todo=d.items.filter(i=>!i.usage&&!i.hidden).length,chip=(k,l,cnt)=>`<button class="subtab${c.line===k?' on':''}" data-act="cat-line" data-l="${esc(k)}">${esc(l)} <span class="count">${cnt}</span></button>`;
+  L.innerHTML=`${d.warn?`<div class="panel" style="border-color:var(--warn)"><p class="body-text">${esc(d.warn)}</p></div>`:''}
+    <div class="cat-bar"><input class="input" id="cat-q" type="search" placeholder="Search by name, code or barcode" value="${esc(c.q)}" aria-label="Search the catalogue">${d.canEdit?`<button class="btn" data-act="cat-new">Add a product</button><button class="btn ghost" data-act="cat-refresh">${c.busy?'Refreshing…':'Refresh from Odoo'}</button>`:''}</div>
+    <div class="subtabs cat-lines">${chip('All','All products',d.items.length)}${d.lines.filter(l=>n(l)).map(l=>chip(l,l,n(l))).join('')}${d.canEdit&&todo?chip('__todo','Needs a usage brief',todo):''}</div>
+    <div id="cat-list">${catGrid()}</div>`;
+}
+document.addEventListener('input',e=>{if(e.target&&e.target.id==='cat-q'&&S.route==='catalog'){S.cat.q=e.target.value;const g=$('#cat-list');if(g)g.innerHTML=catGrid()}});
+document.addEventListener('error',e=>{const t=e.target;if(t&&t.tagName==='IMG'&&t.closest&&t.closest('.cat-pic,.cat-big'))t.remove()},true);
+document.addEventListener('click',async e=>{
+  const b=e.target.closest&&e.target.closest('[data-act^="cat-"]');if(!b)return;const a=b.dataset.act,c=S.cat;
+  if(a==='cat-open')go('catalog',b.dataset.k);
+  else if(a==='cat-line'){c.line=b.dataset.l;c.shown='';renderCat()}
+  else if(a==='cat-refresh'){c.data=c.data||null;c.shown='';renderCat();loadCat(true)}
+  else if(a==='cat-new'){c.edit={key:'',files:[],photo:null};renderCat()}
+  else if(a==='cat-edit'){const i=catItem(b.dataset.k);if(i){c.edit={key:i.key,files:i.files.slice(),photo:i.photo||null};renderCat();window.scrollTo(0,0)}}
+  else if(a==='cat-cancel'){c.edit=null;renderCat()}
+  else if(a==='cat-rmfile'){c.edit.files.splice(+b.dataset.i,1);catKeep()}
+  else if(a==='cat-rmphoto'){c.edit.photo=null;catKeep()}
+  else if(a==='cat-copy'){try{await navigator.clipboard.writeText(b.dataset.v);toast('Barcode number copied.')}catch(x){toast('Could not copy. Select the number and copy it by hand.')}}
+  else if(a==='cat-del'){if(!arm(b))return;try{await api('POST','/api/odoo?catalog=1',{action:'delete',key:b.dataset.k});c.edit=null;S.param=null;await loadCat();toast('Product deleted.')}catch(x){toast(x.message)}}
+});
+/* Re-draw the edit form without losing what has been typed. */
+function catKeep(){const keep={};['ct-name','ct-code','ct-bar','ct-line','ct-use','ct-desc'].forEach(id=>{const el=$('#'+id);if(el)keep[id]=el.value});const hid=$('#ct-hide')&&$('#ct-hide').checked;S.cat.shown='';renderCat();Object.entries(keep).forEach(([id,v])=>{const el=$('#'+id);if(el)el.value=v});if($('#ct-hide'))$('#ct-hide').checked=!!hid}
+document.addEventListener('submit',async e=>{
+  const f=e.target;if(!f||!f.matches||!f.matches('[data-form="cat"]'))return;e.preventDefault();
+  const c=S.cat,ed=c.edit,err=$('#ct-err'),btn=f.querySelector('button[type="submit"]'),val=id=>($('#'+id)?$('#'+id).value:'');
+  const pick=el=>el&&el.files?[...el.files]:[],newFiles=pick($('#ct-files')),newPhoto=pick($('#ct-photo'))[0];
+  const typeOf=x=>TYPES[(x.name.split('.').pop()||'').toLowerCase()],bad=[...newFiles,...(newPhoto?[newPhoto]:[])].filter(x=>!typeOf(x)||x.size>20*1048576);
+  if(bad.length){err.textContent='Not supported or larger than 20 MB: '+bad.map(x=>x.name).join(', ');return}
+  btn.disabled=true;err.textContent='';
+  try{
+    const put=async x=>{const r=await upload(x.name,x,{access:'public',handleUploadUrl:'/api/upload',contentType:typeOf(x)});return {url:r.url,name:x.name,type:typeOf(x),size:x.size}};
+    let photo=ed.photo;if(newPhoto){btn.textContent='Uploading the picture…';photo=await put(newPhoto)}
+    const files=ed.files.slice();for(let k=0;k<newFiles.length;k++){btn.textContent=`Uploading file ${k+1} of ${newFiles.length}…`;files.push(await put(newFiles[k]))}
+    btn.textContent='Saving…';
+    const r=await api('POST','/api/odoo?catalog=1',{key:ed.key,name:val('ct-name'),code:val('ct-code'),barcode:val('ct-bar'),line:val('ct-line'),usage:val('ct-use'),description:val('ct-desc'),hidden:!!($('#ct-hide')&&$('#ct-hide').checked),files,photo});
+    c.edit=null;S.param=r.key||ed.key;await loadCat();toast('Saved to the catalogue.');
+  }catch(x){err.textContent=x.message;btn.disabled=false;btn.textContent='Save'}
+});
