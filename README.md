@@ -93,3 +93,10 @@ Note: Vercel's free (Hobby) plan allows 12 serverless functions per project, and
 - **Send as instruction**: every action can be turned into a ready-written instruction for the team.
 - **Instructions** now have a deadline and a priority (columns `due_at`, `priority`, added automatically), templates, and a live "Brief quality" check. The team's inbox shows what is to do, what is late, and sorts urgent and soonest first.
 - The brief is laid out as a management report in eight chapters (Summary, Growth, Customers, Sales team, Products and margin, Cash and credit, Supply, Financial statements). It adds a written summary, a month-end forecast, 12-month trends, two sales bridges (customer by customer, and price against volume), customer segments, ABC concentration, receivables by age, stock cover, purchase price changes, financial ratios with benchmarks (margins, break-even, ROE, ROA, current and quick ratio, debt to equity, DSO, DIO, DPO, cash conversion cycle), a common-size P&L and a comparative balance sheet. Benchmarks are general rules, set in `api/_brief.js`.
+
+## Catalogue
+
+- Sidebar page **Catalogue**, open to every signed-in user; only the Super Admin can edit (`api/_catalog.js`, served through `/api/odoo?catalog=1`).
+- Products, codes, barcodes, prices and sales descriptions are read from Odoo (products that can be sold). Pictures come from Shopify when the code matches, otherwise from Odoo.
+- Each product is placed in a line from its name (Shea, Argan, Vitamin E, Coconut, Activator, Sulfate free shampoo, Gels, Shower gels, Satins, Accessories, Offers and bundles, Other). The Super Admin can move it, add a usage brief, a description, a replacement picture and design files, hide it, or add a product by hand. These are stored in the table `catalog_items`.
+- 13-digit (EAN-13) and 12-digit barcodes are drawn as scannable bars; other formats show the number.

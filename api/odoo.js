@@ -5,6 +5,7 @@ import { parsePeriod, monthPeriod, dayList } from './_period.js';
 import { adSpend, profitTiles } from './_profit.js';
 import { shopConfig, fetchSkuImages } from './_shopify.js';
 import { briefSections } from './_brief.js';
+import { catalog } from './_catalog.js';
 
 const TZ = process.env.DASHBOARD_TZ || 'Africa/Cairo';
 
@@ -914,6 +915,7 @@ async function pool(tasks, size = 3) {
 
 export default route(async (req, res) => {
   allow(req, ['GET', 'POST']);
+  if (req.query.catalog) return catalog(req, res); // the product catalogue is open to the whole team
   if (req.method === 'POST') {
     await requireAdmin(req);
     if (req.body?.action !== 'target') return res.status(400).json({ error: 'Unknown action.' });

@@ -59,6 +59,7 @@ export function ensureSchema() {
       )`;
       await q`ALTER TABLE users ADD COLUMN IF NOT EXISTS reports JSONB NOT NULL DEFAULT '[]'`;
       await q`ALTER TABLE instructions ADD COLUMN IF NOT EXISTS due_at BIGINT`;
+      await q`CREATE TABLE IF NOT EXISTS catalog_items (key TEXT PRIMARY KEY, line TEXT NOT NULL DEFAULT '', usage TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', files JSONB NOT NULL DEFAULT '[]', photo JSONB, hidden BOOLEAN NOT NULL DEFAULT false, name TEXT NOT NULL DEFAULT '', code TEXT NOT NULL DEFAULT '', barcode TEXT NOT NULL DEFAULT '', updated_at BIGINT, updated_by TEXT)`;
       await q`ALTER TABLE instructions ADD COLUMN IF NOT EXISTS priority TEXT NOT NULL DEFAULT 'normal'`;
       await q`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS rating INTEGER`;
       await q`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS rated_at BIGINT`;
