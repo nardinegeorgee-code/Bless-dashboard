@@ -27,6 +27,23 @@ export function guessLine(name) {
   return 'Other';
 }
 
+/**
+ * Only finished products belong in the catalogue. Raw materials (code R-), packaging (code P-), services, fees,
+ * discounts, conversion costs, Shopify system items, uniforms and bare barcode numbers are left out.
+ * Finished products carry codes like F-2020103.
+ */
+const NOT_FINISHED_NAME = /conversion cost|discount|\bfees?\b|\btips?\b|tip product|shopify|gift card|down payment|top-?up|e-?wallet|cliche|\(service\)|t-?shirt|marketing|refund|shipping|delivery|commission|deposit|carton|sticker|^stai$/i;
+const NOT_FINISHED_CATEG = /raw|material|packag|service|expense|fee|discount|consumable|semi/i;
+export function isFinished(p) {
+  const code = String(p.code || '').trim().toUpperCase(), name = String(p.name || '').trim();
+  if (/^[RP]-/.test(code)) return false;
+  if (p.type === 'service') return false;
+  if (/^[\d\s-]{8,}$/.test(name)) return false;
+  if (NOT_FINISHED_NAME.test(name)) return false;
+  if (NOT_FINISHED_CATEG.test(String(p.group || ''))) return false;
+  return true;
+}
+
 const str = (v, max) => String(v ?? '').replace(/\r/g, '').trim().slice(0, max);
 const cleanFiles = (list) => (Array.isArray(list) ? list : []).filter((f) => f && typeof f.url === 'string' && /^https:\/\/[a-z0-9.-]+\.blob\.vercel-storage\.com\//i.test(f.url)).slice(0, 40)
   .map((f) => ({ url: f.url, name: str(f.name, 200) || 'file', type: str(f.type, 80), size: Number(f.size) || 0 }));
@@ -41,7 +58,7 @@ async function odooProducts(fresh) {
     const have = await fieldsOf(cfg, 'product.product');
     if (!have) throw new Error('the product list is not available in Odoo');
     const dom = [['active', '=', true], ...(have.has('sale_ok') ? [['sale_ok', '=', true]] : [])];
-    const list = await sr(cfg, 'product.product', dom, ['display_name', 'default_code', 'barcode', 'categ_id', 'list_price', 'description_sale', 'write_date'], { limit: 5000 });
+    const list = await sr(cfg, 'product.product', dom, ['display_name', 'default_code', 'barcode', 'categ_id', 'list_price', 'description_sale', 'write_date', ...(have.has('detailed_type') ? ['detailed_type'] : have.has('type') ? ['type'] : [])], { limit: 5000 });
     let pics = { bySku: {}, byName: {} };
     try { const sc = shopConfig(); if (sc && !(sc.missing || []).length) pics = (await fetchSkuImages(sc)) || pics; } catch (err) { /* Odoo pictures are used instead */ }
     let currency = '';
@@ -49,9 +66,9 @@ async function odooProducts(fresh) {
     const out = list.map((p) => {
       const code = String(p.default_code || '').trim(), name = String(p.display_name || '').replace(/^\s*\[[^\]]*\]\s*/, '').trim();
       const shopImg = (code && pics.bySku && pics.bySku[code.toLowerCase()]) || (pics.byName && pics.byName[name.toLowerCase()]) || '';
-      return { key: 'o' + p.id, pid: p.id, name, code, barcode: String(p.barcode || '').trim(), price: Number(p.list_price) || 0, group: nm(p.categ_id), odooDesc: stripHtml(p.description_sale), img: shopImg || `/api/odoo?catalog=img&id=${p.id}&v=${encodeURIComponent(String(p.write_date || '').slice(0, 19))}` };
+      return { key: 'o' + p.id, pid: p.id, type: String(p.detailed_type || p.type || ''), name, code, barcode: String(p.barcode || '').trim(), price: Number(p.list_price) || 0, group: nm(p.categ_id), odooDesc: stripHtml(p.description_sale), img: shopImg || `/api/odoo?catalog=img&id=${p.id}&v=${encodeURIComponent(String(p.write_date || '').slice(0, 19))}` };
     });
-    odooMemo = { at: Date.now(), v: { list: out, currency } };
+    odooMemo = { at: Date.now(), v: { list: out.filter(isFinished), currency } };
     return odooMemo.v;
   } catch (err) {
     return { list: [], warn: 'Odoo could not be read just now (' + String(err.message || err).slice(0, 140) + '). Products added by hand are still shown.' };
