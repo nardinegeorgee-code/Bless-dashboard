@@ -1577,3 +1577,8 @@ h1{font-weight:600;font-size:1.95rem}h2,h3{font-weight:600}
 .gr-rep li{grid-template-columns:auto minmax(0,1fr)}
 .gr-side{grid-column:2;grid-auto-flow:column;justify-content:space-between;justify-items:start;align-items:center;margin-top:2px}
 @media (max-width:640px){.gr-rep li{grid-template-columns:auto minmax(0,1fr)}}
+.gr-note{grid-column:2;display:grid;gap:6px;margin-top:8px}
+.gr-note label{font-size:.78rem;font-weight:600;color:var(--muted)}
+.gr-note textarea{width:100%;min-height:54px;resize:vertical;font:inherit;font-size:.86rem;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:inherit}
+.gr-note div{display:flex;justify-content:flex-end}
+.gr-flag{display:inline-block;margin:4px 0 0 10px;padding:1px 8px;border-radius:999px;font-size:.72rem;background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent-text,var(--accent))}

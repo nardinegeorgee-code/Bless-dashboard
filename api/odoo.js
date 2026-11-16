@@ -1,5 +1,6 @@
 import { route, allow, serveCached, sendCached, requireViewer, requireAdmin } from './_lib.js';
 import { loadTargets, saveTarget, monthsIn } from './_targets.js';
+import { loadNotes, saveNote } from './_notes.js';
 import { odooConfig, odooVersion, call, sr, nm, nid, fieldsOf, needModel } from './_odoo.js';
 import { parsePeriod, monthPeriod, dayList } from './_period.js';
 import { adSpend, profitTiles } from './_profit.js';
@@ -920,12 +921,14 @@ export default route(async (req, res) => {
   if (req.query.catalog) return catalog(req, res); // the product catalogue is open to the whole team
   if (req.method === 'POST') {
     await requireAdmin(req);
+    if (req.body?.action === 'note') { await saveNote(req.body.key, req.body.note); return res.json({ ok: true }); }
     if (req.body?.action !== 'target') return res.status(400).json({ error: 'Unknown action.' });
     await saveTarget(req.body.rep, req.body.amount);
     return res.json({ ok: true });
   }
   await requireViewer(req, 'odoo');
   if (req.query.tab === 'growth') await requireAdmin(req); // the Growth radar is for the Super Admin only
+  if (req.query.notes) { await requireAdmin(req); res.setHeader('Cache-Control', 'no-store'); return res.json({ notes: await loadNotes() }); }
   if (await serveCached(req, res, 'odoo', 10 * 60 * 1000)) return;
   res.setHeader('Cache-Control', 'no-store');
   const cfg = odooConfig();
