@@ -102,3 +102,5 @@ Note: Vercel's free (Hobby) plan allows 12 serverless functions per project, and
 - 13-digit (EAN-13) and 12-digit barcodes are drawn as scannable bars; other formats show the number.
 
 Roles can be added in api/_lib.js (ROLES) and src/main.js (ROLES list).
+
+Deploys run on Vercel from the main branch.
