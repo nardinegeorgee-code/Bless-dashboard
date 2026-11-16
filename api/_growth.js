@@ -13,6 +13,8 @@ const iso = (n) => new Date(n * DAY).toISOString().slice(0, 10);
 const median = (a) => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const r0 = (v) => Math.round(v);
+/** Orders of one distributor, one row per day (value summed), oldest first: the proof behind a rhythm. */
+const dayHist = (orders, last) => { const m = new Map(); for (const o of orders) m.set(o.d, (m.get(o.d) || 0) + o.net); return [...m.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).slice(-last).map(([d, v]) => ({ d, v: Math.round(v) })); };
 const top = (list, n, key = 'value') => [...list].sort((a, b) => b[key] - a[key]).slice(0, n);
 
 /** Thresholds, in one place. */
@@ -53,14 +55,14 @@ export function analyse({ orders, lines, unpaid, today }) {
     else if (c.gap >= 3 && c.since > Math.max(c.gap * R.lateFactor, c.gap + 7)) reorder.push({ status: 'late', value: c.avg });
     else if (c.gap >= 3 && c.since >= c.gap * R.dueFactor && c.since >= 5) reorder.push({ status: 'due', value: c.avg });
     else continue;
-    Object.assign(reorder[reorder.length - 1], { cust: c.cust, rep: c.rep, city: c.city, last: c.last, since: c.since, gap: r0(c.gap), orders: c.orders.length, value: r0(c.avg) });
+    Object.assign(reorder[reorder.length - 1], { hist: dayHist(c.orders, 14), cust: c.cust, rep: c.rep, city: c.city, last: c.last, since: c.since, gap: r0(c.gap), orders: c.orders.length, value: r0(c.avg) });
   }
   const flagged = new Set(reorder.filter((x) => x.status !== 'due').map((x) => x.cust));
 
   // ---- 2. buying less than before (last 90 days against the 90 before)
   const total90 = all.reduce((a, c) => a + c.prior90, 0);
   const shrink = all.filter((c) => !flagged.has(c.cust) && c.prior90 > Math.max(0, total90 * 0.002) && c.last90 > 0 && c.last90 < c.prior90 * R.shrink)
-    .map((c) => ({ cust: c.cust, rep: c.rep, city: c.city, prior: r0(c.prior90), last90: r0(c.last90), value: r0(c.prior90 - c.last90), drop: r0((1 - c.last90 / c.prior90) * 100) }));
+    .map((c) => ({ hist: dayHist(c.orders.filter((o) => o.age <= R.recent * 2).map((o) => ({ ...o, d: o.d })), 30).map((h) => ({ ...h, p: T - dnum(h.d) <= R.recent ? 'last' : 'before' })), cust: c.cust, rep: c.rep, city: c.city, prior: r0(c.prior90), last90: r0(c.last90), value: r0(c.prior90 - c.last90), drop: r0((1 - c.last90 / c.prior90) * 100) }));
 
   // ---- products per distributor
   const CP = new Map(); // cust -> prod -> {recent, old, orders:Set, lastN}
@@ -68,7 +70,8 @@ export function analyse({ orders, lines, unpaid, today }) {
   for (const l of lines) {
     const o = byId.get(l.oid); if (!o || !(l.v > 0) || !l.prod) continue;
     if (!CP.has(o.cust)) CP.set(o.cust, new Map());
-    const m = CP.get(o.cust), g = m.get(l.prod) || { v180: 0, vOld: 0, vQuietBefore: 0, ordersBefore: new Set(), lastN: 0 };
+    const m = CP.get(o.cust), g = m.get(l.prod) || { v180: 0, vOld: 0, vQuietBefore: 0, ordersBefore: new Set(), lastN: 0, days: new Set() };
+    g.days.add(o.n);
     if (o.age <= R.active) g.v180 += l.v; else g.vOld += l.v;
     if (o.age > R.dropQuiet) { g.vQuietBefore += l.v; g.ordersBefore.add(o.id); }
     g.lastN = Math.max(g.lastN, o.n); m.set(l.prod, g);
@@ -89,7 +92,7 @@ export function analyse({ orders, lines, unpaid, today }) {
     if (c.since > R.sleepAfter) continue; // quiet distributors are a win-back call first
     const g = (CP.get(c.cust) || new Map()).get(p.name);
     if (g) continue;
-    whiteGaps.push({ cust: c.cust, rep: c.rep, prod: p.name, pen: r0(p.pen), value: r0(p.med * clamp(c.s180 / medSize, 0.3, 2)) });
+    whiteGaps.push({ cust: c.cust, rep: c.rep, prod: p.name, pen: r0(p.pen), buyers: p.buyers, med: r0(p.med), size: Math.round(clamp(c.s180 / medSize, 0.3, 2) * 100) / 100, value: r0(p.med * clamp(c.s180 / medSize, 0.3, 2)) });
   }
   const rowsM = top(active, 18, 's180').map((c) => {
     const m = CP.get(c.cust) || new Map(), mx = Math.max(1, ...core.map((p) => (m.get(p.name) || {}).v180 || 0));
@@ -102,7 +105,7 @@ export function analyse({ orders, lines, unpaid, today }) {
     if (c.since > R.dropQuiet) continue; // the whole distributor is quiet: that is the reorder clock's job
     for (const [prod, g] of (CP.get(c.cust) || new Map())) {
       if (g.ordersBefore.size < 2 || T - g.lastN <= R.dropQuiet) continue;
-      dropped.push({ cust: c.cust, rep: c.rep, prod, last: iso(g.lastN), since: T - g.lastN, times: g.ordersBefore.size, value: r0(g.vQuietBefore / ((R.window - R.dropQuiet) / R.dropQuiet)) });
+      dropped.push({ dates: [...g.days].sort((a, b) => a - b).slice(-8).map(iso), cust: c.cust, rep: c.rep, prod, last: iso(g.lastN), since: T - g.lastN, times: g.ordersBefore.size, value: r0(g.vQuietBefore / ((R.window - R.dropQuiet) / R.dropQuiet)) });
     }
   }
 
@@ -137,7 +140,7 @@ export function analyse({ orders, lines, unpaid, today }) {
   const repSales = new Map(); for (const o of O) repSales.set(o.rep, (repSales.get(o.rep) || 0) + o.net);
   return {
     asOf: today, from: iso(T - R.window), rules: R,
-    counts: { distributors: all.length, active: active.length, orders: O.length, sales: r0(net) },
+    counts: { distributors: all.length, active: active.length, activeNow: active.length, orders: O.length, sales: r0(net) },
     reps: [...repSales.entries()].sort((a, b) => b[1] - a[1]).map(([name, sales]) => ({ name, sales: r0(sales) })).slice(0, 60),
     reorder: top(reorder, 150), shrink: top(shrink, 80),
     white: { products: core.map((p) => ({ name: p.name, pen: r0(p.pen), buyers: p.buyers })), rows: rowsM, gaps: top(whiteGaps, 250), active: active.length },
