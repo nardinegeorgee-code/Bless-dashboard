@@ -128,7 +128,11 @@ export function analyse({ orders, lines, unpaid, today }) {
     if (dom > ld - 7) monthEnd += o.net; if (dom <= 7) firstWeek += o.net;
   }
   const DAYS = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri'], bestI = dayTot.indexOf(Math.max(...dayTot)), worst = dayTot.map((v, i) => [v, i]).filter(([, i]) => i !== 6).sort((a, b) => a[0] - b[0])[0];
-  const timing = { days: DAYS, grid: grid.map((r) => r.map(r0)), max: r0(Math.max(1, ...grid.flat())), monthEndShare: net ? r0((monthEnd / net) * 100) : 0, firstWeekShare: net ? r0((firstWeek / net) * 100) : 0, bestDay: DAYS[bestI], bestShare: net ? r0((dayTot[bestI] / net) * 100) : 0, quietDay: worst ? DAYS[worst[1]] : '', total: r0(net) };
+  // per day and salesperson totals: small, and enough for the page to re-cut the grid for any salesperson and date range
+  const tReps = [...new Set(O.map((o) => o.rep))].sort(), tIdx = new Map(tReps.map((r, i) => [r, i])), tMap = new Map();
+  for (const o of O) { const k = o.n + '|' + tIdx.get(o.rep); tMap.set(k, (tMap.get(k) || 0) + o.net); }
+  const tRows = [...tMap.entries()].map(([k, v]) => { const [n, i] = k.split('|'); return [Number(n), Number(i), Math.round(v)]; });
+  const timing = { reps: tReps, rows: tRows, days: DAYS, grid: grid.map((r) => r.map(r0)), max: r0(Math.max(1, ...grid.flat())), monthEndShare: net ? r0((monthEnd / net) * 100) : 0, firstWeekShare: net ? r0((firstWeek / net) * 100) : 0, bestDay: DAYS[bestI], bestShare: net ? r0((dayTot[bestI] / net) * 100) : 0, quietDay: worst ? DAYS[worst[1]] : '', total: r0(net) };
 
   // ---- 8. cities
   const K = new Map();
