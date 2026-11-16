@@ -1483,3 +1483,10 @@ h1{font-weight:600;font-size:1.95rem}h2,h3{font-weight:600}
 .sp-cities{display:flex;flex-wrap:wrap;gap:8px}.sp-city{border:1px solid var(--line);border-radius:12px;padding:8px 12px;display:grid;font-size:.88rem}
 .sp-open{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0 4px}
 .sp-open-top{margin:4px 0 14px;padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:var(--accent-soft)}
+.sp-sticky{margin:0 0 14px}
+.sp-sticky .datebar{margin-bottom:8px}
+.sp-quick{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:0 2px}
+.sp-quick .qchip{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:99px;padding:6px 14px;font:inherit;font-size:.85rem;cursor:pointer;min-height:36px}
+.sp-quick .qchip:hover{border-color:var(--accent)}
+.sp-quick .qchip.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+@media (min-width:900px){.sp-sticky{position:sticky;top:0;z-index:20;background:var(--bg);padding:8px 0 4px}}
