@@ -1954,8 +1954,62 @@ function targetBox(p){
   const hit=pct>=100;
   return `<div class="tgbox"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><span><b>Monthly target: ${esc(fv(t,'money'))}</b>${Math.abs(p.periodTarget-t)>1?` <span class="muted">(${esc(fv(p.periodTarget,'money'))} for these dates)</span>`:''}</span><span><b style="color:var(--${hit?'ok':'warn'})">${Math.round(pct)}% achieved</b> · ${hit?`${esc(fv(p.cur.sales-p.periodTarget,'money'))} above target`:`${esc(fv(p.targetLeft,'money'))} to go`}</span></div><div class="bar" style="margin-top:6px"><i style="width:${w}%"></i></div>${form}</div>`;
 }
+/* ---------- One salesperson: full analysis page (opened from the Salespeople tab) ---------- */
+const kfmt=v=>{v=Number(v)||0;return v>=1e6?(v/1e6).toFixed(1).replace(/\.0$/,'')+'M':v>=1e3?Math.round(v/1e3)+'k':String(Math.round(v))};
+function repPage(sec,p){
+  const c=p.cur,pv=p.prev||{sales:0,orders:0},rank=sec.people.findIndex(x=>x.name===p.name)+1,t=p.monthlyTarget||0,hit=t>0&&(p.targetPct||0)>=100;
+  const plain=(cols,rows,empty)=>anTable({columns:cols,rows:(rows||[]).map(r=>r.breakdown?{...r,only:true}:r),empty});
+  const col=(key,label,fmt)=>({key,label,fmt});
+  const dl=(a,b)=>b>0?Math.round((a-b)/b*100):null;
+  const gS=dl(c.sales,pv.sales),gO=dl(c.orders,pv.orders);
+  const delta=g=>g===null?['No earlier period to compare','mute']:[`${g>=0?'▲':'▼'} ${Math.abs(g)}% vs earlier period`,g>=0?'ok':'bad'];
+  const unpaid=(p.invoices||[]).filter(i=>['not paid','partial','partly paid'].includes(String(i.status||'').toLowerCase()));
+  const unpaidSum=unpaid.reduce((a,i)=>a+(Number(i.amount)||0),0);
+  const avg=c.orders?c.sales/c.orders:null,topC=(p.customers||[])[0],topShare=topC&&c.sales>0?Math.round(topC.sales/c.sales*100):0;
+  const kpi=(l,v,n,k)=>`<div class="sp-kpi"><span>${esc(l)}</span><b>${esc(v)}</b><em class="${k||'mute'}">${esc(n)}</em></div>`;
+  const [sN,sK]=delta(gS),[oN,oK]=delta(gO);
+  const kpis=[kpi('Sales (before tax)',fv(c.sales,'money'),sN,sK),
+    t?kpi('Target progress',Math.round(p.targetPct||0)+'%',hit?`${fv(c.sales-p.periodTarget,'money')} above target`:`${fv(p.targetLeft,'money')} to go`,hit?'ok':'warn'):kpi('Target progress','No target','Set a monthly target below','mute'),
+    kpi('Orders',fmtNum(c.orders),oN,oK),kpi('Distributors',fmtNum(p.distributors),`${fmtNum(p.productsCount)} products sold`,'mute'),
+    kpi('Average order',avg===null?'–':fv(avg,'money'),`${fmtNum(c.units)} units in total`,'mute'),
+    kpi('Invoiced',fv(c.invoiced,'money'),unpaid.length?`${fv(unpaidSum,'money')} not paid yet`:`${fmtNum(c.invoices)} invoice${c.invoices===1?'':'s'}`,unpaid.length?'warn':'mute')].join('');
+  const words=`<b>${esc(p.name)}</b> sold <b>${esc(fv(c.sales,'money'))}</b> in these dates${pv.sales>0?`, ${Math.abs(gS)}% ${gS>=0?'more':'less'} than the earlier period (${esc(fv(pv.sales,'money'))})`:''}.`
+    +(t?` The target for these dates is ${esc(fv(p.periodTarget,'money'))}: ${hit?`it has been reached, by ${esc(fv(c.sales-p.periodTarget,'money'))}`:`${esc(fv(p.targetLeft,'money'))} is still missing`}.`:'')
+    +(unpaid.length?` ${unpaid.length} invoice${unpaid.length===1?'':'s'} worth <b>${esc(fv(unpaidSum,'money'))}</b> ${unpaid.length===1?'has':'have'} not been paid yet, so collecting that money is the quickest way to improve the result.`:'')
+    +(topShare>=30?` ${esc(topC.name)} makes up ${topShare}% of the sales, which is a lot to depend on one distributor.`:'');
+  const months=p.months||[],mx=Math.max(1,t,...months.map(m=>m.sales)),H=200;
+  const bars=months.map(m=>`<div class="sp-col"><span class="sp-v">${esc(kfmt(m.sales))}</span><i class="${!t||m.sales>=t?'hit':'low'}" style="height:${Math.max(2,Math.round(m.sales/mx*H))}px"></i></div>`).join('');
+  const labels=months.map(m=>`<span>${esc(String(m.label).slice(0,3))}</span>`).join('');
+  const acts=[];
+  if(unpaid.length)acts.push(['bad',fv(unpaidSum,'money'),`Collect ${unpaid.length} unpaid invoice${unpaid.length===1?'':'s'}`,`Not paid yet: ${[...new Set(unpaid.map(i=>i.customer))].slice(0,3).map(esc).join(', ')}. Call them this week.`]);
+  if(t&&!hit)acts.push(['warn',fv(p.targetLeft,'money'),'Reach the target',`${esc(p.name)} is ${Math.round(p.targetPct||0)}% of the way for these dates.`]);
+  if(t&&hit)acts.push(['ok','On target','Target reached','Keep the pace and look at what worked.']);
+  if(gS!==null&&gS<=-10)acts.push(['warn',gS+'%','Sales are down','Find out which distributors ordered less than before and ask what changed.']);
+  if(gS!==null&&gS>=10)acts.push(['ok','+'+gS+'%','Sales are up','Find out what is working and share it with the team.']);
+  if(topShare>=30)acts.push(['warn',topShare+'%','One distributor is most of the sales',`${esc(topC.name)}. Grow the others so one late order does not hurt.`]);
+  if(!t&&isAdmin())acts.push(['info','Idea','Set a monthly target','Use the box below, then this page shows progress against it.']);
+  const actHtml=(acts.slice(0,4).map(a=>`<div class="sp-act"><div><b>${a[2]}</b><span class="pill ${a[0]==='bad'?'late':a[0]==='ok'?'done':'new'}">${esc(a[1])}</span></div><p>${a[3]}</p></div>`).join(''))||'<p class="muted">Nothing needs attention for these dates.</p>';
+  const pmax=Math.max(1,...(p.products||[]).map(x=>x.units));
+  const prods=(p.products||[]).slice(0,8).map(x=>`<div class="sp-pr"><div><span>${esc(x.name)}</span><span class="muted">${fmtNum(x.units)} units · ${fmtNum(x.distributors)} distributors</span></div><div class="sp-meter"><i style="width:${Math.round(x.units/pmax*100)}%"></i></div></div>`).join('')||'<p class="muted">No sales in this period.</p>';
+  const cities=(p.cities||[]).map(x=>`<div class="sp-city"><b>${esc(x.name)}</b><span class="muted">${fmtNum(x.distributors)} distributor${x.distributors===1?'':'s'} · ${esc(fv(x.sales,'money'))}</span></div>`).join('')||'<p class="muted">No sales in this period.</p>';
+  const send=isAdmin()?`<button class="btn sm" data-act="rep-send" data-rep="${esc(p.name)}">Send as instruction</button>`:'';
+  return `<div class="sp">
+    <button class="btn sm" data-act="rep-close">← All salespeople</button>
+    <div class="sp-head"><div class="sp-who"><span class="sp-av" aria-hidden="true">${esc(String(p.name).trim().charAt(0).toUpperCase())}</span><div><h2>${esc(p.name)}</h2><p class="muted">${rank?`Number ${rank} of ${sec.people.length} salespeople by sales · `:''}${fmtNum(p.distributors)} distributors · ${fmtNum(c.orders)} orders</p></div></div>${send}</div>
+    <div class="sp-kpis">${kpis}</div>
+    <div class="sp-words"><span class="eyebrow">In plain words</span><p>${words}</p></div>
+    <div class="sp-two"><div class="panel"><h3>Sales by month${t?' vs target':''}</h3><div class="sp-plot" style="height:${H+20}px">${t?`<div class="sp-tl" style="bottom:${Math.round(t/mx*H)}px" title="Target ${esc(fv(t,'money'))}"></div>`:''}<div class="sp-bars">${bars}</div></div><div class="sp-labels">${labels}</div><p class="muted" style="font-size:.8rem;margin:0">${t?`Dashed line is the monthly target of ${esc(fv(t,'money'))}. Bars in the strong colour reached it.`:'No target is set for this person.'} Figures are shortened (k = thousand).</p>${targetBox(p)}</div>
+    <div class="panel"><h3>What to do next</h3>${actHtml}</div></div>
+    <div class="sp-two"><div class="panel"><h3>Products sold</h3><p class="muted" style="font-size:.85rem;margin:0">Ranked by units, with how many distributors bought each</p>${prods}</div><div class="panel"><h3>Cities covered</h3><div class="sp-cities">${cities}</div></div></div>
+    <div class="panel"><h3>Distributors (${fmtNum(p.distributors)})</h3><p class="muted" style="font-size:.85rem;margin:0">Click a row to see its invoices and units per product</p>${plain([col('name','Distributor','str'),col('city','City','str'),col('orders','Orders','int'),col('units','Units','int'),col('sales','Sales','money'),col('invoices','Invoices','int'),col('invoiced','Invoiced','money')],p.customers,'No sales in this period.')}</div>
+    <div class="sp-two"><div class="panel"><h3>Invoices and payment</h3>${plain([col('name','Invoice','str'),col('customer','Distributor','str'),col('date','Date','str'),col('amount','Amount','money'),col('status','Payment','str')],p.invoices,'No invoices in this period.')}</div>
+    <div class="panel"><h3>Latest orders</h3>${plain([col('name','Order','str'),col('date','Date','str'),col('customer','Distributor','str'),col('amount','Amount','money')],p.orders,'No orders in this period.')}</div></div>
+    <div class="panel"><h3>Sales month by month</h3>${plain([col('label','Month','str'),col('sales','Sales','money'),col('orders','Orders','int'),col('units','Units','int'),col('invoiced','Invoiced','money'),...(t?[col('target','Monthly target','money'),col('targetPct','Achieved','pct')]:[])],months.slice().reverse(),'No sales.')}</div>
+  </div>`;
+}
 function anReps(sec){
   if(!sec.people.length)return `<p class="muted">${esc(sec.empty)}</p>`;
+  if(S.od.rep){const one=sec.people.find(x=>x.name===S.od.rep);if(one)return repPage(sec,one)}
   const plain=(cols,rows,empty)=>anTable({columns:cols,rows:rows.map(r=>r.breakdown?{...r,only:true}:r),empty});
   const col=(key,label,fmt)=>({key,label,fmt}),hasT=sec.people.some(x=>x.monthlyTarget>0);
   const team=plain([col('name','Salesperson','str'),col('sales','Sales (before tax)','money'),col('orders','Orders','int'),col('units','Units','int'),col('distributors','Distributors','int'),col('invoices','Invoices','int'),col('invoiced','Invoiced','money'),...(hasT?[col('monthlyTarget','Monthly target','money'),col('targetPct','Achieved','pct')]:[])],
@@ -1963,7 +2017,7 @@ function anReps(sec){
   const one=(p,n)=>{
     const c=p.cur,stat=(l,v,k)=>`<button type="button" class="rs" data-act="rep-stat" data-k="${k}" aria-expanded="false"><em>${esc(l)}</em><b>${esc(v)}</b></button>`;
     return `<details class="repbox"${n===0?' open':''}><summary><b>${esc(p.name)}</b><span class="muted">${esc(fv(c.sales,'money'))} · ${fmtNum(c.orders)} orders · ${fmtNum(c.units)} units${p.targetPct!==null&&p.targetPct!==undefined?` · <b>${Math.round(p.targetPct)}% achieved</b>`:''}</span></summary>
-    <div class="repin">${targetBox(p)}<div class="repsum">${stat('Sales',fv(c.sales,'money'),'months')}${stat('Orders',fmtNum(c.orders),'orders')}${stat('Units',fmtNum(c.units),'units')}${stat('Distributors',fmtNum(p.distributors),'dist')}${stat('Invoices',fmtNum(c.invoices),'invoices')}${stat('Invoiced',fv(c.invoiced,'money'),'invoices')}</div>
+    <div class="repin"><button type="button" class="btn sm primary" data-act="rep-open" data-rep="${esc(p.name)}">Open full analysis →</button>${targetBox(p)}<div class="repsum">${stat('Sales',fv(c.sales,'money'),'months')}${stat('Orders',fmtNum(c.orders),'orders')}${stat('Units',fmtNum(c.units),'units')}${stat('Distributors',fmtNum(p.distributors),'dist')}${stat('Invoices',fmtNum(c.invoices),'invoices')}${stat('Invoiced',fv(c.invoiced,'money'),'invoices')}</div>
     <div class="repdet" data-k="orders" hidden><h3 class="sub">Orders (${fmtNum(c.orders)})</h3>${plain([col('name','Order','str'),col('date','Date','str'),col('customer','Distributor','str'),col('city','City','str'),col('amount','Amount','money')],p.orders||[],'No orders in this period.')}</div>
     <div class="repdet" data-k="units" hidden><h3 class="sub">Units per product (${fmtNum(c.units)})</h3>${plain([col('name','Product','str'),col('units','Units','int'),col('distributors','Distributors','int'),col('orders','Orders','int'),col('sales','Sales','money')],p.products,'No sales in this period.')}</div>
     <div class="repdet" data-k="dist" hidden><h3 class="sub">Distributors (${fmtNum(p.distributors)})</h3>${plain([col('name','Distributor','str'),col('city','City','str'),col('orders','Orders','int'),col('units','Units','int'),col('sales','Sales','money'),col('invoices','Invoices','int'),col('invoiced','Invoiced','money')],p.customers,'No sales in this period.')}</div>
@@ -1975,7 +2029,7 @@ function anReps(sec){
     <h3 class="sub">Month by month</h3>${plain([col('label','Month','str'),col('sales','Sales','money'),col('orders','Orders','int'),col('units','Units','int'),col('invoiced','Invoiced','money'),...(p.monthlyTarget?[col('target','Target','money'),col('targetPct','Of target','pct')]:[])],p.months.slice().reverse(),'No sales.')}
     <h3 class="sub">Invoices</h3>${plain([col('name','Invoice','str'),col('customer','Distributor','str'),col('date','Date','str'),col('amount','Amount','money'),col('status','Payment','str')],p.invoices,'No invoices in this period.')}</div></details>`;
   };
-  return `${sec.source?`<p class="muted" style="font-size:.85rem">${esc(sec.source)}</p>`:''}<h3 class="sub">Everyone</h3>${team}<h3 class="sub" style="margin-top:22px">Each salesperson</h3><p class="muted" style="font-size:.85rem">Click any line to see the detail behind it.</p>${sec.people.map(one).join('')}`;
+  return `${sec.source?`<p class="muted" style="font-size:.85rem">${esc(sec.source)}</p>`:''}<h3 class="sub">Everyone</h3>${team}<div class="sp-open"><span class="muted">Open the full analysis of:</span>${sec.people.map(x=>`<button type="button" class="btn sm" data-act="rep-open" data-rep="${esc(x.name)}">${esc(x.name)}</button>`).join('')}</div><h3 class="sub" style="margin-top:22px">Each salesperson</h3><p class="muted" style="font-size:.85rem">Click any line to see the detail behind it.</p>${sec.people.map(one).join('')}`;
 }
 /* ---------- Odoo ---------- */
 const OD_GROUPS=[['brief','Executive brief',[['brief','Executive brief']]],['supply','Supply',[['suppliers','Suppliers'],['raw','Raw materials'],['packaging','Packaging'],['finished','Finished goods'],['inventory','All stock']]],['sales','Sales',[['sales','Sales'],['distributors','Distributors'],['people','Salespeople']]],['finance','Finance',[['profit','Cost & profit'],['in','Money in'],['out','Money out'],['trial','Trial balance'],['pnl','Profit & loss'],['balance','Balance sheet']]],['team','Team',[['hr','Employees']]]];
@@ -2275,7 +2329,10 @@ document.addEventListener('click',async e=>{
   else if(a==='xb-jump'){const el=document.getElementById('xb-ch-'+b.dataset.i);if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'start'})}
   else if(a==='xb-send'){const sec=((S.od.data&&S.od.data.sections)||[]).find(x=>x.id==='actions'),x=sec&&sec.items[+b.dataset.i];if(x){S.sendDraft={title:String(x.brief?x.brief.title:x.title).slice(0,120),body:x.brief?x.brief.body:x.detail,priority:x.tone==='bad'?'urgent':'high',days:3};go('send')}}
   else if(a==='tpl'){const el=$('#in-b'),tp=BRIEF_TPL[b.dataset.k];if(el&&tp&&(!el.value.trim()||arm(b))){el.value=tp[1];delete b.dataset.armed;b.classList.remove('armed');b.textContent=tp[0];el.focus();briefQ()}}
-  else if(a==='od-tab'){S.od.tab=b.dataset.tab;(S.od.last=S.od.last||{})[odGroup(S.od.tab)[0]]=S.od.tab;S.od.err='';loadOdoo()}
+  else if(a==='rep-open'){S.od.rep=b.dataset.rep;renderOdoo();window.scrollTo(0,0)}
+  else if(a==='rep-close'){S.od.rep='';renderOdoo();window.scrollTo(0,0)}
+  else if(a==='rep-send'){const pp=((S.od.data&&S.od.data.sections)||[]).flatMap(x=>x.people||[]).find(x=>x.name===b.dataset.rep);if(pp){const g=pp.targetPct!==null&&pp.targetPct!==undefined;S.sendDraft={title:('Follow up: '+pp.name).slice(0,120),body:`Please review the numbers for ${pp.name}: ${fmtNum(pp.cur.orders)} orders, ${fmtNum(pp.distributors)} distributors${g?', '+Math.round(pp.targetPct)+'% of target':''}. Agree the next steps and report back.`,priority:'high',days:3};go('send')}}
+  else if(a==='od-tab'){S.od.rep='';S.od.tab=b.dataset.tab;(S.od.last=S.od.last||{})[odGroup(S.od.tab)[0]]=S.od.tab;S.od.err='';loadOdoo()}
   else if(a==='od-refresh')loadOdoo(undefined,true);
   else if(a==='meta-tab'){S.meta.tab=b.dataset.tab;S.meta.err='';loadMeta()}
   else if(a==='meta-refresh')loadMeta(undefined,true);
