@@ -1549,9 +1549,16 @@ h1{font-weight:600;font-size:1.95rem}h2,h3{font-weight:600}
 .gr-c.buy{background:#2BB5A0}.gr-c.drop{background:#D9962B}
 .gr-c.never{border:2px dashed #2BB5A0;color:#2BB5A0;box-sizing:border-box}
 .gr-legend2 .gr-c{width:30px;min-width:30px;max-width:30px;height:18px;font-size:.75rem;flex:none}
-.gr-heat{display:grid;grid-template-columns:auto repeat(7,minmax(34px,1fr));gap:4px;align-items:center;max-width:640px}
-.gr-heat em{font-style:normal;font-size:.74rem;color:var(--muted);text-align:center;white-space:nowrap;padding-right:6px}
-.gr-heat i{display:flex;align-items:center;justify-content:center;height:38px;border-radius:8px;font-style:normal;font-size:.7rem;font-variant-numeric:tabular-nums;color:var(--ink)}
+.gr-heat{display:grid;grid-template-columns:auto repeat(7,minmax(54px,1fr)) minmax(70px,auto);gap:5px;align-items:center;max-width:900px;margin:14px 0}
+.gr-heat em{font-style:normal;font-size:.78rem;color:var(--ink);text-align:center;white-space:nowrap;padding-right:6px;display:grid;gap:1px;justify-items:center}
+.gr-heat em small,.gr-heat i small{font-size:.66rem;color:var(--muted);font-weight:400}
+.gr-heat em.wk{color:var(--muted)}.gr-heat em.tot{color:var(--ink)}.gr-heat em.tot b{font-weight:600;font-variant-numeric:tabular-nums}
+.gr-heat i{display:grid;align-content:center;justify-items:center;gap:0;height:50px;border-radius:9px;font-style:normal;font-size:.8rem;font-variant-numeric:tabular-nums;color:var(--ink);line-height:1.15}
+.gr-heat i b{font-weight:600}.gr-heat i small{color:inherit;opacity:.75}
+.gr-heat i.best{outline:2px solid var(--ink);outline-offset:1px}
+.gr-how{padding:10px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);font-size:.84rem;line-height:1.5}.gr-how p{margin:4px 0 0;color:var(--muted)}.gr-how i{font-style:normal;color:var(--ink);font-weight:600}
+.gr-tmcols{display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:.86rem}.gr-tmcols ul{margin:6px 0 0;padding-left:18px;display:grid;gap:6px;line-height:1.45}
+@media (max-width:760px){.gr-heat{grid-template-columns:auto repeat(7,minmax(40px,1fr)) minmax(54px,auto);overflow-x:auto}.gr-tmcols{grid-template-columns:1fr}}
 .gr-cities{display:flex;flex-wrap:wrap;gap:16px 20px;align-items:flex-end}
 .gr-city{display:grid;justify-items:center;gap:2px;font-size:.8rem;text-align:center;max-width:140px}
 .gr-city i{display:flex;align-items:center;justify-content:center;border-radius:50%;background:color-mix(in srgb,var(--accent) 30%,transparent);border:2px solid var(--accent);font-style:normal;font-size:.72rem;font-weight:700;margin-bottom:4px}
