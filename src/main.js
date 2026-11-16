@@ -2056,6 +2056,128 @@ function grCityList(sec){
 }
 function grCitiesHtml(sec,headHtml){if(!(sec.cities&&sec.cities.length))return '';return `<section class="panel" id="gr-cities-sec">${headHtml}<div id="gr-city-ctl">${grCityCtl(sec)}</div><div id="gr-city-list">${grCityList(sec)}</div></section>`}
 function grCityRefresh(all){const gs=((S.od.data&&S.od.data.sections)||[]).find(x=>x.kind==='growth');if(!gs||gs.error)return;const l=document.getElementById('gr-city-list');if(l)l.innerHTML=grCityList(gs);if(all){const c=document.getElementById('gr-city-ctl');if(c)c.innerHTML=grCityCtl(gs)}}
+/* ---------- Order forecast (Super Admin only) ---------- */
+const FC_KEY='bless-fc';
+S.fc=Object.assign({lead:30,cover:30,z:1.65,round:1,q:'',st:'all',cat:'',sort:'urgent',n:25,open:null},(()=>{try{const v=JSON.parse(localStorage.getItem(FC_KEY)||'{}');return {lead:+v.lead||30,cover:+v.cover||30,z:+v.z||1.65,round:+v.round||1}}catch(e){return {}}})());
+const fcSave=()=>{try{localStorage.setItem(FC_KEY,JSON.stringify({lead:S.fc.lead,cover:S.fc.cover,z:S.fc.z,round:S.fc.round}))}catch(e){}};
+const fcSec=()=>{const s=((S.od.data&&S.od.data.sections)||[]).find(x=>x.kind==='forecast');return s&&!s.error?s:null};
+const fcDate=(iso,add)=>new Date(Date.parse(iso+'T00:00:00Z')+add*864e5).toISOString().slice(0,10);
+const fcDay=iso=>new Date(iso+'T00:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
+const fcMon=ym=>new Date(ym+'-01T00:00:00Z').toLocaleDateString('en-GB',{month:'short',year:'2-digit',timeZone:'UTC'});
+const fcU=v=>fmtNum(Math.round(v));
+const FC_ST={now:['Order now','late'],soon:['Order soon','soon'],ok:['Enough for now','done'],over:['Too much stock','due'],dead:['Not selling','due'],nt:['Stock not tracked','due']};
+const FC_LV=[[1.28,'Lean','90%'],[1.65,'Balanced','95%'],[2.05,'Safe','98%']];
+/* every one of the next 400 days: which forecast month it falls in, and 1 / days in that month */
+function fcDays(sec){
+  if(sec._days)return sec._days;const out=[];
+  for(let k=1;k<=400;k++){const d=fcDate(sec.asOf,k),ym=d.slice(0,7);let i=sec.fMonths.indexOf(ym);if(i<0)i=sec.fMonths.length-1;out.push([i,1/new Date(Date.UTC(+ym.slice(0,4),+ym.slice(5,7),0)).getUTCDate()])}
+  return sec._days=out;
+}
+function fcCalc(sec,p){
+  const D=fcDays(sec),f=p.f,L=S.fc.lead,C=S.fc.cover,H=L+C,pos=p.tracked?p.pos:0;
+  let dem=0,d30=0,cum=0,cover=null;
+  for(let k=0;k<D.length;k++){const r=f[D[k][0]]*D[k][1];if(k<H)dem+=r;if(k<30)d30+=r;if(cover===null){cum+=r;if(cum>pos+1e-9)cover=k}}
+  if(cover===null)cover=cum>0?400:Infinity;
+  const selling=f[0]+f[1]+f[2]+f[3]>0.05,safety=selling?Math.min(S.fc.z*(p.sigma||0)*Math.sqrt(L/30),dem):0,need=dem+safety-pos,rd=Math.max(1,S.fc.round),qty=selling&&need>0.5?Math.ceil(need/rd-1e-9)*rd:0;
+  const st=!selling?'dead':!p.tracked?'nt':cover<L?'now':cover<L+14?'soon':cover>180&&qty===0?'over':'ok';
+  return {dem,d30,safety,pos,need,qty,cover,st,value:qty*(p.cost||0),orderBy:isFinite(cover)&&cover<400?fcDate(sec.asOf,Math.max(0,cover-L)):null,runOut:isFinite(cover)&&cover<400?fcDate(sec.asOf,cover):null};
+}
+const fcAll=sec=>sec.items.map(p=>({p,c:fcCalc(sec,p)}));
+/* monthly bars: history solid, forecast light; the current month shows what is sold so far inside the forecast bar */
+function fcBars(hist,months,f,fMonths,cur,h,small){
+  const n=hist.length+f.length,W=small?520:920,H=h||190,pb=small?16:22,pt=14,bw=W/n,mx=Math.max(1,...hist,...f,cur||0),Y=v=>pt+(H-pt-pb)*(1-v/mx);
+  let s='';
+  hist.forEach((v,i)=>{s+=`<rect class="h" x="${(i*bw+1.5).toFixed(1)}" y="${Y(v).toFixed(1)}" width="${(bw-3).toFixed(1)}" height="${Math.max(0,H-pb-Y(v)).toFixed(1)}" rx="2"><title>${fcMon(months[i])}: ${fcU(v)} units sold</title></rect>`});
+  f.forEach((v,j)=>{const i=hist.length+j,x=(i*bw+1.5).toFixed(1);s+=`<rect class="f" x="${x}" y="${Y(v).toFixed(1)}" width="${(bw-3).toFixed(1)}" height="${Math.max(0,H-pb-Y(v)).toFixed(1)}" rx="2"><title>${fcMon(fMonths[j])}: about ${fcU(v)} units expected${j===0?' ('+fcU(cur||0)+' sold so far)':''}</title></rect>`;
+    if(j===0&&cur>0)s+=`<rect class="h" x="${x}" y="${Y(Math.min(cur,mx)).toFixed(1)}" width="${(bw-3).toFixed(1)}" height="${Math.max(0,H-pb-Y(Math.min(cur,mx))).toFixed(1)}" rx="2"><title>${fcMon(fMonths[0])}: ${fcU(cur)} sold so far</title></rect>`});
+  const x0=hist.length*bw;s+=`<line class="now" x1="${x0.toFixed(1)}" x2="${x0.toFixed(1)}" y1="2" y2="${H-pb}"/><text class="lb" x="${(x0+4).toFixed(1)}" y="10">forecast →</text>`;
+  const all=[...months,...fMonths],step=small?4:n>24?3:2;all.forEach((m,i)=>{if(i%step===0)s+=`<text class="ax" x="${(i===0?1:i*bw+bw/2).toFixed(1)}" y="${H-4}" text-anchor="${i===0?'start':i===n-1?'end':'middle'}">${fcMon(m)}</text>`});
+  return `<svg class="fc-bars" viewBox="0 0 ${W} ${H}" role="img" aria-label="Units sold each month and the forecast">${s}</svg>`;
+}
+function fcSpark(p){const a=[...p.hist.slice(-12)],mx=Math.max(1,...a,...p.f.slice(0,3)),W=96,H=26,n=15,bw=W/n;let s='';a.forEach((v,i)=>{const h=Math.max(v>0?1.5:0,v/mx*H);s+=`<rect class="h" x="${(i*bw+.5).toFixed(1)}" y="${(H-h).toFixed(1)}" width="${(bw-1).toFixed(1)}" height="${h.toFixed(1)}"/>`});p.f.slice(0,3).forEach((v,j)=>{const h=Math.max(v>0?1.5:0,v/mx*H);s+=`<rect class="f" x="${((12+j)*bw+.5).toFixed(1)}" y="${(H-h).toFixed(1)}" width="${(bw-1).toFixed(1)}" height="${h.toFixed(1)}"/>`});return `<svg class="fc-spark" viewBox="0 0 ${W} ${H}" aria-hidden="true">${s}</svg>`}
+function fcHero(sec){
+  const A=fcAll(sec),M=v=>fv(v,'money'),by=k=>A.filter(x=>x.c.st===k),ord=A.filter(x=>x.c.qty>0&&x.c.st!=='nt'),val=ord.reduce((t,x)=>t+x.c.value,0),units=ord.reduce((t,x)=>t+x.c.qty,0),d30=A.reduce((t,x)=>t+x.c.d30,0),l30=sec.items.reduce((t,p)=>t+p.l30,0),noCost=ord.filter(x=>!(x.p.cost>0)).length;
+  const chip=(k,extra)=>{const n=by(k).length;return n?`<button type="button" class="fc-chip ${FC_ST[k][1]}${S.fc.st===k?' on':''}" data-act="fc-st" data-v="${k}"><b>${n}</b> ${FC_ST[k][0].toLowerCase()}${extra||''}</button>`:''};
+  return `<span class="eyebrow">Order forecast · sales up to ${esc(fcDay(sec.asOf))} · only you can see this</span>
+  <div class="gr-big">${val>0?esc(M(val)):esc(fcU(units))+' units'}</div>
+  <p class="gr-sub">${ord.length?`to order across <b>${ord.length}</b> product${ord.length===1?'':'s'} (<b>${esc(fcU(units))}</b> units), so stock lasts through the next ${S.fc.lead+S.fc.cover} days. ${by('now').length?`<b>${by('now').length}</b> will run out before a new order could arrive.`:'Nothing runs out before a new order could arrive.'}`:'Nothing needs ordering with these settings.'}${noCost?` ${noCost} of these have no cost in Odoo, so their value is counted as zero.`:''}</p>
+  <div class="fc-chips">${chip('now')}${chip('soon')}${chip('ok')}${chip('over')}${chip('dead')}${chip('nt')}</div>
+  <p class="muted" style="margin:0;font-size:.86rem">Expected sales in the next 30 days: about <b>${esc(fcU(d30))}</b> units (the last 30 days: ${esc(fcU(l30))}).${sec.accuracy.total!==null?` In testing, the monthly total was off by ${sec.accuracy.total}% on average.`:''}</p>`;
+}
+function fcSet(){
+  const f=S.fc,num=(k,l,h,min,max)=>`<label class="fc-in"><span>${l}</span><input type="number" inputmode="numeric" min="${min}" max="${max}" step="1" data-fc="${k}" value="${f[k]}"><small class="muted">${h}</small></label>`;
+  return `<div class="fc-set">${num('lead','Days until an order arrives','from placing the order to stock on the shelf',1,365)}${num('cover','Days each order should cover','how long the new stock should last after it arrives',1,365)}${num('round','Round up to packs of','1 = no rounding',1,10000)}<div class="fc-in"><span>Safety margin</span><div class="gr-dbtns">${FC_LV.map(([z,l,pc])=>`<button type="button" class="qchip${Math.abs(f.z-z)<.01?' on':''}" data-act="fc-z" data-v="${z}">${l} ${pc}</button>`).join('')}</div><small class="muted">how sure you want to be of not running out while waiting</small></div></div>`;
+}
+function fcListCtl(sec){
+  const f=S.fc,cats=[...new Set(sec.items.map(p=>p.cat))].sort(),b=(act,v,l,on)=>`<button type="button" class="qchip${on?' on':''}" data-act="${act}" data-v="${esc(v)}">${esc(l)}</button>`;
+  return `<div class="gr-tmctl"><div class="fc-top"><input type="search" class="gr-dq" data-fc="q" placeholder="Find a product or code" value="${esc(f.q)}">${cats.length>1?`<select class="fc-sel" data-fc="cat"><option value="">All categories</option>${cats.map(c=>`<option${f.cat===c?' selected':''}>${esc(c)}</option>`).join('')}</select>`:''}<button type="button" class="btn sm" data-act="fc-csv">Download the order list</button></div>
+  <div class="gr-dbtns"><span class="muted">Show</span>${b('fc-st','all','All',f.st==='all')}${Object.keys(FC_ST).map(k=>b('fc-st',k,FC_ST[k][0],f.st===k)).join('')}</div>
+  <div class="gr-dbtns"><span class="muted">Sort</span>${b('fc-sort','urgent','Most urgent',f.sort==='urgent')}${b('fc-sort','value','Biggest order',f.sort==='value')}${b('fc-sort','sales','Best sellers',f.sort==='sales')}${b('fc-sort','name','A to Z',f.sort==='name')}</div></div>`;
+}
+function fcRows(sec){
+  const f=S.fc,q=f.q.trim().toLowerCase(),ord=['now','soon','ok','over','dead','nt'];
+  let A=fcAll(sec).filter(x=>(f.st==='all'||x.c.st===f.st)&&(!f.cat||x.p.cat===f.cat)&&(!q||(x.p.name+' '+x.p.code).toLowerCase().includes(q)));
+  A.sort(f.sort==='name'?(a,b)=>a.p.name.localeCompare(b.p.name):f.sort==='value'?(a,b)=>b.c.value-a.c.value||b.c.qty-a.c.qty:f.sort==='sales'?(a,b)=>b.p.rev12-a.p.rev12:(a,b)=>ord.indexOf(a.c.st)-ord.indexOf(b.c.st)||a.c.cover-b.c.cover||b.p.rev12-a.p.rev12);
+  return A;
+}
+function fcDetail(sec,p,c){
+  const M=v=>fv(v,'money'),L=S.fc.lead,C=S.fc.cover,lv=FC_LV.find(x=>Math.abs(x[0]-S.fc.z)<.01)||FC_LV[1],mx=(p.mix||[]).map(m=>`${esc(sec.methods[m.k]||m.k)}${p.mix.length>1?' ('+m.w+'%)':''}`).join('; ');
+  const calc=c.st==='dead'?`<p class="muted">No sales are expected, so there is nothing to order.${p.onHand>0?` ${fcU(p.onHand)} units are sitting in stock${p.cost>0?' (about '+esc(M(p.onHand*p.cost))+' at cost)':''}${p.last?', last sold on '+esc(fcDay(p.last)):''}.`:''}</p>`:
+  `<table class="gr-pt fc-calc"><tbody>
+  <tr><td>Expected sales in the next ${L+C} days <small class="muted">(${L} days waiting for the order + ${C} days it should cover)</small></td><td>${fcU(c.dem)}</td></tr>
+  <tr><td>+ Safety margin <small class="muted">(${lv[1]} ${lv[2]}: based on how far the forecast missed in testing)</small></td><td>${fcU(c.safety)}</td></tr>
+  <tr><td>− Stock you can count on <small class="muted">${p.tracked?`(${fcU(p.onHand)} on hand + ${fcU(p.incoming)} already coming − ${fcU(p.outgoing)} sold but not delivered yet)`:'(Odoo does not track stock for this product, so it is counted as zero)'}</small></td><td>${fcU(c.pos)}</td></tr>
+  <tr class="tot"><td>= To order${S.fc.round>1&&c.qty?` <small class="muted">(rounded up to packs of ${S.fc.round})</small>`:''}</td><td>${c.qty?fcU(c.qty):'Nothing yet'}</td></tr></tbody></table>
+  <p class="muted">${c.st==='nt'?'Check the real stock before ordering.':c.pos<=0?'There is no free stock now.':!isFinite(c.cover)||c.cover>=400?'The stock lasts more than a year at this rate.':`The stock lasts about ${c.cover===1?'1 day':c.cover+' days'}, until ${esc(fcDay(c.runOut))}. ${c.cover<L?`A new order takes ${L} days, so there will be about ${L-c.cover} days with nothing to sell even if you order today.`:`To avoid running out, place the order by <b>${esc(fcDay(c.orderBy))}</b>.`}`}${c.qty&&p.cost>0?` Order value at cost: ${esc(M(c.value))}.`:''}</p>`;
+  const months=`<div class="gr-pw"><table class="gr-pt"><thead><tr><th>Month</th>${sec.fMonths.map((m,i)=>`<th>${fcMon(m)}${i===0?' (this month)':''}</th>`).join('')}</tr></thead><tbody><tr><td>Expected units</td>${p.f.map(v=>`<td>${fcU(v)}</td>`).join('')}</tr><tr><td>Sold so far</td><td>${fcU(p.cur)}</td>${p.f.slice(1).map(()=>'<td></td>').join('')}</tr></tbody></table></div>`;
+  const test=p.tested?`<div class="gr-pw"><table class="gr-pt"><thead><tr><th>Test month</th>${p.bt.map(b=>`<th>${fcMon(b.m)}</th>`).join('')}</tr></thead><tbody><tr><td>Forecast (made without seeing that month)</td>${p.bt.map(b=>`<td>${fcU(b.f)}</td>`).join('')}</tr><tr><td>Really sold</td>${p.bt.map(b=>`<td>${fcU(b.a)}</td>`).join('')}</tr></tbody></table></div><p class="muted">${p.wape!==null?`Across these months the forecast was off by ${p.wape}% of sales on average${p.bias!==null&&Math.abs(p.bias)>=10?`, and tended to be too ${p.bias>0?'high':'low'}`:''}. `:''}${p.lumpy?'This product sells in bursts with empty months between, so a single month is hard to call: trust the average over several months, and the safety margin is wider. ':''}</p>`:`<p class="muted">${p.method==='none'?'No sales in the last '+sec.months.length+' months.':'This product has too little history to test ('+(p.n||'under 1')+' month'+(p.n===1?'':'s')+'), so the forecast is rough and the safety margin is wide.'}</p>`;
+  return `<div class="fc-det"><div class="fc-dcols"><div><h4>How the order was worked out</h4>${calc}</div><div><h4>Sold each month, and the forecast</h4>${fcBars(p.hist,sec.months,p.f,sec.fMonths,p.cur,150,true)}</div></div><h4>Forecast by month</h4>${months}<h4>How it was forecast, and how it tested</h4>${mx?`<p class="muted">Method: ${mx}.</p>`:''}${test}</div>`;
+}
+function fcList(sec){
+  const A=fcRows(sec),M=v=>fv(v,'money'),L=S.fc.lead;
+  if(!A.length)return '<p class="muted">No product matches.</p>';
+  const row=({p,c})=>{const open=S.fc.open===p.pid,st=FC_ST[c.st];
+    const lasts=c.st==='dead'?'<b>–</b>':c.st==='nt'?'<b>?</b>':c.pos<=0?'<b class="bad">Out now</b>':!isFinite(c.cover)||c.cover>=400?'<b>1 year +</b>':`<b class="${c.cover<L?'bad':''}">${c.cover<1?'Under a day':c.cover===1?'1 day':c.cover+' days'}</b><small class="muted">until ${esc(fcDay(c.runOut))}</small>`;
+    return `<div class="fc-row${open?' open':''}" data-act="fc-open" data-pid="${p.pid}" role="button" tabindex="0" aria-expanded="${open}">
+    <div class="fc-name"><b dir="auto">${esc(p.name)}</b><small class="muted">${esc([p.code,p.cat].filter(Boolean).join(' · '))}</small><span class="pill ${st[1]}">${st[0]}</span></div>
+    <div class="fc-c">${fcSpark(p)}<small class="muted">${p.trend===null?'':(p.trend>=0?'▲ ':'▼ ')+Math.min(999,Math.abs(p.trend))+'% vs 3 months before'}</small></div>
+    <div class="fc-c"><b>${fcU(c.d30)}</b><small class="muted">last 30 days: ${fcU(p.l30)}</small></div>
+    <div class="fc-c"><b>${p.tracked?fcU(p.onHand):'?'}</b><small class="muted">${p.tracked?(p.incoming>0?'+'+fcU(p.incoming)+' coming ':'')+(p.outgoing>0?'−'+fcU(p.outgoing)+' sold':'')||'on hand':'not tracked'}</small></div>
+    <div class="fc-c">${lasts}</div>
+    <div class="fc-c fc-q">${c.qty?`<b>${fcU(c.qty)}</b><small class="muted">${p.cost>0?esc(M(c.value)):'no cost in Odoo'}</small>`:'<b class="muted">–</b>'}</div></div>${open?fcDetail(sec,p,c):''}`};
+  const shown=A.slice(0,S.fc.n);
+  return `<p class="muted gr-dcount">${A.length} product${A.length===1?'':'s'}. Click a product to see how its number was worked out.</p><div class="fc-head"><span>Product</span><span>Last 12 months + forecast</span><span>Expected, next 30 days</span><span>In stock</span><span>Stock lasts</span><span>To order</span></div>${shown.map(row).join('')}${A.length>shown.length?`<button type="button" class="btn sm" data-act="fc-more" style="margin-top:10px">Show ${Math.min(25,A.length-shown.length)} more (${A.length-shown.length} left)</button>`:''}`;
+}
+function fcAbout(sec){
+  const a=sec.accuracy,n=sec.months.length;
+  return `<section class="panel"><div class="sechead"><div><h2>How this forecast is made, and how far to trust it</h2></div></div><div class="fc-about">
+  <div><b>What it reads</b><p class="muted">Every confirmed sales order in Odoo for the last ${n} months, added up per product per month, plus today's stock: what is on hand, what is already on its way in, and what is sold but not delivered yet.</p>
+  <b>How it forecasts</b><p class="muted">Eight methods compete for every product: simple and weighted averages, smoothed levels, a trend that fades out${sec.seasonal?', and a season adjustment taken from the same months last year':''}. Each one is tested by forecasting past months without seeing them. The three that tested best are mixed, and the better one counts more. Products that sell in bursts only use slow averages.</p>
+  <b>How the order is sized</b><p class="muted">Expected sales while you wait for the order and for the days it should cover, plus a safety margin sized from how far the forecast missed in testing, minus the stock you can count on.</p></div>
+  <div><b>How it tested on your real sales</b>${a.months.length?`<div class="gr-pw"><table class="gr-pt"><thead><tr><th>Month</th>${a.months.map(m=>`<th>${fcMon(m.m)}</th>`).join('')}</tr></thead><tbody><tr><td>Forecast</td>${a.months.map(m=>`<td>${esc(kfmt(m.f))}</td>`).join('')}</tr><tr><td>Really sold</td>${a.months.map(m=>`<td>${esc(kfmt(m.a))}</td>`).join('')}</tr></tbody></table></div><p class="muted">All products together, the forecast was off by <b>${a.total}%</b> a month on average. Product by product it was off by <b>${a.items}%</b>: one product in one month is always harder to call than the total, and that is what the safety margin is for. The best methods were picked on these same months, so expect the miss on future months to be a little larger. ${a.tested} products had enough history to test.</p>`:'<p class="muted">There is not enough history yet to test it.</p>'}
+  <b>What it cannot know</b><p class="muted">Offers, price changes, new distributors or a launch you are planning: raise the order yourself for those. Months when a product was out of stock look like low demand, so a product that often runs out is probably under-forecast. Check the days-until-arrival setting against your real supplier or production time.</p></div></div></section>`;
+}
+function forecastPage(sec){
+  if(sec.error)return `<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">The order forecast could not be built</b><p class="body-text">${esc(sec.error)}</p></div>`;
+  if(!sec.items||!sec.items.length)return empty('No finished products with sales','Odoo returned no confirmed sales of finished products in the last 12 months.');
+  const notes=(sec.notes||[]).length?`<div class="panel"><p class="muted" style="margin:0">${sec.notes.map(esc).join(' ')}</p></div>`:'';
+  return `<div class="gr fc"><section class="gr-hero" id="fc-hero">${fcHero(sec)}</section>${notes}
+  <section class="panel"><div class="sechead"><div><h2>Your ordering rules</h2><p class="muted" style="font-size:.85rem">Change these and every number on the page recalculates. They are remembered on this device.</p></div></div><div id="fc-set">${fcSet()}</div></section>
+  <section class="panel"><div class="sechead"><div><h2>All finished products together</h2><p class="muted" style="font-size:.85rem">Units sold each month (dark) and what is expected next (light). In the current month, the dark part is what is sold so far.</p></div></div>${fcBars(sec.histTot,sec.months,sec.fTot,sec.fMonths,sec.curTot)}</section>
+  <section class="panel"><div class="sechead"><div><h2>What to order, product by product</h2></div></div><div id="fc-lctl">${fcListCtl(sec)}</div><div id="fc-list">${fcList(sec)}</div></section>
+  ${fcAbout(sec)}</div>`;
+}
+function fcRefresh(what){const sec=fcSec();if(!sec)return;const put=(id,h)=>{const e=document.getElementById(id);if(e)e.innerHTML=h};put('fc-list',fcList(sec));if(what!=='list')put('fc-hero',fcHero(sec));if(what==='all'){put('fc-set',fcSet());put('fc-lctl',fcListCtl(sec))}if(what==='ctl')put('fc-lctl',fcListCtl(sec))}
+function fcCsv(){
+  const sec=fcSec();if(!sec)return;const A=fcAll(sec).filter(x=>x.c.qty>0).sort((a,b)=>b.c.value-a.c.value),q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
+  const rows=[['Code','Product','Category','Status','To order (units)','Unit cost','Order value','On hand','Coming','Sold not delivered','Expected next 30 days','Stock lasts (days)','Order by'],...A.map(({p,c})=>[p.code,p.name,p.cat,FC_ST[c.st][0],c.qty,p.cost||'',Math.round(c.value)||'',p.onHand,p.incoming,p.outgoing,Math.round(c.d30),isFinite(c.cover)&&c.cover<400?c.cover:'',c.orderBy||''])];
+  const blob=new Blob(['﻿'+rows.map(r=>r.map(q).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),u=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=u;a.download=`order-list-${sec.asOf}-lead${S.fc.lead}-cover${S.fc.cover}.csv`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),2000);
+}
+document.addEventListener('input',e=>{const t=e.target,k=t&&t.dataset&&t.dataset.fc;if(!k)return;
+  if(k==='q'){S.fc.q=t.value;S.fc.n=25;fcRefresh('list');return}
+  if(k==='cat'){S.fc.cat=t.value;S.fc.n=25;fcRefresh('list');return}
+  const v=Math.round(Number(t.value));if(!(v>=1))return;S.fc[k]=Math.min(k==='round'?10000:365,v);fcSave();fcRefresh('hero')});
 function growthPage(sec){
   if(sec.error)return `<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">The Growth radar could not be built</b><p class="body-text">${esc(sec.error)}</p></div>`;
   const M=v=>fv(v,'money'),sum=a=>a.reduce((t,x)=>t+x.value,0),rep=S.od.grep&&sec.reps.some(r=>r.name===S.od.grep)?S.od.grep:'';
@@ -2202,15 +2324,16 @@ function anReps(sec){
   return `${sec.source?`<p class="muted" style="font-size:.85rem">${esc(sec.source)}</p>`:''}<div class="sp-open sp-open-top"><b>Full analysis page:</b>${sec.people.map(x=>`<button type="button" class="btn primary" data-act="rep-open" data-rep="${esc(x.name)}">${esc(x.name)} →</button>`).join('')}</div><h3 class="sub">Everyone</h3>${team}<h3 class="sub" style="margin-top:22px">Each salesperson</h3><p class="muted" style="font-size:.85rem">Click any line to see the detail behind it.</p>${sec.people.map(one).join('')}`;
 }
 /* ---------- Odoo ---------- */
-const OD_GROUPS=[['brief','Executive brief',[['brief','Executive brief']]],['supply','Supply',[['suppliers','Suppliers'],['raw','Raw materials'],['packaging','Packaging'],['finished','Finished goods'],['inventory','All stock']]],['sales','Sales',[['sales','Sales'],['distributors','Distributors'],['people','Salespeople'],['growth','Growth radar']]],['finance','Finance',[['profit','Cost & profit'],['in','Money in'],['out','Money out'],['trial','Trial balance'],['pnl','Profit & loss'],['balance','Balance sheet']]],['team','Team',[['hr','Employees']]]];
+const OD_GROUPS=[['brief','Executive brief',[['brief','Executive brief']]],['supply','Supply',[['suppliers','Suppliers'],['raw','Raw materials'],['packaging','Packaging'],['finished','Finished goods'],['inventory','All stock'],['forecast','Order forecast']]],['sales','Sales',[['sales','Sales'],['distributors','Distributors'],['people','Salespeople'],['growth','Growth radar']]],['finance','Finance',[['profit','Cost & profit'],['in','Money in'],['out','Money out'],['trial','Trial balance'],['pnl','Profit & loss'],['balance','Balance sheet']]],['team','Team',[['hr','Employees']]]];
 /* The Growth radar is for the Super Admin only: everyone else does not get the tab. */
-const odGroups=()=>isAdmin()?OD_GROUPS:OD_GROUPS.map(([g,l,ps])=>[g,l,ps.filter(x=>x[0]!=='growth')]);
+const OD_ADMIN=new Set(['growth','forecast']);
+const odGroups=()=>isAdmin()?OD_GROUPS:OD_GROUPS.map(([g,l,ps])=>[g,l,ps.filter(x=>!OD_ADMIN.has(x[0]))]);
 const odGroup=t=>odGroups().find(g=>g[2].some(x=>x[0]===t))||odGroups()[0];
 S.od={tab:'brief',month:'',cache:{},loading:false,err:'',data:null};
 async function loadOdoo(_m,refresh){
   const od=S.od;
-  if(od.tab==='growth'&&!isAdmin())od.tab='brief';
-  const pq=od.tab==='growth'?'':perQuery(),key=od.tab+'|'+pq;
+  if(OD_ADMIN.has(od.tab)&&!isAdmin())od.tab='brief';
+  const pq=OD_ADMIN.has(od.tab)?'':perQuery(),key=od.tab+'|'+pq;
   if(!refresh&&od.cache[key]){od.data=od.cache[key];renderOdoo();return}
   od.loading=true;od.err='';renderOdoo();
   try{
@@ -2231,6 +2354,7 @@ function renderOdoo(){
   if(!d||d.tab!==od.tab){L.innerHTML=tabs+(od.err?`<div class="empty"><b>Could not reach Odoo</b><span>${esc(od.err)}</span><button class="btn" data-act="od-refresh">Try again</button></div>`:empty('Loading…','Asking Odoo for the numbers. This can take a few seconds.'));return}
   if(d.configured===false){L.innerHTML=tabs+odooSetup(d.missing);return}
   if(d.tab==='growth'){const gs=d.sections.find(x=>x.kind==='growth'),y0=window.scrollY;L.innerHTML=tabs+(od.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(od.err)}</p></div>`:'')+(gs?growthPage(gs):empty('Nothing to show','The report came back empty.'))+`<p><button class="btn sm" data-act="od-refresh" ${od.loading?'disabled':''}>${od.loading?'Loading…':'Refresh from Odoo'}</button></p>`;window.scrollTo(0,y0);return}
+  if(d.tab==='forecast'){const gs=d.sections.find(x=>x.kind==='forecast'),y0=window.scrollY;L.innerHTML=tabs+(od.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(od.err)}</p></div>`:'')+(gs?forecastPage(gs):empty('Nothing to show','The report came back empty.'))+`<p><button class="btn sm" data-act="od-refresh" ${od.loading?'disabled':''}>${od.loading?'Loading…':'Refresh from Odoo'}</button></p>`;window.scrollTo(0,y0);return}
   if(od.tab==='people'&&od.rep){
     const sec=d.sections.find(x=>x.kind==='reps'),one=sec&&sec.people&&sec.people.find(x=>x.name===od.rep);
     if(one){const y0=window.scrollY;L.innerHTML=tabs+`<div class="sp-sticky">${dateBar(d)}${quickBar()}</div>`+(od.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(od.err)}</p></div>`:'')+repPage(sec,one);window.scrollTo(0,y0);return}
@@ -2518,6 +2642,12 @@ document.addEventListener('click',async e=>{
   else if(a==='gr-city-rep'){S.grCity.rep=b.dataset.v;S.grCity.n=12;grCityRefresh(true)}
   else if(a==='gr-city-sort'){S.grCity.sort=b.dataset.v;S.grCity.n=12;grCityRefresh(true)}
   else if(a==='gr-city-more'){S.grCity.n+=12;grCityRefresh()}
+  else if(a==='fc-st'){S.fc.st=b.dataset.v;S.fc.n=25;S.fc.open=null;fcRefresh('ctl')}
+  else if(a==='fc-sort'){S.fc.sort=b.dataset.v;S.fc.n=25;fcRefresh('ctl')}
+  else if(a==='fc-z'){S.fc.z=Number(b.dataset.v)||1.65;fcSave();fcRefresh('all')}
+  else if(a==='fc-open'){const id=Number(b.dataset.pid);S.fc.open=S.fc.open===id?null:id;fcRefresh('list')}
+  else if(a==='fc-more'){S.fc.n+=25;fcRefresh('list')}
+  else if(a==='fc-csv'){fcCsv()}
   else if(a==='gr-send1'){const gs=((S.od.data&&S.od.data.sections)||[]).find(x=>x.kind==='growth');if(gs&&!gs.error){const t=grTasks(grData(gs,S.od.grep||'')).find(x=>x.id===+b.dataset.i);if(t){S.sendDraft={title:t.title.slice(0,120),body:`Task for ${t.rep}, found in the Odoo numbers on ${gs.asOf} (worth about ${fv(t.value,'money')}).\n\n${t.why}\n\nThe numbers behind it:\n${grProofText(t)}${(S.grNotes||{})[t.key]?'\n\nMeeting notes so far:\n'+S.grNotes[t.key].note:''}\n\nPlease do it and reply with what happened.`,priority:t.cash?'normal':'high',days:5};go('send')}}}
   else if(a==='gr-send'){const gs=((S.od.data&&S.od.data.sections)||[]).find(x=>x.kind==='growth'),r=b.dataset.rep;if(gs&&!gs.error){const ts=grTasks(grData(gs,r)).filter(t=>t.rep===r).slice(0,8);if(ts.length){S.sendDraft={title:('Growth tasks for '+r).slice(0,120),body:`These are the biggest sales opportunities for ${r}, found in the Odoo numbers on ${gs.asOf}. Please work through them in this order and reply with what happened on each one.\n\n`+ts.map((t,i)=>`${i+1}. ${t.title} (${fv(t.value,'money')})\n   ${t.why}`).join('\n\n'),priority:'high',days:7};go('send')}}}
   else if(a==='per-quick'){const r=quickRanges().find(x=>x[0]===b.dataset.k);if(r&&perSet(r[2],r[3],r[4]))perReload()}
