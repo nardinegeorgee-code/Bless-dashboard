@@ -1482,3 +1482,4 @@ h1{font-weight:600;font-size:1.95rem}h2,h3{font-weight:600}
 .sp-meter{height:8px;border-radius:99px;background:var(--surface-2)}.sp-meter i{display:block;height:8px;border-radius:99px;background:var(--accent)}
 .sp-cities{display:flex;flex-wrap:wrap;gap:8px}.sp-city{border:1px solid var(--line);border-radius:12px;padding:8px 12px;display:grid;font-size:.88rem}
 .sp-open{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0 4px}
+.sp-open-top{margin:4px 0 14px;padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:var(--accent-soft)}
