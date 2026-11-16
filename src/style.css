@@ -1453,3 +1453,32 @@ h1{font-weight:600;font-size:1.95rem}h2,h3{font-weight:600}
 .cat-mini{width:64px;height:64px;object-fit:contain;background:#fff;border-radius:8px;border:1px solid var(--paper-line)}
 .body-text{white-space:pre-wrap}
 @media (max-width:820px){.cat-detail{grid-template-columns:1fr}.cat-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}}
+
+/* Salesperson analysis page */
+.sp{display:grid;gap:18px;min-width:0}
+.sp-head{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--line);border-radius:var(--r,16px);padding:18px 20px}
+.sp-who{display:flex;gap:14px;align-items:center;min-width:0}
+.sp-who h2{font-size:1.6rem}.sp-who p{margin:2px 0 0;font-size:.9rem}
+.sp-av{width:52px;height:52px;border-radius:50%;background:var(--role-sp,#BE123C);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--f-display);font-weight:700;font-size:1.4rem;flex:none}
+.sp-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.sp-kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:grid;gap:4px;min-width:0}
+.sp-kpi span{font-size:.8rem;color:var(--muted)}.sp-kpi b{font-family:var(--f-display);font-size:1.6rem;line-height:1.1;font-variant-numeric:tabular-nums}
+.sp-kpi em{font-style:normal;font-size:.8rem;color:var(--muted)}.sp-kpi em.ok{color:var(--ok)}.sp-kpi em.bad{color:var(--danger)}.sp-kpi em.warn{color:var(--warn)}
+.sp-words{background:var(--accent-soft);border:1px solid var(--line);border-radius:14px;padding:16px 20px}
+.sp-words p{margin:6px 0 0;line-height:1.6;max-width:70ch}
+.sp-two{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:18px;align-items:start}
+.sp .panel h3{font-family:var(--f-display);font-size:1.15rem;margin:0}
+.sp-plot{position:relative;margin-top:6px}
+.sp-bars{position:absolute;inset:0;display:flex;align-items:flex-end;gap:8px}
+.sp-col{flex:1;min-width:0;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:3px}
+.sp-col i{display:block;width:100%;border-radius:5px 5px 0 0}
+.sp-col i.hit{background:var(--accent)}.sp-col i.low{background:color-mix(in srgb,var(--muted) 55%,transparent)}
+.sp-v{font-size:.68rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.sp-tl{position:absolute;left:0;right:0;border-top:2px dashed var(--ink);opacity:.7;z-index:1;pointer-events:none}
+.sp-labels{display:flex;gap:8px}.sp-labels span{flex:1;text-align:center;font-size:.72rem;color:var(--muted)}
+.sp-act{border:1px solid var(--line);border-radius:12px;padding:10px 14px;display:grid;gap:4px}
+.sp-act>div{display:flex;justify-content:space-between;gap:10px;align-items:baseline}.sp-act p{margin:0;font-size:.88rem;color:var(--muted);line-height:1.5}
+.sp-pr{display:grid;gap:5px}.sp-pr>div:first-child{display:flex;justify-content:space-between;gap:10px;font-size:.9rem;flex-wrap:wrap}
+.sp-meter{height:8px;border-radius:99px;background:var(--surface-2)}.sp-meter i{display:block;height:8px;border-radius:99px;background:var(--accent)}
+.sp-cities{display:flex;flex-wrap:wrap;gap:8px}.sp-city{border:1px solid var(--line);border-radius:12px;padding:8px 12px;display:grid;font-size:.88rem}
+.sp-open{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0 4px}
