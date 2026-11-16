@@ -100,3 +100,5 @@ Note: Vercel's free (Hobby) plan allows 12 serverless functions per project, and
 - Products, codes, barcodes, prices and sales descriptions are read from Odoo (products that can be sold). Pictures come from Shopify when the code matches, otherwise from Odoo.
 - Each product is placed in a line from its name (Shea, Argan, Vitamin E, Coconut, Activator, Sulfate free shampoo, Gels, Shower gels, Satins, Accessories, Offers and bundles, Other). The Super Admin can move it, add a usage brief, a description, a replacement picture and design files, hide it, or add a product by hand. These are stored in the table `catalog_items`.
 - 13-digit (EAN-13) and 12-digit barcodes are drawn as scannable bars; other formats show the number.
+
+Roles can be added in api/_lib.js (ROLES) and src/main.js (ROLES list).
