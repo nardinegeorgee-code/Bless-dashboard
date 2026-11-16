@@ -6,10 +6,11 @@ import { adSpend, profitTiles } from './_profit.js';
 import { shopConfig, fetchSkuImages } from './_shopify.js';
 import { briefSections } from './_brief.js';
 import { catalog } from './_catalog.js';
+import { growthSections } from './_growth.js';
 
 const TZ = process.env.DASHBOARD_TZ || 'Africa/Cairo';
 
-const TABS = ['brief', 'suppliers', 'raw', 'packaging', 'finished', 'inventory', 'sales', 'distributors', 'people', 'profit', 'in', 'out', 'trial', 'pnl', 'balance', 'hr'];
+const TABS = ['brief', 'suppliers', 'raw', 'packaging', 'finished', 'inventory', 'sales', 'distributors', 'people', 'growth', 'profit', 'in', 'out', 'trial', 'pnl', 'balance', 'hr'];
 const pad = (n) => String(n).padStart(2, '0');
 const n0 = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const pct = (a, b) => (b ? (a / b) * 100 : 0);
@@ -140,6 +141,7 @@ function build(tab, cfg, ctx) {
   const memo = {};
   const once = (k, fn) => (memo[k] = memo[k] || fn());
 
+  if (tab === 'growth') return growthSections(cfg, ctx, { section });
   if (tab === 'brief') return briefSections(cfg, ctx, { section, tile, bd, COL, costsOf, daily, sum, pct, n0, dt, dtEnd });
 
   const products = () => once('products', async () => {
