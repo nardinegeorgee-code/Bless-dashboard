@@ -7,6 +7,9 @@
 import { call, sr, nm, nid, fieldsOf } from './_odoo.js';
 
 const DAY = 86400000;
+/** City names come from free-text customer records: tidy the common mess so the same place is not counted twice. */
+const CITY_ALIAS = [[/^(القاهرة|القاهره|cairo)$/i, 'Cairo'], [/^(الجيزة|الجيزه|giza)$/i, 'Giza'], [/^(الاسكندرية|الإسكندرية|الاسكندريه|alexandria)$/i, 'Alexandria']];
+const cleanCity = (c) => { const t = String(c || '').replace(/[,،]?\s*egypt\s*$/i, '').replace(/\s+/g, ' ').trim(); if (!t || /^[-–—0.\s]+$/.test(t) || /^unknown$/i.test(t)) return 'No city set'; for (const [re, n] of CITY_ALIAS) if (re.test(t)) return n; return t; };
 const n0 = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const dnum = (s) => Math.round(Date.parse(String(s).slice(0, 10) + 'T00:00:00Z') / DAY);
 const iso = (n) => new Date(n * DAY).toISOString().slice(0, 10);
@@ -142,7 +145,17 @@ export function analyse({ orders, lines, unpaid, today }) {
     if (o.age <= R.active) k.cust.set(o.cust, (k.cust.get(o.cust) || 0) + o.net); K.set(o.city, k);
   }
   const cities = top([...K.values()].map((k) => { const cs = [...k.cust.entries()].sort((a, b) => b[1] - a[1]), tot = cs.reduce((a, x) => a + x[1], 0);
-    return { name: k.name, sales: r0(k.sales), last90: r0(k.last90), prior90: r0(k.prior90), change: k.prior90 > 0 ? r0((k.last90 / k.prior90 - 1) * 100) : null, dists: cs.length, top: cs[0] ? cs[0][0] : '', topShare: tot ? r0((cs[0][1] / tot) * 100) : 0 }; }), 16, 'sales');
+    return { name: k.name, sales: r0(k.sales), last90: r0(k.last90), prior90: r0(k.prior90), change: k.prior90 > 0 ? r0((k.last90 / k.prior90 - 1) * 100) : null, dists: cs.length, top: cs[0] ? cs[0][0] : '', topShare: tot ? r0((cs[0][1] / tot) * 100) : 0 }; }), 60, 'sales');
+
+  // the same figures per salesperson, so the page can show one person's cities
+  const KR = new Map();
+  for (const o of O) {
+    const key = o.city + '\u0001' + o.rep, k = KR.get(key) || { name: o.city, rep: o.rep, sales: 0, last90: 0, prior90: 0, cust: new Map() };
+    k.sales += o.net; if (o.age <= R.recent) k.last90 += o.net; else if (o.age <= R.recent * 2) k.prior90 += o.net;
+    if (o.age <= R.active) k.cust.set(o.cust, (k.cust.get(o.cust) || 0) + o.net); KR.set(key, k);
+  }
+  const cityRows = top([...KR.values()].map((k) => { const cs = [...k.cust.entries()].sort((a, b) => b[1] - a[1]), tot = cs.reduce((a, x) => a + x[1], 0);
+    return { name: k.name, rep: k.rep, sales: r0(k.sales), last90: r0(k.last90), prior90: r0(k.prior90), change: k.prior90 > 0 ? r0((k.last90 / k.prior90 - 1) * 100) : null, dists: cs.length, top: cs[0] ? cs[0][0] : '', topShare: tot ? r0((cs[0][1] / tot) * 100) : 0 }; }), 400, 'sales');
 
   const repSales = new Map(); for (const o of O) repSales.set(o.rep, (repSales.get(o.rep) || 0) + o.net);
   return {
@@ -152,7 +165,7 @@ export function analyse({ orders, lines, unpaid, today }) {
     reorder: top(reorder, 150), shrink: top(shrink, 80),
     white: { products: core.map((p) => ({ name: p.name, pen: r0(p.pen), buyers: p.buyers })), rows: rowsM, gaps: top(whiteGaps, 250), active: active.length },
     dropped: top(dropped, 200), uninv: top(uninv, 200), uninvExact: hasLineTI,
-    unpaid: unpaid ? top(od, 200) : null, timing, cities,
+    unpaid: unpaid ? top(od, 200) : null, timing, cities, cityRows,
   };
 }
 
@@ -177,7 +190,7 @@ export async function buildGrowth(cfg, today) {
     try { for (const g of await call(cfg, 'res.partner', 'read', [pids.slice(i, i + 500), ['commercial_partner_id', 'city', 'state_id']])) part.set(g.id, { co: nm(g.commercial_partner_id), city: (g.city || '').trim() || nm(g.state_id) || '' }); } catch (err) { break; }
   }
   const custOf = (p) => (part.get(nid(p)) || {}).co || nm(p) || 'Unknown';
-  const cityOf = (o) => (part.get(nid(o.partner_shipping_id)) || {}).city || (part.get(nid(o.partner_id)) || {}).city || 'Unknown';
+  const cityOf = (o) => cleanCity((part.get(nid(o.partner_shipping_id)) || {}).city || (part.get(nid(o.partner_id)) || {}).city || '');
   const val = (o, f) => { const v = o[f]; return Array.isArray(v) ? nm(v) : typeof v === 'string' ? v.trim() : ''; };
   const filled = Object.fromEntries(repFields.map((f) => [f, ro.filter((o) => val(o, f)).length])), order = [...repFields].sort((a, b) => (a === 'user_id') - (b === 'user_id') || filled[b] - filled[a]);
   const who = (o) => { for (const f of order) if (val(o, f)) return val(o, f); return 'No salesperson'; };
