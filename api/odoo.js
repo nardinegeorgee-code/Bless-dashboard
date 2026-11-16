@@ -541,8 +541,8 @@ function build(tab, cfg, ctx) {
         const nMonths = monthsIn(s, e);
         for (const p of people) {
           const t = targets.get(p.name) || 0; p.monthlyTarget = t; p.periodTarget = t * nMonths;
-          p.targetPct = t ? (p.cur.sales / (t * nMonths)) * 100 : null; p.targetLeft = t ? Math.max(0, t * nMonths - p.cur.sales) : null;
-          p.months = p.months.map((m) => ({ ...m, target: t || null, targetPct: t ? (m.sales / t) * 100 : null }));
+          p.targetPct = t ? (p.cur.invoiced / (t * nMonths)) * 100 : null; p.targetLeft = t ? Math.max(0, t * nMonths - p.cur.invoiced) : null; // target is before VAT and is measured on invoiced (untaxed, credit notes off), not on orders
+          p.months = p.months.map((m) => ({ ...m, target: t || null, targetPct: t ? (m.invoiced / t) * 100 : null }));
         }
         for (const [name, t] of targets) if (!people.some((p) => p.name === name)) people.push({ name, distributors: 0, productsCount: 0, cur: { sales: 0, orders: 0, units: 0, invoiced: 0, invoices: 0 }, prev: { sales: 0, orders: 0, units: 0, invoiced: 0, invoices: 0 }, months: [], cities: [], customers: [], products: [], invoices: [], orders: [], breakdown: { plain: true, summary: [], columns: [], rows: [] }, monthlyTarget: t, periodTarget: t * nMonths, targetPct: 0, targetLeft: t * nMonths });
         const used = order.filter((f) => filled[f]).map((f) => `${metaF[f] ? metaF[f].string : f} (${filled[f]} of ${orders.length} orders)`);
