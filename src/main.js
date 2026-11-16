@@ -1954,6 +1954,17 @@ function targetBox(p){
   const hit=pct>=100;
   return `<div class="tgbox"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><span><b>Monthly target: ${esc(fv(t,'money'))}</b>${Math.abs(p.periodTarget-t)>1?` <span class="muted">(${esc(fv(p.periodTarget,'money'))} for these dates)</span>`:''}</span><span><b style="color:var(--${hit?'ok':'warn'})">${Math.round(pct)}% achieved</b> · ${hit?`${esc(fv(p.cur.sales-p.periodTarget,'money'))} above target`:`${esc(fv(p.targetLeft,'money'))} to go`}</span></div><div class="bar" style="margin-top:6px"><i style="width:${w}%"></i></div>${form}</div>`;
 }
+/* Quick ranges for the salesperson analysis page: one click instead of picking dates. */
+function quickRanges(){
+  const t=todayStr(),Y=+t.slice(0,4),M=+t.slice(5,7),first=n=>{const d=new Date(Y,M-1-n,1);return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-01'};
+  const lm=new Date(Y,M-2,1),lmY=lm.getFullYear(),lmM=lm.getMonth()+1;
+  return [['this','This month','month',first(0),t],['last','Last month','month',lmY+'-'+pad2(lmM)+'-01',lmY+'-'+pad2(lmM)+'-'+pad2(lastDay(lmY,lmM))],
+    ['3','Last 3 months','custom',first(2),t],['6','Last 6 months','custom',first(5),t],['ytd','Year to date','custom',Y+'-01-01',t],['12','Last 12 months','custom',first(11),t]];
+}
+function quickBar(){
+  const P=S.per;
+  return `<div class="sp-quick"><span class="muted">Quick ranges:</span>${quickRanges().map(r=>`<button type="button" class="qchip${P.from===r[3]&&P.to===r[4]?' on':''}" data-act="per-quick" data-k="${r[0]}">${esc(r[1])}</button>`).join('')}</div>`;
+}
 /* ---------- One salesperson: full analysis page (opened from the Salespeople tab) ---------- */
 const kfmt=v=>{v=Number(v)||0;return v>=1e6?(v/1e6).toFixed(1).replace(/\.0$/,'')+'M':v>=1e3?Math.round(v/1e3)+'k':String(Math.round(v))};
 function repPage(sec,p){
@@ -2056,6 +2067,10 @@ function renderOdoo(){
   const od=S.od,d=od.data,grp=odGroup(od.tab),tabs=`<div class="subtabs" role="tablist">${OD_GROUPS.map(([g,l,ps])=>`<button role="tab" class="subtab${grp[0]===g?' on':''}" aria-selected="${grp[0]===g}" data-act="od-tab" data-tab="${(od.last&&od.last[g])||ps[0][0]}">${l}</button>`).join('')}</div>${grp[2].length>1?`<div class="subtabs pills" role="tablist" aria-label="${grp[1]}">${grp[2].map(([k,l])=>`<button role="tab" class="subtab${od.tab===k?' on':''}" aria-selected="${od.tab===k}" data-act="od-tab" data-tab="${k}">${l}</button>`).join('')}</div>`:''}`;
   if(!d||d.tab!==od.tab){L.innerHTML=tabs+(od.err?`<div class="empty"><b>Could not reach Odoo</b><span>${esc(od.err)}</span><button class="btn" data-act="od-refresh">Try again</button></div>`:empty('Loading…','Asking Odoo for the numbers. This can take a few seconds.'));return}
   if(d.configured===false){L.innerHTML=tabs+odooSetup(d.missing);return}
+  if(od.tab==='people'&&od.rep){
+    const sec=d.sections.find(x=>x.kind==='reps'),one=sec&&sec.people&&sec.people.find(x=>x.name===od.rep);
+    if(one){const y0=window.scrollY;L.innerHTML=tabs+`<div class="sp-sticky">${dateBar(d)}${quickBar()}</div>`+(od.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(od.err)}</p></div>`:'')+repPage(sec,one);window.scrollTo(0,y0);return}
+  }
   const y=window.scrollY;
   L.innerHTML=tabs+dateBar(d)+odooHero(d)
     +(od.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(od.err)}</p></div>`:'')+(d.tab==='brief'?briefBody(d):highlights(d.sections)+d.sections.map(anSection).join(''));
@@ -2329,6 +2344,7 @@ document.addEventListener('click',async e=>{
   else if(a==='xb-jump'){const el=document.getElementById('xb-ch-'+b.dataset.i);if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'start'})}
   else if(a==='xb-send'){const sec=((S.od.data&&S.od.data.sections)||[]).find(x=>x.id==='actions'),x=sec&&sec.items[+b.dataset.i];if(x){S.sendDraft={title:String(x.brief?x.brief.title:x.title).slice(0,120),body:x.brief?x.brief.body:x.detail,priority:x.tone==='bad'?'urgent':'high',days:3};go('send')}}
   else if(a==='tpl'){const el=$('#in-b'),tp=BRIEF_TPL[b.dataset.k];if(el&&tp&&(!el.value.trim()||arm(b))){el.value=tp[1];delete b.dataset.armed;b.classList.remove('armed');b.textContent=tp[0];el.focus();briefQ()}}
+  else if(a==='per-quick'){const r=quickRanges().find(x=>x[0]===b.dataset.k);if(r&&perSet(r[2],r[3],r[4]))perReload()}
   else if(a==='rep-open'){S.od.rep=b.dataset.rep;renderOdoo();window.scrollTo(0,0)}
   else if(a==='rep-close'){S.od.rep='';renderOdoo();window.scrollTo(0,0)}
   else if(a==='rep-send'){const pp=((S.od.data&&S.od.data.sections)||[]).flatMap(x=>x.people||[]).find(x=>x.name===b.dataset.rep);if(pp){const g=pp.targetPct!==null&&pp.targetPct!==undefined;S.sendDraft={title:('Follow up: '+pp.name).slice(0,120),body:`Please review the numbers for ${pp.name}: ${fmtNum(pp.cur.orders)} orders, ${fmtNum(pp.distributors)} distributors${g?', '+Math.round(pp.targetPct)+'% of target':''}. Agree the next steps and report back.`,priority:'high',days:3};go('send')}}
