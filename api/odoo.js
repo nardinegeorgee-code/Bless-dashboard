@@ -925,6 +925,7 @@ export default route(async (req, res) => {
     return res.json({ ok: true });
   }
   await requireViewer(req, 'odoo');
+  if (req.query.tab === 'growth') await requireAdmin(req); // the Growth radar is for the Super Admin only
   if (await serveCached(req, res, 'odoo', 10 * 60 * 1000)) return;
   res.setHeader('Cache-Control', 'no-store');
   const cfg = odooConfig();

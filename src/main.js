@@ -2122,10 +2122,13 @@ function anReps(sec){
 }
 /* ---------- Odoo ---------- */
 const OD_GROUPS=[['brief','Executive brief',[['brief','Executive brief']]],['supply','Supply',[['suppliers','Suppliers'],['raw','Raw materials'],['packaging','Packaging'],['finished','Finished goods'],['inventory','All stock']]],['sales','Sales',[['sales','Sales'],['distributors','Distributors'],['people','Salespeople'],['growth','Growth radar']]],['finance','Finance',[['profit','Cost & profit'],['in','Money in'],['out','Money out'],['trial','Trial balance'],['pnl','Profit & loss'],['balance','Balance sheet']]],['team','Team',[['hr','Employees']]]];
-const odGroup=t=>OD_GROUPS.find(g=>g[2].some(x=>x[0]===t))||OD_GROUPS[0];
+/* The Growth radar is for the Super Admin only: everyone else does not get the tab. */
+const odGroups=()=>isAdmin()?OD_GROUPS:OD_GROUPS.map(([g,l,ps])=>[g,l,ps.filter(x=>x[0]!=='growth')]);
+const odGroup=t=>odGroups().find(g=>g[2].some(x=>x[0]===t))||odGroups()[0];
 S.od={tab:'brief',month:'',cache:{},loading:false,err:'',data:null};
 async function loadOdoo(_m,refresh){
   const od=S.od;
+  if(od.tab==='growth'&&!isAdmin())od.tab='brief';
   const pq=od.tab==='growth'?'':perQuery(),key=od.tab+'|'+pq;
   if(!refresh&&od.cache[key]){od.data=od.cache[key];renderOdoo();return}
   od.loading=true;od.err='';renderOdoo();
@@ -2142,7 +2145,7 @@ function odooSetup(missing){
 }
 function renderOdoo(){
   if(S.screen!=='app'||S.route!=='odoo')return;const L=$('#live');if(!L)return;
-  const od=S.od,d=od.data,grp=odGroup(od.tab),tabs=`<div class="subtabs" role="tablist">${OD_GROUPS.map(([g,l,ps])=>`<button role="tab" class="subtab${grp[0]===g?' on':''}" aria-selected="${grp[0]===g}" data-act="od-tab" data-tab="${(od.last&&od.last[g])||ps[0][0]}">${l}</button>`).join('')}</div>${grp[2].length>1?`<div class="subtabs pills" role="tablist" aria-label="${grp[1]}">${grp[2].map(([k,l])=>`<button role="tab" class="subtab${od.tab===k?' on':''}" aria-selected="${od.tab===k}" data-act="od-tab" data-tab="${k}">${l}</button>`).join('')}</div>`:''}`;
+  const od=S.od,d=od.data,grp=odGroup(od.tab),tabs=`<div class="subtabs" role="tablist">${odGroups().map(([g,l,ps])=>`<button role="tab" class="subtab${grp[0]===g?' on':''}" aria-selected="${grp[0]===g}" data-act="od-tab" data-tab="${(od.last&&od.last[g])||ps[0][0]}">${l}</button>`).join('')}</div>${grp[2].length>1?`<div class="subtabs pills" role="tablist" aria-label="${grp[1]}">${grp[2].map(([k,l])=>`<button role="tab" class="subtab${od.tab===k?' on':''}" aria-selected="${od.tab===k}" data-act="od-tab" data-tab="${k}">${l}</button>`).join('')}</div>`:''}`;
   if(!d||d.tab!==od.tab){L.innerHTML=tabs+(od.err?`<div class="empty"><b>Could not reach Odoo</b><span>${esc(od.err)}</span><button class="btn" data-act="od-refresh">Try again</button></div>`:empty('Loading…','Asking Odoo for the numbers. This can take a few seconds.'));return}
   if(d.configured===false){L.innerHTML=tabs+odooSetup(d.missing);return}
   if(d.tab==='growth'){const gs=d.sections.find(x=>x.kind==='growth'),y0=window.scrollY;L.innerHTML=tabs+(od.err?`<div class="panel" style="border-color:var(--danger)"><b style="color:var(--danger)">Problem</b><p class="body-text">${esc(od.err)}</p></div>`:'')+(gs?growthPage(gs):empty('Nothing to show','The report came back empty.'))+`<p><button class="btn sm" data-act="od-refresh" ${od.loading?'disabled':''}>${od.loading?'Loading…':'Refresh from Odoo'}</button></p>`;window.scrollTo(0,y0);return}
