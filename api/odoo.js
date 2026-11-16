@@ -1,6 +1,7 @@
 import { route, allow, serveCached, sendCached, requireViewer, requireAdmin } from './_lib.js';
 import { loadTargets, saveTarget, monthsIn } from './_targets.js';
 import { loadNotes, saveNote } from './_notes.js';
+import { forecastSections } from './_forecast.js';
 import { odooConfig, odooVersion, call, sr, nm, nid, fieldsOf, needModel } from './_odoo.js';
 import { parsePeriod, monthPeriod, dayList } from './_period.js';
 import { adSpend, profitTiles } from './_profit.js';
@@ -11,7 +12,7 @@ import { growthSections } from './_growth.js';
 
 const TZ = process.env.DASHBOARD_TZ || 'Africa/Cairo';
 
-const TABS = ['brief', 'suppliers', 'raw', 'packaging', 'finished', 'inventory', 'sales', 'distributors', 'people', 'growth', 'profit', 'in', 'out', 'trial', 'pnl', 'balance', 'hr'];
+const TABS = ['brief', 'suppliers', 'raw', 'packaging', 'finished', 'inventory', 'sales', 'distributors', 'people', 'growth', 'forecast', 'profit', 'in', 'out', 'trial', 'pnl', 'balance', 'hr'];
 const pad = (n) => String(n).padStart(2, '0');
 const n0 = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const pct = (a, b) => (b ? (a / b) * 100 : 0);
@@ -143,6 +144,7 @@ function build(tab, cfg, ctx) {
   const once = (k, fn) => (memo[k] = memo[k] || fn());
 
   if (tab === 'growth') return growthSections(cfg, ctx, { section });
+  if (tab === 'forecast') return forecastSections(cfg, ctx, { section, kindP });
   if (tab === 'brief') return briefSections(cfg, ctx, { section, tile, bd, COL, costsOf, daily, sum, pct, n0, dt, dtEnd });
 
   const products = () => once('products', async () => {
@@ -927,7 +929,7 @@ export default route(async (req, res) => {
     return res.json({ ok: true });
   }
   await requireViewer(req, 'odoo');
-  if (req.query.tab === 'growth') await requireAdmin(req); // the Growth radar is for the Super Admin only
+  if (req.query.tab === 'growth' || req.query.tab === 'forecast') await requireAdmin(req); // the Growth radar is for the Super Admin only
   if (req.query.notes) { await requireAdmin(req); res.setHeader('Cache-Control', 'no-store'); return res.json({ notes: await loadNotes() }); }
   if (await serveCached(req, res, 'odoo', 10 * 60 * 1000)) return;
   res.setHeader('Cache-Control', 'no-store');
