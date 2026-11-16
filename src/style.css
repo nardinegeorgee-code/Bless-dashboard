@@ -1602,3 +1602,8 @@ h1{font-weight:600;font-size:1.95rem}h2,h3{font-weight:600}
 .gr-dn{overflow-wrap:anywhere}.gr-dm{color:var(--muted);font-size:.8rem}.gr-dr b{font-family:var(--f-mono,monospace);font-weight:500;white-space:nowrap;text-align:right}
 @media (max-width:640px){.gr-dr{grid-template-columns:1fr auto}.gr-dm{grid-column:1/-1}}
 .gr-dbtns .qchip:hover{border-color:var(--accent)}
+.gr-tmctl{display:grid;gap:8px;margin:12px 0 4px}
+.gr-dl{display:inline-flex;align-items:center;gap:6px;font-size:.82rem;color:var(--muted);margin-left:6px}
+.gr-dl input{padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:inherit;font:inherit;font-size:.82rem}
+.gr-tmctl .qchip{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:99px;padding:6px 14px;font:inherit;font-size:.85rem;cursor:pointer;min-height:36px}
+.gr-tmctl .qchip.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
