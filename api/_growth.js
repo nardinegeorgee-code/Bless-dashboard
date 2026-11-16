@@ -99,13 +99,16 @@ export function analyse({ orders, lines, unpaid, today }) {
     return { cust: c.cust, rep: c.rep, sales: r0(c.s180), cells: core.map((p) => { const g = m.get(p.name); if (!g) return 0; if (g.v180 <= 0) return 1; return 2 + Math.min(3, Math.floor((g.v180 / mx) * 3.999)); }) };
   });
 
-  // ---- 4. products they stopped buying (bought on 2+ orders before, nothing for 120 days, still ordering)
+  // ---- 4. products they stopped buying (bought on 2+ orders before, nothing for 120 days, distributor ordered in the last 45 days and is not late)
   const dropped = [];
   for (const c of all) {
-    if (c.since > R.dropQuiet) continue; // the whole distributor is quiet: that is the reorder clock's job
+    // "still ordering" must be true: ordered in the last 45 days, on 2+ different days in the last 120, and not late for its own rhythm.
+    // Anything weaker is the reorder clock's job (call / win back), not a "why did you stop products" question.
+    const recentDays = new Set(c.orders.filter((o) => o.age <= R.dropQuiet).map((o) => o.n)).size;
+    if (c.since > 45 || recentDays < 2 || (c.gap >= 3 && c.since > Math.max(c.gap * R.lateFactor, c.gap + 7))) continue;
     for (const [prod, g] of (CP.get(c.cust) || new Map())) {
       if (g.ordersBefore.size < 2 || T - g.lastN <= R.dropQuiet) continue;
-      dropped.push({ dates: [...g.days].sort((a, b) => a - b).slice(-8).map(iso), cust: c.cust, rep: c.rep, prod, last: iso(g.lastN), since: T - g.lastN, times: g.ordersBefore.size, value: r0(g.vQuietBefore / ((R.window - R.dropQuiet) / R.dropQuiet)) });
+      dropped.push({ lastOrder: c.last, recentOrders: recentDays, dates: [...g.days].sort((a, b) => a - b).slice(-8).map(iso), cust: c.cust, rep: c.rep, prod, last: iso(g.lastN), since: T - g.lastN, times: g.ordersBefore.size, value: r0(g.vQuietBefore / ((R.window - R.dropQuiet) / R.dropQuiet)) });
     }
   }
 
