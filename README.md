@@ -104,3 +104,5 @@ Note: Vercel's free (Hobby) plan allows 12 serverless functions per project, and
 Roles can be added in api/_lib.js (ROLES) and src/main.js (ROLES list).
 
 Deploys run on Vercel from the main branch.
+
+Vercel is connected to this repo; production deploys on every merge to main.
