@@ -3,7 +3,7 @@
   --bg:#F6E9EC; --surface:#FCF4F5; --surface-2:#EDD6DB; --ink:#3A1F2B; --muted:#7A5B68; --line:#E0C3CB;
   --accent:#B76E79; --accent-ink:#FFFFFF; --accent-soft:#F4D8DC; --accent-text:#8F4A57;
   --ok:#2C7A4B; --warn:#A8521A; --danger:#B3261E;
-  --role-sa:#B76E79; --role-gd:#C2410C; --role-mb:#1D4ED8; --role-cc:#A21CAF; --role-mo:#4D7C0F; --role-pr:#B45309; --role-ec:#0F766E; --role-ceo:#7C3AED;
+  --role-sa:#B76E79; --role-gd:#C2410C; --role-mb:#1D4ED8; --role-cc:#A21CAF; --role-mo:#4D7C0F; --role-pr:#B45309; --role-ec:#0F766E; --role-sp:#BE123C; --role-ceo:#7C3AED;
   --f-display:"Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
   --f-serif:"Playfair Display", "Cormorant Garamond", Georgia, serif;
   --f-body:"Figtree", "Segoe UI", system-ui, -apple-system, sans-serif;
@@ -676,7 +676,7 @@ html{scroll-behavior:auto}
   --bg:#0F0811; --surface:#1A0F1F; --surface-2:#2A1A30; --card:#1D1223; --ink:#F8EEF1; --muted:#BBA5B6; --line:#3D2845;
   --accent:#E8B4A8; --accent-ink:#2A1118; --accent-soft:rgba(232,180,168,.16); --accent-text:#F4CBC1;
   --ok:#4ADE9A; --warn:#FFB86B; --danger:#FF6B7A;
-  --role-sa:#E8B4A8; --role-gd:#F29B8A; --role-mb:#8FB4E8; --role-cc:#E58FD0; --role-mo:#A3E635; --role-pr:#FBBF24; --role-ec:#7FD1C0; --role-ceo:#C9A0DC;
+  --role-sa:#E8B4A8; --role-gd:#F29B8A; --role-mb:#8FB4E8; --role-cc:#E58FD0; --role-mo:#A3E635; --role-pr:#FBBF24; --role-ec:#7FD1C0; --role-sp:#FB7185; --role-ceo:#C9A0DC;
   --paper:#1D1223; --paper-line:#3D2845; --cmp:#C9A0DC; --good:#4ADE9A; --good-bg:rgba(74,222,154,.13); --bad:#FF6B7A; --bad-bg:rgba(255,107,122,.13);
   --glow:0 0 0 1px rgba(214,160,190,.14), 0 10px 40px -12px rgba(176,76,126,.35);
   color-scheme:dark;

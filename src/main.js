@@ -10,6 +10,7 @@ const ROLES=[
   {key:'moderator',label:'Moderator',tok:'--role-mo'},
   {key:'pr',label:'PR',tok:'--role-pr'},
   {key:'ecommerce',label:'E-Commerce',tok:'--role-ec'},
+  {key:'salesperson',label:'Salesperson',tok:'--role-sp'},
   {key:'ceo',label:'CEO',tok:'--role-ceo'},
 ];
 const ROLE=Object.fromEntries(ROLES.map(r=>[r.key,r]));
