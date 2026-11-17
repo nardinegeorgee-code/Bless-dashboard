@@ -1,7 +1,7 @@
 import { route, allow, serveCached, sendCached, requireViewer, requireAdmin } from './_lib.js';
 import { loadTargets, saveTarget, monthsIn } from './_targets.js';
 import { loadNotes, saveNote } from './_notes.js';
-import { forecastSections } from './_forecast.js';
+import { forecastSections, monthBuyers } from './_forecast.js';
 import { odooConfig, odooVersion, call, sr, nm, nid, fieldsOf, needModel } from './_odoo.js';
 import { parsePeriod, monthPeriod, dayList } from './_period.js';
 import { adSpend, profitTiles } from './_profit.js';
@@ -931,6 +931,13 @@ export default route(async (req, res) => {
   await requireViewer(req, 'odoo');
   if (req.query.tab === 'growth' || req.query.tab === 'forecast') await requireAdmin(req); // the Growth radar is for the Super Admin only
   if (req.query.notes) { await requireAdmin(req); res.setHeader('Cache-Control', 'no-store'); return res.json({ notes: await loadNotes() }); }
+  if (req.query.fcmonth) {
+    await requireAdmin(req); res.setHeader('Cache-Control', 'no-store');
+    const pid = Number(req.query.pid), ym = String(req.query.m || '');
+    if (!Number.isInteger(pid) || pid < 1 || !/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) return res.status(400).json({ error: 'Bad product or month.' });
+    const c = odooConfig(); if (c.missing.length) return res.status(400).json({ error: 'Odoo is not configured.' });
+    return res.json(await monthBuyers(c, pid, ym));
+  }
   if (await serveCached(req, res, 'odoo', 10 * 60 * 1000)) return;
   res.setHeader('Cache-Control', 'no-store');
   const cfg = odooConfig();
