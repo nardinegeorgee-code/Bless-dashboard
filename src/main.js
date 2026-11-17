@@ -2120,6 +2120,90 @@ function fcRows(sec){
   A.sort(f.sort==='name'?(a,b)=>a.p.name.localeCompare(b.p.name):f.sort==='value'?(a,b)=>b.c.value-a.c.value||b.c.qty-a.c.qty:f.sort==='sales'?(a,b)=>b.p.rev12-a.p.rev12:(a,b)=>ord.indexOf(a.c.st)-ord.indexOf(b.c.st)||a.c.cover-b.c.cover||b.p.rev12-a.p.rev12);
   return A;
 }
+/* ---------- The story of one product's number, as six small pictures ---------- */
+const FC_RULE={ma3:'Average of the last 3 months',ma6:'Average of the last 6 months',ma12:'Average of the last 12 months',wma:'Last 6 months, recent ones count more',ses3:'Slow-moving level',ses6:'Fast-moving level',holt:'Recent level plus its trend',seas:'Last 3 months, adjusted for the season'};
+const fcSv=(W,H,inner,label)=>`<svg class="fc-sv" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">${inner}</svg>`;
+const fcAx=(x,y,t,a)=>`<text class="axl" x="${x.toFixed(1)}" y="${y}" text-anchor="${a||'middle'}">${esc(t)}</text>`;
+/* 1. what sold each month; one-off giant months in red */
+function fcS1(sec,p){
+  const h=p.hist,m=sec.months,n=h.length,W=640,H=170,pb=22,pt=22,bw=W/n,cap=new Map((p.capped||[]).map(c=>[c.m,c])),mx=Math.max(1,...h.filter((v,i)=>!cap.has(m[i])),...(p.capped||[]).map(c=>c.to))*(cap.size?1.35:1),Y=v=>pt+(H-pt-pb)*(1-Math.min(v,mx)/mx);
+  let s='',line='';
+  h.forEach((v,i)=>{const x=(i*bw+2).toFixed(1),w=(bw-4).toFixed(1),c=cap.get(m[i]);
+    s+=`<rect class="${c?'sp':'h'}" x="${x}" y="${Y(v).toFixed(1)}" width="${w}" height="${Math.max(0,H-pb-Y(v)).toFixed(1)}" rx="2"><title>${fcMon(m[i])}: ${fcU(v)} units sold${c?' (one-off, counted as '+fcU(c.to)+')':''}</title></rect>`;
+    if(c){s+=`<rect class="h" x="${x}" y="${Y(c.to).toFixed(1)}" width="${w}" height="${Math.max(0,H-pb-Y(c.to)).toFixed(1)}" rx="2"/><path class="brk" d="M${(i*bw+2).toFixed(1)} ${(pt+9).toFixed(1)}l${((bw-4)/2).toFixed(1)} -4l${((bw-4)/2).toFixed(1)} 4"/><text class="vl bad" x="${(i*bw+bw/2).toFixed(1)}" y="${(pt-8).toFixed(1)}" text-anchor="middle">${fcU(v)} sold</text>`;if(!line)line=`<line class="capl" x1="0" x2="${W}" y1="${Y(c.to).toFixed(1)}" y2="${Y(c.to).toFixed(1)}"/>${fcAx(W-2,Y(c.to)-4,'counted at most as '+fcU(c.to),'end')}`}
+    else if(v>0&&n<=24&&v>=mx*.25)s+=`<text class="vl" x="${(i*bw+bw/2).toFixed(1)}" y="${(Y(v)-3).toFixed(1)}" text-anchor="middle">${fcU(v)}</text>`});
+  m.forEach((mm,i)=>{if(i%3===0)s+=fcAx(i*bw+bw/2,H-5,fcMon(mm))});
+  return fcSv(W,H,s+line,'Units sold each month')
+}
+/* 2. the rules and their guesses */
+function fcS2(sec,p){
+  const mix=p.mix||[];
+  if(!mix.length)return `<p class="muted">${p.method==='none'?'Nothing sold recently, so nothing is expected.':'There is too little history to test rules, so a plain average of the recent months is used.'}</p>`;
+  const mx=Math.max(1,...mix.map(r=>r.v||0),p.f[0]);
+  const row=(l,v,x,c)=>`<div class="fc-hb ${c||''}"><span class="fc-hl">${esc(l)}</span><span class="fc-ht"><i style="width:${Math.max(1,v/mx*100).toFixed(1)}%"></i></span><b>${fcU(v)}</b><small class="muted">${esc(x||'')}</small></div>`;
+  return `<div class="fc-hbs">${mix.map(r=>row(FC_RULE[r.k]||r.k,r.v||0,r.w+'% weight')).join('')}${row('Mixed guess for this month',p.f[0],'what we use','fin')}</div>`
+}
+/* 3. the test: bars = what really sold, circles = the guess made before the month */
+function fcS3(sec,p){
+  if(!p.tested||!p.bt.length)return `<p class="muted">Not enough months of sales to run the test, so this guess is rough and the safety margin is wide.</p>`;
+  const b=p.bt,n=b.length,W=640,H=176,pb=22,pt=26,bw=W/n,mx=Math.max(1,...b.map(x=>Math.max(x.a,x.f))),Y=v=>pt+(H-pt-pb)*(1-v/mx);let s='';
+  b.forEach((x,i)=>{const cx=i*bw+bw/2,x0=(i*bw+bw*.22).toFixed(1),w=(bw*.56).toFixed(1);
+    s+=`<rect class="h" x="${x0}" y="${Y(x.a).toFixed(1)}" width="${w}" height="${Math.max(0,H-pb-Y(x.a)).toFixed(1)}" rx="2"><title>${fcMon(x.m)}: really sold ${fcU(x.a)}, our guess was ${fcU(x.f)}</title></rect>`
+     +`<line class="miss" x1="${cx.toFixed(1)}" x2="${cx.toFixed(1)}" y1="${Y(x.a).toFixed(1)}" y2="${Y(x.f).toFixed(1)}"/><circle class="gs" cx="${cx.toFixed(1)}" cy="${Y(x.f).toFixed(1)}" r="5.5"/>`
+     +`<text class="vl" x="${cx.toFixed(1)}" y="${(Math.min(Y(x.a),Y(x.f))-8).toFixed(1)}" text-anchor="middle">${fcU(x.a)}</text>`+fcAx(cx,H-5,fcMon(x.m))});
+  return fcSv(W,H,s,'Test months: what sold against the guess')+`<div class="fc-lg"><span><i class="bx"></i>really sold</span><span><i class="ci"></i>our guess, made before that month</span></div>`
+}
+/* 4. the next months, with the usual miss as a line on each bar */
+function fcS4(sec,p){
+  const f=p.f,n=f.length,W=640,H=170,pb=22,pt=16,bw=W/n,sg=p.sigma||0,mx=Math.max(1,...f.map(v=>v+sg)),Y=v=>pt+(H-pt-pb)*(1-Math.min(v,mx)/mx);let s='';
+  f.forEach((v,i)=>{const cx=i*bw+bw/2,x0=(i*bw+bw*.18).toFixed(1),w=(bw*.64).toFixed(1);
+    s+=`<rect class="f" x="${x0}" y="${Y(v).toFixed(1)}" width="${w}" height="${Math.max(0,H-pb-Y(v)).toFixed(1)}" rx="3"><title>${fcMon(sec.fMonths[i])}: about ${fcU(v)} units, usually within about ${fcU(sg)} either way</title></rect>`;
+    if(i===0&&p.cur>0)s+=`<rect class="h" x="${x0}" y="${Y(Math.min(p.cur,v)).toFixed(1)}" width="${w}" height="${Math.max(0,H-pb-Y(Math.min(p.cur,v))).toFixed(1)}" rx="3"/>`;
+    s+=`<line class="whk" x1="${cx.toFixed(1)}" x2="${cx.toFixed(1)}" y1="${Y(Math.max(0,v-sg)).toFixed(1)}" y2="${Y(v+sg).toFixed(1)}"/><line class="whk" x1="${(cx-6).toFixed(1)}" x2="${(cx+6).toFixed(1)}" y1="${Y(v+sg).toFixed(1)}" y2="${Y(v+sg).toFixed(1)}"/><line class="whk" x1="${(cx-6).toFixed(1)}" x2="${(cx+6).toFixed(1)}" y1="${Y(Math.max(0,v-sg)).toFixed(1)}" y2="${Y(Math.max(0,v-sg)).toFixed(1)}"/>`
+     +`<text class="vl" x="${cx.toFixed(1)}" y="${(Y(v+sg)-5).toFixed(1)}" text-anchor="middle">${fcU(v)}</text>`+fcAx(cx,H-5,fcMon(sec.fMonths[i])+(i===0?' (now)':''))});
+  return fcSv(W,H,s,'Forecast for the next months')+`<div class="fc-lg"><span><i class="bx f"></i>expected</span>${p.cur>0?'<span><i class="bx"></i>sold so far this month</span>':''}<span><i class="wk"></i>usual miss (about ±${fcU(sg)})</span></div>`
+}
+/* 5. the shelf over the next days, with and without the order */
+function fcS5(sec,p,c){
+  const D=fcDays(sec),f=p.f,L=S.fc.lead,Hd=L+S.fc.cover,pos=c.pos,q=c.qty,cum=[0];
+  for(let k=0;k<Hd;k++)cum.push(cum[k]+f[D[k][0]]*D[k][1]);
+  const A=k=>pos-cum[k],B=k=>pos+(k>=L?q:0)-cum[k];let hi=1,lo=0;
+  for(let k=0;k<=Hd;k++){hi=Math.max(hi,A(k),B(k));lo=Math.min(lo,A(k),B(k))}
+  const W=640,H=210,pl=46,pr=14,pt=22,pb=30,X=k=>pl+(W-pl-pr)*k/Hd,Y=v=>pt+(H-pt-pb)*(hi-v)/((hi-lo)||1);
+  const pts=(fn,a,b)=>{let d='';for(let k=a;k<=b;k++)d+=(k===a?'M':'L')+X(k).toFixed(1)+' '+Y(fn(k)).toFixed(1);return d};
+  let neg='';for(let k=0;k<=L;k++){if(A(k)<0)neg+=(neg?'L':'M')+X(k).toFixed(1)+' '+Y(A(k)).toFixed(1)}
+  if(neg){const ks=[];for(let k=0;k<=L;k++)if(A(k)<0)ks.push(k);neg+=`L${X(ks[ks.length-1]).toFixed(1)} ${Y(0).toFixed(1)}L${X(ks[0]).toFixed(1)} ${Y(0).toFixed(1)}Z`}
+  let s=`<line class="zero" x1="${pl}" x2="${W-pr}" y1="${Y(0).toFixed(1)}" y2="${Y(0).toFixed(1)}"/>`;
+  if(neg)s+=`<path class="miss-a" d="${neg}"/>`;
+  if(q>0){s+=`<path class="noord" d="${pts(A,L,Hd)}"/><line class="arr" x1="${X(L).toFixed(1)}" x2="${X(L).toFixed(1)}" y1="${Y(0).toFixed(1)}" y2="${(pt-6)}"/><line class="jump" x1="${X(L).toFixed(1)}" x2="${X(L).toFixed(1)}" y1="${Y(A(L)).toFixed(1)}" y2="${Y(B(L)).toFixed(1)}"/>`+fcAx(X(L),pt-9,'order arrives (day '+L+')')}
+  s+=`<path class="stk" d="${pts(B,0,L)}"/>${q>0?`<path class="stk" d="${pts(B,L,Hd)}"/>`:`<path class="stk" d="${pts(B,0,Hd)}"/>`}`;
+  const run=isFinite(c.cover)&&c.cover<Hd?c.cover:null;
+  if(run!==null&&q>0&&run<L)s+=`<circle class="out" cx="${X(run).toFixed(1)}" cy="${Y(0).toFixed(1)}" r="5"/>`+fcAx(X(run),Y(0)-9,'runs out (day '+run+')');
+  s+=`<circle class="end" cx="${X(Hd).toFixed(1)}" cy="${Y(B(Hd)).toFixed(1)}" r="5"/>`+fcAx(X(Hd)-8,Y(B(Hd))-18,'ends with '+fcU(Math.max(0,B(Hd)))+(q>0?' = safety margin':' left'),'end');
+  s+=fcAx(pl-6,Y(hi)+4,fcU(hi),'end')+fcAx(pl-6,Y(0)+4,'0','end')+(lo<0?fcAx(pl-6,Y(lo)+4,fcU(lo),'end'):'')+fcAx(pl,H-8,'Today','start')+fcAx(X(L),H-8,'day '+L)+fcAx(W-pr,H-8,'day '+Hd,'end');
+  return fcSv(W,H,s,'Stock over the next days')+`<div class="fc-lg"><span><i class="ln"></i>units on the shelf</span>${q>0?'<span><i class="ln dash"></i>if you do not order</span>':''}${neg?'<span><i class="bx bad"></i>sales you would miss</span>':''}</div>`
+}
+/* 6. the sum, as a waterfall */
+function fcS6(sec,p,c){
+  const a=c.dem,b=c.safety,d=Math.min(c.pos,a+b),r=Math.max(0,c.need),top=Math.max(1,a+b),W=640,H=210,pt=26,pb=44,Y=v=>pt+(H-pt-pb)*(1-v/top),cw=W/4,bw=cw*.56;
+  const bar=(i,v0,v1,cls,val,l1,l2)=>{const lo=Math.min(v0,v1),hi=Math.max(v0,v1),x=(i*cw+(cw-bw)/2).toFixed(1);return `<rect class="${cls}" x="${x}" y="${Y(hi).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1,Y(lo)-Y(hi)).toFixed(1)}" rx="3"/><text class="vl big" x="${(i*cw+cw/2).toFixed(1)}" y="${(Y(hi)-6).toFixed(1)}" text-anchor="middle">${val}</text><text class="axl" x="${(i*cw+cw/2).toFixed(1)}" y="${H-24}" text-anchor="middle">${esc(l1)}</text><text class="axl" x="${(i*cw+cw/2).toFixed(1)}" y="${H-10}" text-anchor="middle">${esc(l2)}</text>`};
+  const cn=(i,v)=>`<line class="conn" x1="${(i*cw+(cw+bw)/2).toFixed(1)}" x2="${((i+1)*cw+(cw-bw)/2).toFixed(1)}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"/>`;
+  return fcSv(W,H,bar(0,0,a,'wf1',fcU(a),'Expected sales',`next ${S.fc.lead+S.fc.cover} days`)+cn(0,a)+bar(1,a,a+b,'wf2','+ '+fcU(b),'Safety margin','for the usual miss')+cn(1,a+b)+bar(2,a+b,a+b-d,'wf3','− '+fcU(c.pos),'Stock you can','count on')+cn(2,a+b-d)+bar(3,0,r,'wf4',c.qty?fcU(c.qty):'0','To order',S.fc.round>1&&c.qty?'rounded to packs of '+S.fc.round:''),'How the order is worked out')
+}
+function fcStory(sec,p,c){
+  const L=S.fc.lead,C=S.fc.cover,M=v=>fv(v,'money'),st=(n,t,cap,body)=>`<div class="fc-st"><div class="fc-sh"><span class="fc-sn">${n}</span><div><b>${t}</b><p class="muted">${cap}</p></div></div>${body}</div>`;
+  const cp=p.capped||[],spk=cp.length?`Red bar${cp.length>1?'s are':' is'} one-off giant month${cp.length>1?'s':''} (${cp.map(x=>fcMon(x.m)+': '+fcU(x.a)).join(', ')}). They are counted at most as ${fcU(cp[0].to)}, so one huge order does not inflate the forecast.`:'Nothing unusual here, so every month counts as it is.';
+  const s1=st(1,'What sold each month',`Units from confirmed sales orders. This is all the forecast learns from. ${spk}`,fcS1(sec,p));
+  if(c.st==='dead')return `<div class="fc-story">${s1}</div><p class="muted" style="margin:6px 0 0">No sales in the last 6 months, so none are expected and there is nothing to order.${p.onHand>0?` ${fcU(p.onHand)} units are in stock${p.cost>0?' (about '+esc(M(p.onHand*p.cost))+' at cost)':''}.`:''}</p>`;
+  const miss=p.wape!==null?` On average the guess was ${p.wape===0?'exact':'off by '+p.wape+'%'}${p.bias!==null&&Math.abs(p.bias)>=10?', and tended to be too '+(p.bias>0?'high':'low'):''}.`:'';
+  const run=c.st==='nt'?'Odoo does not track the stock of this product, so it is counted as zero: check the real stock first.':c.pos<=0?'There is no free stock now.':!isFinite(c.cover)||c.cover>=400?'The stock lasts more than a year at this rate.':c.cover<L?`The stock runs out on day ${c.cover}, but an order takes ${L} days, so about ${L-c.cover} days with nothing to sell.`:`The stock lasts until day ${c.cover}. Order by ${esc(fcDay(c.orderBy))} to avoid a gap.`;
+  return `<div class="fc-story">${s1}
+  ${st(2,'Several rules guess this month','Each rule looks at the past differently. The better a rule did in the test (next picture), the more it counts in the mix.',fcS2(sec,p))}
+  ${st(3,'Test: would the guess have been right?',`Each of the last months is pretended to be today. The rules guess it without seeing it, then we compare with what really sold.${miss}`,fcS3(sec,p))}
+  ${st(4,'Forecast for the coming months',`Expected units for this month and the next six. The line on each bar is the usual miss in the test: that is what the safety margin covers.`,fcS4(sec,p))}
+  ${st(5,`The shelf over the next ${L+C} days`,`Stock falls as units sell. If you order today, the order arrives on day ${L}, and the shelf should end at the safety margin. ${run}`,fcS5(sec,p,c))}
+  ${st(6,'What to order',`Expected sales over ${L+C} days (${L} waiting for the order + ${C} it should cover), plus the safety margin, minus the stock you can count on (${p.tracked?fcU(p.onHand)+' on hand + '+fcU(p.incoming)+' coming − '+fcU(p.outgoing)+' sold, not delivered':'not tracked'}).${c.qty&&p.cost>0?' At cost: '+esc(M(c.value))+'.':''}`,fcS6(sec,p,c))}</div>`
+}
 function fcDetail(sec,p,c){
   const M=v=>fv(v,'money'),L=S.fc.lead,C=S.fc.cover,lv=FC_LV.find(x=>Math.abs(x[0]-S.fc.z)<.01)||FC_LV[1],mx=(p.mix||[]).map(m=>`${esc(sec.methods[m.k]||m.k)}${p.mix.length>1?' ('+m.w+'%)':''}`).join('; ');
   const calc=c.st==='dead'?`<p class="muted">No sales are expected, so there is nothing to order.${p.onHand>0?` ${fcU(p.onHand)} units are sitting in stock${p.cost>0?' (about '+esc(M(p.onHand*p.cost))+' at cost)':''}${p.last?', last sold on '+esc(fcDay(p.last)):''}.`:''}</p>`:
@@ -2132,7 +2216,7 @@ function fcDetail(sec,p,c){
   const months=`<div class="gr-pw"><table class="gr-pt"><thead><tr><th>Month</th>${sec.fMonths.map((m,i)=>`<th>${fcMon(m)}${i===0?' (this month)':''}</th>`).join('')}</tr></thead><tbody><tr><td>Expected units</td>${p.f.map(v=>`<td>${fcU(v)}</td>`).join('')}</tr><tr><td>Sold so far</td><td>${fcU(p.cur)}</td>${p.f.slice(1).map(()=>'<td></td>').join('')}</tr></tbody></table></div>`;
   const spk=(p.capped||[]).length?`<p class="muted"><b>One-off big months were not counted as normal demand:</b> ${p.capped.map(c=>`${fcMon(c.m)} (${fcU(c.a)} units, counted as ${fcU(c.to)})`).join('; ')}. Otherwise a single huge order would push the forecast, and the order, far above what this product normally sells.</p>`:'';
   const test=p.tested?`<div class="gr-pw"><table class="gr-pt"><thead><tr><th>Test month</th>${p.bt.map(b=>`<th>${fcMon(b.m)}</th>`).join('')}</tr></thead><tbody><tr><td>Forecast (made without seeing that month)</td>${p.bt.map(b=>`<td>${fcU(b.f)}</td>`).join('')}</tr><tr><td>Really sold</td>${p.bt.map(b=>`<td>${fcU(b.a)}</td>`).join('')}</tr></tbody></table></div><p class="muted">${p.wape!==null?`Across these months the forecast was off by ${p.wape}% of sales on average${p.bias!==null&&Math.abs(p.bias)>=10?`, and tended to be too ${p.bias>0?'high':'low'}`:''}. `:''}${p.lumpy?'This product sells in bursts with empty months between, so a single month is hard to call: trust the average over several months, and the safety margin is wider. ':''}</p>`:`<p class="muted">${p.method==='none'?'No sales in the last '+sec.months.length+' months.':'This product has too little history to test ('+(p.n||'under 1')+' month'+(p.n===1?'':'s')+'), so the forecast is rough and the safety margin is wide.'}</p>`;
-  return `<div class="fc-det">${spk}<div class="fc-dcols"><div><h4>How the order was worked out</h4>${calc}</div><div><h4>Sold each month, and the forecast</h4>${fcBars(p.hist,sec.months,p.f,sec.fMonths,p.cur,150,true)}</div></div><h4>Forecast by month</h4>${months}<h4>How it was forecast, and how it tested</h4>${mx?`<p class="muted">Method: ${mx}.</p>`:''}${test}</div>`;
+  return `<div class="fc-det">${fcStory(sec,p,c)}<details class="fc-nums"><summary>Show the same numbers as tables</summary>${spk}<div class="fc-dcols"><div><h4>How the order was worked out</h4>${calc}</div><div><h4>Sold each month, and the forecast</h4>${fcBars(p.hist,sec.months,p.f,sec.fMonths,p.cur,150,true)}</div></div><h4>Forecast by month</h4>${months}<h4>How it was forecast, and how it tested</h4>${mx?`<p class="muted">Method: ${mx}.</p>`:''}${test}</details></div>`;
 }
 function fcList(sec){
   const A=fcRows(sec),M=v=>fv(v,'money'),L=S.fc.lead;
