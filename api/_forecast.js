@@ -163,3 +163,20 @@ export async function buildForecast(cfg, today, kindP) {
 export function forecastSections(cfg, ctx, { section, kindP }) {
   return [section('forecast', 'Order forecast', 'forecast', () => buildForecast(cfg, ctx.today, kindP))];
 }
+
+/** Who bought one product in one month: the lines, grouped by distributor. Called when the Super Admin clicks a month bar. */
+export async function monthBuyers(cfg, pid, ym) {
+  const from = ym + '-01', to = addM(ym, 1) + '-01';
+  const lines = await sr(cfg, 'sale.order.line', [['product_id', '=', pid], ['order_id.state', 'in', ['sale', 'done']], ['order_id.date_order', '>=', from + ' 00:00:00'], ['order_id.date_order', '<', to + ' 00:00:00']], ['order_id', 'product_uom_qty', 'price_subtotal'], { app: 'Sales', limit: 5000 });
+  const ids = [...new Set(lines.map((l) => nid(l.order_id)).filter(Boolean))];
+  const orders = ids.length ? await sr(cfg, 'sale.order', [['id', 'in', ids]], ['name', 'date_order', 'partner_id', 'user_id'], { app: 'Sales', limit: 5000 }) : [];
+  const O = new Map(orders.map((o) => [o.id, o])), by = new Map(), rows = new Map();
+  for (const l of lines) {
+    const o = O.get(nid(l.order_id)); if (!o) continue;
+    const cust = (nm(o.partner_id) || 'Unknown').replace(/^\[[^\]]*\]\s*/, ''), g = by.get(cust) || { cust, units: 0, value: 0, orders: new Set() };
+    g.units += n0(l.product_uom_qty); g.value += n0(l.price_subtotal); g.orders.add(o.id); by.set(cust, g);
+    const r = rows.get(o.id) || { order: o.name, date: String(o.date_order).slice(0, 10), cust, rep: nm(o.user_id) || '', units: 0, value: 0 }; r.units += n0(l.product_uom_qty); r.value += n0(l.price_subtotal); rows.set(o.id, r);
+  }
+  const total = [...by.values()].reduce((a, g) => a + g.units, 0);
+  return { pid, ym, units: r1(total), orders: rows.size, buyers: [...by.values()].sort((a, b) => b.units - a.units).slice(0, 20).map((g) => ({ cust: g.cust, units: r1(g.units), value: Math.round(g.value), orders: g.orders.size })), list: [...rows.values()].sort((a, b) => (a.date < b.date ? -1 : 1)).slice(0, 80).map((r) => ({ ...r, units: r1(r.units), value: Math.round(r.value) })) };
+}

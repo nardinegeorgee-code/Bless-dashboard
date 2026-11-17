@@ -2126,14 +2126,35 @@ const fcSv=(W,H,inner,label)=>`<svg class="fc-sv" viewBox="0 0 ${W} ${H}" role="
 const fcAx=(x,y,t,a)=>`<text class="axl" x="${x.toFixed(1)}" y="${y}" text-anchor="${a||'middle'}">${esc(t)}</text>`;
 /* 1. what sold each month; one-off giant months in red */
 function fcS1(sec,p){
-  const h=p.hist,m=sec.months,n=h.length,W=640,H=170,pb=22,pt=22,bw=W/n,cap=new Map((p.capped||[]).map(c=>[c.m,c])),mx=Math.max(1,...h.filter((v,i)=>!cap.has(m[i])),...(p.capped||[]).map(c=>c.to))*(cap.size?1.35:1),Y=v=>pt+(H-pt-pb)*(1-Math.min(v,mx)/mx);
+  const all=p.hist,first=Math.max(0,Math.min(all.findIndex(v=>v>0),all.length-6)),h=all.slice(first),m=sec.months.slice(first),n=h.length,W=640,H=176,pb=22,pt=24,bw=W/n,cap=new Map((p.capped||[]).map(c=>[c.m,c])),
+    mx=Math.max(1,...h.filter((v,i)=>!cap.has(m[i])),...(p.capped||[]).map(c=>c.to))*(cap.size?1.35:1),Y=v=>pt+(H-pt-pb)*(1-Math.min(v,mx)/mx),sel=S.fc.mon&&S.fc.mon.pid===p.pid?S.fc.mon.m:'',K=v=>v>=10000?(v/1000).toFixed(v>=100000?0:1).replace(/\.0$/,'')+'k':fcU(v);
   let s='',line='';
-  h.forEach((v,i)=>{const x=(i*bw+2).toFixed(1),w=(bw-4).toFixed(1),c=cap.get(m[i]);
-    s+=`<rect class="${c?'sp':'h'}" x="${x}" y="${Y(v).toFixed(1)}" width="${w}" height="${Math.max(0,H-pb-Y(v)).toFixed(1)}" rx="2"><title>${fcMon(m[i])}: ${fcU(v)} units sold${c?' (one-off, counted as '+fcU(c.to)+')':''}</title></rect>`;
-    if(c){s+=`<rect class="h" x="${x}" y="${Y(c.to).toFixed(1)}" width="${w}" height="${Math.max(0,H-pb-Y(c.to)).toFixed(1)}" rx="2"/><path class="brk" d="M${(i*bw+2).toFixed(1)} ${(pt+9).toFixed(1)}l${((bw-4)/2).toFixed(1)} -4l${((bw-4)/2).toFixed(1)} 4"/><text class="vl bad" x="${(i*bw+bw/2).toFixed(1)}" y="${(pt-8).toFixed(1)}" text-anchor="middle">${fcU(v)} sold</text>`;if(!line)line=`<line class="capl" x1="0" x2="${W}" y1="${Y(c.to).toFixed(1)}" y2="${Y(c.to).toFixed(1)}"/>${fcAx(W-2,Y(c.to)-4,'counted at most as '+fcU(c.to),'end')}`}
-    else if(v>0&&n<=24&&v>=mx*.25)s+=`<text class="vl" x="${(i*bw+bw/2).toFixed(1)}" y="${(Y(v)-3).toFixed(1)}" text-anchor="middle">${fcU(v)}</text>`});
+  h.forEach((v,i)=>{const x=(i*bw+2).toFixed(1),w=(bw-4).toFixed(1),c=cap.get(m[i]),cl=(c?'sp':'h')+(m[i]===sel?' sel':'');
+    s+=`<rect class="${cl}" x="${x}" y="${Y(v).toFixed(1)}" width="${w}" height="${Math.max(0,H-pb-Y(v)).toFixed(1)}" rx="2"><title>${fcMon(m[i])}: ${fcU(v)} units sold${c?' (one-off, counted as '+fcU(c.to)+')':''}. Click to see who bought.</title></rect>`;
+    if(c){s+=`<rect class="h" x="${x}" y="${Y(c.to).toFixed(1)}" width="${w}" height="${Math.max(0,H-pb-Y(c.to)).toFixed(1)}" rx="2"/><path class="brk" d="M${(i*bw+2).toFixed(1)} ${(pt+9).toFixed(1)}l${((bw-4)/2).toFixed(1)} -4l${((bw-4)/2).toFixed(1)} 4"/><text class="vl bad" x="${(i*bw+bw/2).toFixed(1)}" y="${(pt-8).toFixed(1)}" text-anchor="middle">${K(v)} sold</text>`;if(!line)line=`<line class="capl" x1="0" x2="${W}" y1="${Y(c.to).toFixed(1)}" y2="${Y(c.to).toFixed(1)}"/>${fcAx(W-2,Y(c.to)-4,'counted at most as '+fcU(c.to),'end')}`}
+    else if(v>0&&v>=mx*.25)s+=`<text class="vl" x="${(i*bw+bw/2).toFixed(1)}" y="${(Y(v)-3).toFixed(1)}" text-anchor="middle">${K(v)}</text>`;
+    s+=`<rect class="hit" data-act="fc-mon" data-pid="${p.pid}" data-m="${m[i]}" x="${(i*bw).toFixed(1)}" y="0" width="${bw.toFixed(1)}" height="${H-pb}" tabindex="0" role="button" aria-label="${fcMon(m[i])}: ${fcU(v)} units. Show who bought"/>`});
   m.forEach((mm,i)=>{if(i%3===0)s+=fcAx(i*bw+bw/2,H-5,fcMon(mm))});
-  return fcSv(W,H,s+line,'Units sold each month')
+  return fcSv(W,H,s+line,'Units sold each month. Click a month to see who bought.')+`<p class="muted" style="margin:0;font-size:.76rem">Click any month to see who bought it.</p><div id="fc-mp-${p.pid}">${fcMonPanel(sec,p)}</div>`
+}
+/* click a month: who bought that product in it (read from Odoo on demand) */
+function fcMonPanel(sec,p){
+  const mo=S.fc.mon;if(!mo||mo.pid!==p.pid)return '';
+  const M=v=>fv(v,'money'),c=(p.capped||[]).find(x=>x.m===mo.m),d=(S.fcMon||{})[p.pid+'|'+mo.m],head=`<div class="fc-mph"><b>${fcMon(mo.m)}</b><button type="button" class="btn sm" data-act="fc-mon-x">Close</button></div>`;
+  if(!d)return `<div class="fc-mp">${head}<p class="muted">Reading the orders from Odoo…</p></div>`;
+  if(d.error)return `<div class="fc-mp">${head}<p class="muted" style="color:var(--danger)">${esc(d.error)}</p></div>`;
+  const mi=sec.months.indexOf(mo.m),avg=(()=>{const a=p.hist.filter(v=>v>0);return a.length?a.slice().sort((x,y)=>x-y)[Math.floor(a.length/2)]:0})();
+  if(!d.buyers.length)return `<div class="fc-mp">${head}<p class="muted">No confirmed orders for this product in that month.</p></div>`;
+  const top=d.buyers[0],share=d.units>0?Math.round(top.units/d.units*100):0;
+  return `<div class="fc-mp">${head}<p class="muted"><b>${fcU(d.units)} units</b> on ${d.orders} order${d.orders===1?'':'s'}, from ${d.buyers.length}${d.buyers.length>=20?'+':''} distributor${d.buyers.length===1?'':'s'}. ${share>=50?`<b>${esc(top.cust)}</b> alone bought ${share}% of it.`:`The biggest buyer, ${esc(top.cust)}, took ${share}%.`} ${avg>0?`A usual month for this product is about ${fcU(avg)}.`:''} ${c?`This month was counted as ${fcU(c.to)}, not ${fcU(c.a)}, in the forecast.`:''}</p>
+  <div class="gr-pw"><table class="gr-pt"><thead><tr><th>Distributor</th><th>Orders</th><th>Units</th><th>Share</th><th>Value (before tax)</th></tr></thead><tbody>${d.buyers.map(b=>`<tr><td dir="auto">${esc(b.cust)}</td><td>${b.orders}</td><td>${fcU(b.units)}</td><td>${d.units>0?Math.round(b.units/d.units*100):0}%</td><td>${esc(M(b.value))}</td></tr>`).join('')}</tbody></table></div>
+  <details class="fc-nums"><summary>Show the ${d.list.length} order${d.list.length===1?'':'s'}${d.orders>d.list.length?' (first '+d.list.length+')':''}</summary><div class="gr-pw"><table class="gr-pt"><thead><tr><th>Order</th><th>Date</th><th>Distributor</th><th>Salesperson</th><th>Units</th><th>Value</th></tr></thead><tbody>${d.list.map(r=>`<tr><td>${esc(r.order)}</td><td>${esc(r.date)}</td><td dir="auto">${esc(r.cust)}</td><td>${esc(r.rep)}</td><td>${fcU(r.units)}</td><td>${esc(M(r.value))}</td></tr>`).join('')}</tbody></table></div></details></div>`
+}
+async function fcMonOpen(pid,m){
+  S.fc.mon={pid,m};S.fcMon=S.fcMon||{};const k=pid+'|'+m;fcRefresh('list');
+  if(S.fcMon[k]&&!S.fcMon[k].error)return;
+  try{S.fcMon[k]=await api('GET',`/api/odoo?fcmonth=1&pid=${pid}&m=${m}`)}catch(e){S.fcMon[k]={error:e.message||'Could not read the orders.'}}
+  if(S.fc.mon&&S.fc.mon.pid===pid&&S.fc.mon.m===m)fcRefresh('list')
 }
 /* 2. the rules and their guesses */
 function fcS2(sec,p){
@@ -2727,6 +2748,8 @@ document.addEventListener('click',async e=>{
   else if(a==='gr-city-rep'){S.grCity.rep=b.dataset.v;S.grCity.n=12;grCityRefresh(true)}
   else if(a==='gr-city-sort'){S.grCity.sort=b.dataset.v;S.grCity.n=12;grCityRefresh(true)}
   else if(a==='gr-city-more'){S.grCity.n+=12;grCityRefresh()}
+  else if(a==='fc-mon'){fcMonOpen(Number(b.dataset.pid),b.dataset.m)}
+  else if(a==='fc-mon-x'){S.fc.mon=null;fcRefresh('list')}
   else if(a==='fc-st'){S.fc.st=b.dataset.v;S.fc.n=25;S.fc.open=null;fcRefresh('ctl')}
   else if(a==='fc-sort'){S.fc.sort=b.dataset.v;S.fc.n=25;fcRefresh('ctl')}
   else if(a==='fc-z'){S.fc.z=Number(b.dataset.v)||1.65;fcSave();fcRefresh('all')}
