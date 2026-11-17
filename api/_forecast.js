@@ -79,7 +79,7 @@ export function fitSeries(series, tot) {
   // the better a method tested, the more it counts
   const w = ranked.map((r) => 1 / (r.mae + 1e-6)), ws = w.reduce((a, b) => a + b, 0), mix = (vals) => vals.reduce((a, v, i) => a + v * w[i], 0) / ws;
   const f = Array.from({ length: 7 }, (_, i) => Math.max(0, mix(ranked.map((r) => r.fn(y, i + 1, ctx) ?? mean(lastN(y, 3))))));
-  const out = { method: ranked[0].key, mix: ranked.map((r, i) => ({ k: r.key, w: Math.round((w[i] / ws) * 100) })), lumpy, n, f: f.map(r1), tested, bt: [], sigma: null, wape: null, bias: null };
+  const out = { method: ranked[0].key, mix: ranked.map((r, i) => ({ k: r.key, w: Math.round((w[i] / ws) * 100), v: r1(Math.max(0, r.fn(y, 1, ctx) ?? mean(lastN(y, 3)))) })), lumpy, n, f: f.map(r1), tested, bt: [], sigma: null, wape: null, bias: null };
   if (tested) {
     const fs = origins.map((_, i) => Math.max(0, mix(ranked.map((r) => r.fs[i])))), act = origins.map((t) => series[t]), err = fs.map((x, i) => x - act[i]), sa = act.reduce((a, b) => a + b, 0);
     out.bt = origins.map((t, i) => ({ i: t, a: r1(act[i]), f: r1(fs[i]) }));

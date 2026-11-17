@@ -1646,3 +1646,32 @@ h1{font-weight:600;font-size:1.95rem}h2,h3{font-weight:600}
 .fc-calc tr.tot td{border-top:2px solid var(--line);font-size:.95rem}
 .fc-about{display:grid;grid-template-columns:1fr 1fr;gap:20px;font-size:.88rem}.fc-about>div{display:grid;gap:6px;align-content:start;min-width:0}.fc-about p{margin:0 0 6px;line-height:1.5;font-size:.84rem}
 @media (max-width:860px){.fc-head{display:none}.fc-row{grid-template-columns:1fr 1fr 1fr;gap:10px}.fc-name{grid-column:1/-1}.fc-dcols,.fc-about{grid-template-columns:1fr}}
+/* forecast story pictures */
+.fc-story{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.fc-st{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;gap:10px;align-content:start;min-width:0}
+.fc-sh{display:flex;gap:10px;align-items:flex-start}.fc-sh b{font-size:.95rem}.fc-sh p{margin:3px 0 0;font-size:.8rem;line-height:1.45}
+.fc-sn{flex:none;width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-weight:700;font-size:.82rem}
+.fc-sv{width:100%;height:auto;display:block}
+.fc-sv .h{fill:var(--accent)}.fc-sv .f{fill:color-mix(in srgb,var(--accent) 38%,var(--surface-2))}
+.fc-sv .sp{fill:color-mix(in srgb,var(--danger) 30%,transparent);stroke:var(--danger);stroke-dasharray:3 2;stroke-width:1}
+.fc-sv .axl{fill:var(--muted);font-size:10.5px;font-family:var(--f-body,inherit)}.fc-sv .vl{fill:var(--ink);font-size:10.5px;font-weight:600}.fc-sv .vl.bad{fill:var(--danger)}.fc-sv .vl.big{font-size:13px}
+.fc-sv .capl{stroke:var(--danger);stroke-dasharray:4 3;stroke-width:1}
+.fc-sv .gs{fill:var(--surface);stroke:var(--ink);stroke-width:2}.fc-sv .miss{stroke:var(--ink);stroke-width:1.2;stroke-dasharray:2 2;opacity:.7}
+.fc-sv .whk{stroke:var(--ink);stroke-width:1.6;opacity:.75}
+.fc-sv .zero{stroke:var(--muted);stroke-width:1}.fc-sv .stk{fill:none;stroke:var(--accent);stroke-width:2.6;stroke-linejoin:round;stroke-linecap:round}
+.fc-sv .noord{fill:none;stroke:var(--muted);stroke-width:2;stroke-dasharray:5 4}.fc-sv .miss-a{fill:color-mix(in srgb,var(--danger) 30%,transparent);stroke:none}
+.fc-sv .arr{stroke:var(--ok);stroke-width:1.4;stroke-dasharray:4 3}.fc-sv .jump{stroke:var(--ok);stroke-width:3}
+.fc-sv .out{fill:var(--danger)}.fc-sv .end{fill:var(--ok)}
+.fc-sv .wf1{fill:color-mix(in srgb,var(--accent) 40%,var(--surface-2))}.fc-sv .wf2{fill:var(--warn);opacity:.85}.fc-sv .wf3{fill:var(--ok);opacity:.6}.fc-sv .wf4{fill:var(--accent)}.fc-sv .conn{stroke:var(--muted);stroke-dasharray:3 3}
+.fc-lg{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:.76rem;color:var(--muted)}.fc-lg span{display:inline-flex;align-items:center;gap:6px}
+.fc-lg i{display:inline-block}.fc-lg .bx{width:12px;height:12px;border-radius:3px;background:var(--accent)}.fc-lg .bx.f{background:color-mix(in srgb,var(--accent) 38%,var(--surface-2))}.fc-lg .bx.bad{background:color-mix(in srgb,var(--danger) 45%,transparent)}
+.fc-lg .ci{width:11px;height:11px;border-radius:50%;border:2px solid var(--ink);background:var(--surface)}.fc-lg .wk{width:2px;height:14px;background:var(--ink)}
+.fc-lg .ln{width:20px;height:0;border-top:3px solid var(--accent)}.fc-lg .ln.dash{border-top:2px dashed var(--muted)}
+.fc-hbs{display:grid;gap:10px}
+.fc-hb{display:grid;grid-template-columns:minmax(120px,1.3fr) minmax(0,1.6fr) auto;gap:4px 10px;align-items:center;font-size:.82rem}
+.fc-hb small{grid-column:2/-1;margin-top:-4px;font-size:.74rem}
+.fc-ht{height:14px;border-radius:7px;background:color-mix(in srgb,var(--line) 35%,transparent);overflow:hidden}.fc-ht i{display:block;height:100%;background:color-mix(in srgb,var(--accent) 45%,var(--surface-2));border-radius:7px}
+.fc-hb.fin{padding-top:10px;border-top:2px solid var(--line)}.fc-hb.fin .fc-ht i{background:var(--accent)}.fc-hb.fin .fc-hl,.fc-hb.fin b{font-weight:700}
+.fc-nums{margin-top:4px}.fc-nums summary{cursor:pointer;font-size:.84rem;color:var(--muted);padding:6px 0}.fc-nums[open] summary{margin-bottom:8px}
+@media (max-width:860px){.fc-story{grid-template-columns:1fr}.fc-hb{grid-template-columns:1fr auto}.fc-hb .fc-ht{grid-column:1/-1;order:3}.fc-hb small{grid-column:1/-1}}
+.fc-sv .brk{fill:none;stroke:var(--surface);stroke-width:3}
