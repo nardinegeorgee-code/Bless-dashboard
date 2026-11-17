@@ -40,6 +40,20 @@ export const METHODS = [
   ['holt', 'Recent level plus its trend (trend fades out)', (y, h) => holt(y, h)],
   ['seas', 'Last 3 months, adjusted for the season seen last year', (y, h, c) => { const f = seasF(c.tot, c.end, h); return f === null ? null : mean(lastN(y, 3)) * f; }],
 ];
+/** One-off giant months (a launch, a stock-up, an opening order) are not demand. A month is counted at 3 times the product's usual
+    month when it is above that AND more than double both neighbouring months. The real figure is still shown; only the forecast ignores the excess. */
+export const despike = (y) => {
+  const o = y.findIndex((v) => v > 0);
+  if (o < 0 || process.env.FC_DESPIKE === '0') return { y, capped: [] };
+  const nz = y.slice(o).filter((v) => v > 0).sort((a, b) => a - b);
+  if (nz.length < 5) return { y, capped: [] };
+  const med = nz.length % 2 ? nz[(nz.length - 1) / 2] : (nz[nz.length / 2 - 1] + nz[nz.length / 2]) / 2, cap = 3 * med, out = y.slice(), capped = [];
+  for (let i = o; i < y.length; i++) {
+    const nb = Math.max(i > 0 ? y[i - 1] : 0, i < y.length - 1 ? y[i + 1] : 0);
+    if (y[i] > cap && y[i] > 2 * nb) { out[i] = r1(cap); capped.push({ i, a: y[i], to: r1(cap) }); }
+  }
+  return { y: out, capped };
+};
 const OPT = { test: Number(process.env.FC_TEST) || 9, blend: Number(process.env.FC_BLEND) || 3, lumpy: process.env.FC_LUMPY !== '0' }; // months held back one at a time; how many of the best methods are mixed
 const STEADY = new Set(['ma6', 'ma12', 'ses3']); // for products that sell in bursts, only slow averages make sense
 
@@ -94,14 +108,14 @@ export function analyse({ rows, products, today, N }) {
   for (const p of list) {
     // nothing sold in the last six full months and nothing this month: treat as not selling, whatever an old average says
     const quiet = p.hist.slice(-6).every((v) => v === 0);
-    const fit = quiet ? null : fitSeries(p.hist, tot), pos = p.onHand + p.incoming - p.outgoing;
+    const ds = despike(p.hist), fit = quiet ? null : fitSeries(ds.y, tot), pos = p.onHand + p.incoming - p.outgoing;
     if (!fit && !(p.cur > 0) && !(p.onHand > 0)) continue; // never sold in the window and nothing in stock
     const f = fit ? fit.f : Array(7).fill(p.cur > 0 ? r1(p.cur / Math.max(1, +today.slice(8, 10)) * 30) : 0);
     f.forEach((v, i) => { fTot[i] += v; });
     if (fit && fit.tested) { tested++; for (const b of fit.bt) { absE += Math.abs(b.f - b.a); actS += b.a; const g = btTot.get(b.i) || { a: 0, f: 0 }; g.a += b.a; g.f += b.f; btTot.set(b.i, g); } }
     const l3 = mean(p.hist.slice(-3)), p3 = mean(p.hist.slice(-6, -3));
     items.push({ pid: p.pid, name: p.name, code: p.code, cat: p.cat, onHand: r1(p.onHand), incoming: r1(p.incoming), outgoing: r1(p.outgoing), pos: r1(pos), tracked: p.tracked, cost: p.cost, price: p.price,
-      hist: p.hist, cur: r1(p.cur), l30: r1(p.l30), l90: r1(p.l90), last: p.last, rev12: Math.round(p.rev12), f,
+      hist: p.hist, capped: ds.capped.map((c) => ({ m: months[c.i], a: c.a, to: c.to })), cur: r1(p.cur), l30: r1(p.l30), l90: r1(p.l90), last: p.last, rev12: Math.round(p.rev12), f,
       method: fit ? fit.method : p.cur > 0 ? 'new' : 'none', mix: fit ? fit.mix : [], lumpy: !!(fit && fit.lumpy), tested: !!(fit && fit.tested), n: fit ? fit.n : 0, sigma: fit ? fit.sigma : r1(Math.max(...f) * 0.5), wape: fit ? fit.wape : null, bias: fit ? fit.bias : null,
       bt: fit ? fit.bt.map((b) => ({ m: months[b.i], a: b.a, f: b.f })) : [], trend: p3 > 0 ? Math.round((l3 / p3 - 1) * 100) : null, zeros: p.hist.slice(-12).filter((v) => v === 0).length });
   }
