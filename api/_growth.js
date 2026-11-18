@@ -118,10 +118,10 @@ export function analyse({ orders, lines, unpaid, today }) {
   // ---- 5. ordered but not invoiced
   const lineTI = new Map(); let hasLineTI = false;
   for (const l of lines) if (l.toInv !== null && l.toInv !== undefined) { hasLineTI = true; lineTI.set(l.oid, (lineTI.get(l.oid) || 0) + n0(l.toInv)); }
-  const uninv = O.filter((o) => o.age >= R.uninvoicedAfter).map((o) => ({ order: o.name, cust: o.cust, rep: o.rep, date: o.d, age: o.age, value: r0(hasLineTI ? (lineTI.get(o.id) || 0) : (o.toInv ? o.net : 0)) })).filter((x) => x.value > 0);
+  const uninv = O.filter((o) => o.age >= R.uninvoicedAfter).map((o) => ({ oid: o.id, order: o.name, cust: o.cust, rep: o.rep, date: o.d, age: o.age, value: r0(hasLineTI ? (lineTI.get(o.id) || 0) : (o.toInv ? o.net : 0)) })).filter((x) => x.value > 0);
 
   // ---- 6. overdue invoices (cash, kept apart from the sales opportunities)
-  const od = (unpaid || []).filter((u) => u.amt > 0 && u.due && dnum(u.due) < T).map((u) => ({ name: u.name, cust: u.cust, rep: u.rep || (C.get(u.cust) || {}).rep || 'No salesperson', due: u.due, late: T - dnum(u.due), value: r0(u.amt) }));
+  const od = (unpaid || []).filter((u) => u.amt > 0 && u.due && dnum(u.due) < T).map((u) => ({ id: u.id, name: u.name, cust: u.cust, rep: u.rep || (C.get(u.cust) || {}).rep || 'No salesperson', due: u.due, late: T - dnum(u.due), value: r0(u.amt) }));
 
   // ---- 7. when orders arrive (week of the month x weekday, week starts Saturday)
   const grid = Array.from({ length: 5 }, () => Array(7).fill(0)), dayTot = Array(7).fill(0); let net = 0, monthEnd = 0, firstWeek = 0;
@@ -202,9 +202,9 @@ export async function buildGrowth(cfg, today) {
   }
   const lines = rl.map((l) => ({ oid: nid(l.order_id), prod: service.has(nid(l.product_id)) ? '' : nm(l.product_id), qty: n0(l.product_uom_qty), v: n0(l.price_subtotal), toInv: hasTI && typeof l.untaxed_amount_to_invoice === 'number' ? l.untaxed_amount_to_invoice : null }));
   const repByOrder = new Map(orders.map((o) => [o.name, o.rep]));
-  const unpaid = ru && ru.map((m) => ({ name: m.name, cust: custOf(m.partner_id), rep: String(m.invoice_origin || '').split(/[,\s]+/).map((x) => repByOrder.get(x)).find(Boolean) || '', due: m.invoice_date_due, amt: Math.abs(n0(typeof m.amount_residual_signed === 'number' ? m.amount_residual_signed : m.amount_residual)) }));
+  const unpaid = ru && ru.map((m) => ({ id: m.id, name: m.name, cust: custOf(m.partner_id), rep: String(m.invoice_origin || '').split(/[,\s]+/).map((x) => repByOrder.get(x)).find(Boolean) || '', due: m.invoice_date_due, amt: Math.abs(n0(typeof m.amount_residual_signed === 'number' ? m.amount_residual_signed : m.amount_residual)) }));
   if (ro.length >= 40000) notes.push('There are more than 40,000 orders in 12 months, so only the first 40,000 were read.');
-  return { ...analyse({ orders, lines, unpaid, today }), notes };
+  return { ...analyse({ orders, lines, unpaid, today }), odoo: cfg.url, notes };
 }
 
 export function growthSections(cfg, ctx, { section }) {
