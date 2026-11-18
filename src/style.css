@@ -1679,3 +1679,4 @@ h1{font-weight:600;font-size:1.95rem}h2,h3{font-weight:600}
 .fc-sv .sel{stroke:var(--ink);stroke-width:2}
 .fc-mp{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--surface-2);display:grid;gap:8px;min-width:0}
 .fc-mp p{margin:0;font-size:.82rem;line-height:1.5}.fc-mph{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.gr-ol{color:var(--accent-text,var(--accent));text-decoration:none;font-weight:600;white-space:nowrap}.gr-ol:hover,.gr-ol:focus-visible{text-decoration:underline}
