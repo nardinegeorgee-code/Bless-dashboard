@@ -1500,7 +1500,7 @@ async function submitUpload(kind){
 }
 
 /* ---------- Shopify analysis tabs ---------- */
-const AN_TABS=[['overview','Overview'],['sales','Sales'],['profit','Profit'],['funnel','Funnel'],['products','Products'],['experience','Customer experience'],['retention','Retention'],['delivery','Delivery'],['undelivered','Without delivery']];
+const AN_TABS=[['overview','Overview'],['sales','Sales'],['profit','Profit'],['funnel','Funnel'],['products','Products'],['together','Bought together'],['experience','Customer experience'],['retention','Retention'],['delivery','Delivery'],['undelivered','Without delivery']];
 S.an={tab:'overview',cache:{},loading:false,err:'',metric:{},saving:false};
 function shopTabs(){return `<div class="subtabs" role="tablist">${AN_TABS.map(([k,l])=>`<button role="tab" class="subtab${S.an.tab===k?' on':''}" aria-selected="${S.an.tab===k}" data-act="an-tab" data-tab="${k}">${l}</button>`).join('')}</div>`}
 async function loadAn(refresh){
@@ -1912,10 +1912,36 @@ function anSection(sec){
   if(sec.error)return `<section class="panel an" style="border-color:var(--warn)">${head}<p class="body-text"><b style="color:var(--warn)">This part could not be loaded.</b> ${esc(sec.error)}</p></section>`;
   let body='';
   try{
-    body=sec.kind==='actions'?anActions(sec):sec.kind==='bridge'?anBridge(sec):sec.kind==='ratios'?anRatios(sec):sec.kind==='kpi'?anKpi(sec):sec.kind==='funnel'?anFunnel(sec):sec.kind==='trend'?trendMonthChart(sec)+anTrend(sec):sec.kind==='table'?(sec.id==='months'?monthsChart(sec):'')+anTable(sec):sec.kind==='reps'?anReps(sec):sec.kind==='cohort'?anCohort(sec):sec.kind==='audit'?anAudit(sec):sec.kind==='campaigns'?metaCampaigns(sec):sec.kind==='manual'?anManual(sec):sec.kind==='sheet'?anSheet(sec):sec.kind==='text'?`<ul class="gaps">${sec.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>`:'';
+    body=sec.kind==='actions'?anActions(sec):sec.kind==='bridge'?anBridge(sec):sec.kind==='ratios'?anRatios(sec):sec.kind==='kpi'?anKpi(sec):sec.kind==='funnel'?anFunnel(sec):sec.kind==='trend'?trendMonthChart(sec)+anTrend(sec):sec.kind==='table'?(sec.id==='months'?monthsChart(sec):'')+anTable(sec):sec.kind==='reps'?anReps(sec):sec.kind==='cohort'?anCohort(sec):sec.kind==='audit'?anAudit(sec):sec.kind==='together'?tgHtml(sec):sec.kind==='campaigns'?metaCampaigns(sec):sec.kind==='manual'?anManual(sec):sec.kind==='sheet'?anSheet(sec):sec.kind==='text'?`<ul class="gaps">${sec.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>`:'';
   }catch(e){body=`<p class="muted">Could not show this part (${esc(e.message)}).</p>`}
   return `<section class="panel an${sec.kind==='text'?' soft':''}">${head}${body}</section>`;
 }
+/* Frequently bought together: search, sort, and plain-language strength */
+S.tg=S.tg||{q:'',sort:'n',n:15,sec:null};
+function tgRows(){
+  const sec=S.tg.sec;if(!sec)return [];const N=sec.orders||1;
+  return sec.pairs.map(p=>{const pa=p.n/p.na*100,pb=p.n/p.nb*100,lift=p.n*N/(p.na*p.nb);return {...p,pa,pb,lift,top:Math.max(pa,pb)}});
+}
+function tgCtl(){const d=S.tg,b=(v,l)=>`<button type="button" class="qchip${d.sort===v?' on':''}" data-act="tg-sort" data-v="${v}">${l}</button>`;
+  return `<div class="gr-dctl"><input type="search" class="gr-dq" data-tgq="1" placeholder="Find a product" value="${esc(d.q)}"><div class="gr-dbtns"><span class="muted">Sort</span>${b('n','Most orders together')}${b('top','Strongest link')}${b('lift','Surprising pairs')}</div></div>`}
+function tgList(){
+  const d=S.tg,q=d.q.trim().toLowerCase();
+  let rows=tgRows().filter(x=>!q||(x.a+' '+x.b).toLowerCase().includes(q));
+  rows.sort((x,y)=>d.sort==='top'?y.top-x.top||y.n-x.n:d.sort==='lift'?y.lift-x.lift||y.n-x.n:y.n-x.n);
+  if(!rows.length)return '<p class="muted">Nothing matches that search.</p>';
+  const mx=Math.max(...rows.map(x=>x.n)),shown=rows.slice(0,d.n);
+  const pc=v=>(v>=10?Math.round(v):v.toFixed(1))+'%';
+  const body=shown.map(x=>{
+    const idea=x.top>=30&&x.n>=3?(x.pa>=x.pb?`${pc(x.pa)} of orders with “${x.a}” also have “${x.b}”: offer “${x.b}” at checkout.`:`${pc(x.pb)} of orders with “${x.b}” also have “${x.a}”: offer “${x.a}” at checkout.`):'';
+    return `<div class="tg-r"><div class="tg-p"><span dir="auto">${esc(x.a)}</span><i>+</i><span dir="auto">${esc(x.b)}</span></div><div class="tg-bar"><span style="width:${Math.max(4,x.n/mx*100)}%"></span></div><div class="tg-m"><b>${x.n}</b> orders together<span class="muted">${pc(x.pa)} of “${esc(grShort(x.a))}” orders · ${pc(x.pb)} of “${esc(grShort(x.b))}” orders${x.lift>=2?' · bought together '+x.lift.toFixed(1)+'× more than chance':''}</span>${idea?`<span class="tg-i">Idea: ${esc(idea)}</span>`:''}</div></div>`}).join('');
+  return `<p class="muted gr-dcount">${rows.length} pair${rows.length===1?'':'s'} found.</p>${body}${rows.length>d.n?`<button type="button" class="btn" data-act="tg-more">Show 15 more</button>`:''}`;
+}
+function tgHtml(sec){
+  S.tg.sec=sec;if(sec.error)return '';
+  const share=sec.orders?Math.round(sec.multi/sec.orders*100):0;
+  return `<p class="muted">${fmtNum(sec.orders)} orders in the last 12 months. ${fmtNum(sec.multi)} (${share}%) had two or more different products.</p><div id="tg-ctl">${tgCtl()}</div><div id="tg-list">${tgList()}</div>`;
+}
+function tgRefresh(all){const l=document.getElementById('tg-list');if(l)l.innerHTML=tgList();if(all){const c=document.getElementById('tg-ctl');if(c)c.innerHTML=tgCtl()}}
 function renderAnalytics(L){
   const an=S.an,sh=S.shop,d=an.cache[an.tab+'|'+perQuery()]||an.cache[an.last];
   an.data=d;
@@ -2744,6 +2770,8 @@ document.addEventListener('click',async e=>{
   else if(a==='tpl'){const el=$('#in-b'),tp=BRIEF_TPL[b.dataset.k];if(el&&tp&&(!el.value.trim()||arm(b))){el.value=tp[1];delete b.dataset.armed;b.classList.remove('armed');b.textContent=tp[0];el.focus();briefQ()}}
   else if(a==='gr-rep'){S.od.grep=b.dataset.rep||'';renderOdoo();const el=document.getElementById(b.closest('.gr-rep')?'gr-tasks':'');if(el&&el.scrollIntoView)el.scrollIntoView({block:'start'})}
   else if(a==='gr-jump'){const el=document.getElementById('gr-'+b.dataset.k);if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'start'})}
+  else if(a==='tg-sort'){S.tg.sort=b.dataset.v;S.tg.n=15;tgRefresh(true)}
+  else if(a==='tg-more'){S.tg.n+=15;tgRefresh()}
   else if(a==='gr-drop-by'){S.grDrop.by=b.dataset.v;S.grDrop.n=8;grDropRefresh(true)}
   else if(a==='gr-drop-sort'){S.grDrop.sort=b.dataset.v;S.grDrop.n=8;grDropRefresh(true)}
   else if(a==='gr-drop-more'){S.grDrop.n+=8;grDropRefresh()}
@@ -3051,6 +3079,6 @@ document.addEventListener('submit',async e=>{
   }catch(x){err.textContent=x.message;btn.disabled=false;btn.textContent='Save'}
 });
 
-document.addEventListener('input',e=>{const t=e.target;if(t&&t.dataset&&t.dataset.grdq){S.grDrop.q=t.value;S.grDrop.n=8;grDropRefresh()}});
+document.addEventListener('input',e=>{const t=e.target;if(t&&t.dataset&&t.dataset.tgq){S.tg.q=t.value;S.tg.n=15;tgRefresh()}if(t&&t.dataset&&t.dataset.grdq){S.grDrop.q=t.value;S.grDrop.n=8;grDropRefresh()}});
 
 document.addEventListener('change',e=>{const t=e.target;if(t&&t.dataset&&t.dataset.grtm){S.grTm[t.dataset.grtm]=t.value;grTmRefresh(true)}});

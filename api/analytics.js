@@ -8,7 +8,7 @@ import { buildDelivery } from './_delivery.js';
 import { saveSheet, clearSheet, loadSheet, editRow, removeRows, sheetLog, removeSource, renameSource } from './_sheet.js';
 
 const DAY = 86400000;
-const TABS = ['sales', 'profit', 'funnel', 'products', 'experience', 'retention', 'delivery', 'undelivered'];
+const TABS = ['sales', 'profit', 'funnel', 'products', 'experience', 'together', 'retention', 'delivery', 'undelivered'];
 const CACHE_MS = 30 * 60000;
 
 /* ---------- dates ---------- */
@@ -424,6 +424,33 @@ function buildShopifyTabs(tab, ctx, run) {
     ].map((x) => (typeof x === 'function' ? x : async () => x));
   }
 
+  if (tab === 'together') return [
+    async () => {
+      try {
+        const since = Date.now() - 365 * DAY;
+        const rows = await db()`SELECT items FROM shop_orders WHERE cancelled = false AND created_at >= ${since}`;
+        if (!rows.length) throw new Error('No synced orders yet. Open the Overview tab and press Sync now.');
+        const pairs = new Map(), single = new Map(), name = new Map();
+        let multi = 0;
+        for (const o of rows) {
+          const m = new Map();
+          for (const i of o.items || []) if (i.k && !m.has(i.k)) { m.set(i.k, i.t); name.set(i.k, i.t); }
+          const ks = [...m.keys()].sort();
+          ks.forEach((k) => single.set(k, (single.get(k) || 0) + 1));
+          if (ks.length > 1) multi++;
+          for (let i = 0; i < ks.length; i++) for (let j = i + 1; j < ks.length; j++) {
+            const key = ks[i] + '|' + ks[j];
+            const p = pairs.get(key) || { a: ks[i], b: ks[j], n: 0 }; p.n++; pairs.set(key, p);
+          }
+        }
+        const list = [...pairs.values()].filter((p) => p.n >= 2).sort((x, y) => y.n - x.n).slice(0, 400)
+          .map((p) => ({ a: name.get(p.a), b: name.get(p.b), n: p.n, na: single.get(p.a), nb: single.get(p.b) }));
+        return { id: 'together', title: 'Frequently bought together (last 12 months)', kind: 'together',
+          note: 'Products that customers put in the same order. Cancelled orders are left out; pairs seen in fewer than 2 orders are hidden.',
+          orders: rows.length, multi, pairs: list };
+      } catch (e) { return { id: 'together', title: 'Frequently bought together', kind: 'together', error: String(e.message || e).slice(0, 400) }; }
+    },
+  ];
   if (tab === 'products') return [
     section('best', `Best sellers (${monthLabel})`, 'table', async () => {
       const r0 = await run(`FROM sales SHOW net_items_sold, net_sales GROUP BY product_title, product_variant_title ${per} ORDER BY net_items_sold DESC LIMIT 250`);
@@ -453,21 +480,6 @@ function buildShopifyTabs(tab, ctx, run) {
       const rows = r.rows.filter((x) => n0(x.ending_inventory_units) > 0 && x.days_of_inventory_remaining !== null && n0(x.inventory_units_sold_per_day) > 0).slice(0, 15).map((x) => ({ name: variantName(x.product_title, x.product_variant_title), days: n0(x.days_of_inventory_remaining), stock: n0(x.ending_inventory_units), perDay: n0(x.inventory_units_sold_per_day) }));
       return { columns: [{ key: 'name', label: 'Product', fmt: 'str' }, { key: 'days', label: 'Days of stock left', fmt: 'days', bar: true, barReverse: true }, { key: 'stock', label: 'In stock', fmt: 'int' }, { key: 'perDay', label: 'Sold per day', fmt: 'num1' }], rows, empty: 'Nothing is close to running out.' };
     }),
-    section('bundles', 'Bought together (last 12 months)', 'table', async () => {
-      const rows = await db()`SELECT items FROM shop_orders WHERE cancelled = false AND created_at >= ${Date.now() - 365 * DAY}`;
-      if (!rows.length) throw new Error('No synced orders yet. Open the Overview tab and press Sync now.');
-      const pairs = new Map(), single = new Map();
-      for (const o of rows) {
-        const m = new Map((o.items || []).map((i) => [i.k, i.t]));
-        const ks = [...m.keys()].sort();
-        ks.forEach((k) => single.set(k, (single.get(k) || 0) + 1));
-        for (let i = 0; i < ks.length; i++) for (let j = i + 1; j < ks.length; j++) {
-          const key = ks[i] + '|' + ks[j]; const p = pairs.get(key) || { a: m.get(ks[i]), b: m.get(ks[j]), ka: ks[i], kb: ks[j], n: 0 }; p.n++; pairs.set(key, p);
-        }
-      }
-      const list = [...pairs.values()].sort((x, y) => y.n - x.n).slice(0, 15).map((p) => ({ name: `${p.a}  +  ${p.b}`, orders: p.n, share: pct(p.n, Math.min(single.get(p.ka), single.get(p.kb))) }));
-      return { columns: [{ key: 'name', label: 'Products often in the same order', fmt: 'str' }, { key: 'orders', label: 'Orders together', fmt: 'int', bar: true }, { key: 'share', label: 'Of the rarer product\'s orders', fmt: 'pct' }], rows: list, empty: 'No product pairs found yet.' };
-    }, 'Good candidates for bundles, cross-sell and upsell offers.'),
     section('audit', 'Product page quality', 'audit', async () => {
       const list = (await fetchProducts(shopConfigCache)).filter((p) => p.status === 'ACTIVE');
       const rows = list.map((p) => {
