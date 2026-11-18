@@ -1933,7 +1933,8 @@ function tgList(){
   const pc=v=>(v>=10?Math.round(v):v.toFixed(1))+'%';
   const body=shown.map(x=>{
     const idea=x.top>=30&&x.n>=3?(x.pa>=x.pb?`${pc(x.pa)} of orders with “${x.a}” also have “${x.b}”: offer “${x.b}” at checkout.`:`${pc(x.pb)} of orders with “${x.b}” also have “${x.a}”: offer “${x.a}” at checkout.`):'';
-    return `<div class="tg-r"><div class="tg-p"><span dir="auto">${esc(x.a)}</span><i>+</i><span dir="auto">${esc(x.b)}</span></div><div class="tg-bar"><span style="width:${Math.max(4,x.n/mx*100)}%"></span></div><div class="tg-m"><b>${x.n}</b> orders together<span class="muted">${pc(x.pa)} of “${esc(grShort(x.a))}” orders · ${pc(x.pb)} of “${esc(grShort(x.b))}” orders${x.lift>=2?' · bought together '+x.lift.toFixed(1)+'× more than chance':''}</span>${idea?`<span class="tg-i">Idea: ${esc(idea)}</span>`:''}</div></div>`}).join('');
+    const th=u=>u?`<img class="tg-img" src="${esc(u)}" alt="" loading="lazy">`:'<span class="tg-img tg-no"></span>';
+    return `<div class="tg-r"><div class="tg-pics">${th(x.ia)}<i>+</i>${th(x.ib)}</div><div class="tg-c"><div class="tg-p"><span dir="auto">${esc(x.a)}</span><i>+</i><span dir="auto">${esc(x.b)}</span></div><div class="tg-bar"><span style="width:${Math.max(4,x.n/mx*100)}%"></span></div><div class="tg-m"><b>${x.n}</b> orders together<span class="muted">${pc(x.pa)} of “${esc(grShort(x.a))}” orders · ${pc(x.pb)} of “${esc(grShort(x.b))}” orders${x.lift>=2?' · bought together '+x.lift.toFixed(1)+'× more than chance':''}</span>${idea?`<span class="tg-i">Idea: ${esc(idea)}</span>`:''}</div></div></div>`}).join('');
   return `<p class="muted gr-dcount">${rows.length} pair${rows.length===1?'':'s'} found.</p>${body}${rows.length>d.n?`<button type="button" class="btn" data-act="tg-more">Show 15 more</button>`:''}`;
 }
 function tgHtml(sec){

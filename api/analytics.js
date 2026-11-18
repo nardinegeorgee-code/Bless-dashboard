@@ -445,6 +445,10 @@ function buildShopifyTabs(tab, ctx, run) {
         }
         const list = [...pairs.values()].filter((p) => p.n >= 2).sort((x, y) => y.n - x.n).slice(0, 400)
           .map((p) => ({ a: name.get(p.a), b: name.get(p.b), n: p.n, na: single.get(p.a), nb: single.get(p.b) }));
+        try {
+          const find = picMatcher(await pictureLoader());
+          for (const p of list) { const x = find(p.a), y = find(p.b); if (x) p.ia = x; if (y) p.ib = y; }
+        } catch (e) { /* pictures are optional */ }
         return { id: 'together', title: 'Frequently bought together (last 12 months)', kind: 'together',
           note: 'Products that customers put in the same order. Cancelled orders are left out; pairs seen in fewer than 2 orders are hidden.',
           orders: rows.length, multi, pairs: list };
