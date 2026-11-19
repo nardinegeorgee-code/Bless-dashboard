@@ -121,6 +121,7 @@ const NAV_ICON={
   act:'<path d="M3 12h3.500l2-6 4 12 2.500-8 1.500 2H21"/>',
   uploads:'<path d="M12 16V5M7.500 9.500 12 5l4.500 4.500"/><path d="M5 15v3.500a1.500 1.500 0 0 0 1.500 1.500h11a1.500 1.500 0 0 0 1.500-1.500V15"/>',
   catalog:'<path d="M5 5.5A1.5 1.5 0 0 1 6.5 4H19v14H6.500A1.500 1.500 0 0 0 5 19.500v-14Z"/><path d="M5 19.500A1.500 1.500 0 0 0 6.500 21H19"/><path d="M9 8.500h6M9 12h4"/>',
+  game:'<path d="M7 8h10a4 4 0 0 1 4 4v1.500a3 3 0 0 1-5.200 2L14.500 14h-5L8.200 15.500A3 3 0 0 1 3 13.500V12a4 4 0 0 1 4-4Z"/><path d="M8 10.500v3M6.500 12h3"/><circle cx="15.500" cy="11" r=".6"/><circle cx="17.500" cy="12.800" r=".6"/>',
   ins:'<rect x="6" y="4.500" width="12" height="16" rx="2"/><path d="M9.500 4.500h5v2.500h-5zM9 11h6M9 14.500h6M9 18h3.500"/>'
 };
 const navIco=k=>`<svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${NAV_ICON[k]||NAV_ICON.home}</svg>`;
@@ -138,10 +139,10 @@ function applySideMin(){document.body.classList.toggle('side-min',sideMin())}
 function toggleSide(){try{localStorage.setItem(SIDE_MIN_KEY,sideMin()?'0':'1')}catch(e){document.body.classList.toggle('side-min')}applySideMin()}
 function navItems(){
   const nu=unreadNotes().length;
-  if(isAdmin())return [['hub','Home'],['dash','Dashboards'],['home','Team overview'],['send','Send instruction'],['content','All content'],['catalog','Catalogue'],['eval','Evaluation'],['team','Team by role'],['notes','Notifications',nu],['act','Activity'],['users','Users'],['priv','User privileges']];
-  if(isCeo())return [['hub','Home'],['dash','Dashboards'],['catalog','Catalogue'],...(myReports().includes('act')?[['act','Activity']]:[])];
+  if(isAdmin())return [['hub','Home'],['dash','Dashboards'],['home','Team overview'],['send','Send instruction'],['content','All content'],['catalog','Catalogue'],['eval','Evaluation'],['team','Team by role'],['notes','Notifications',nu],['act','Activity'],['users','Users'],['priv','User privileges'],['game','Bless Game']];
+  if(isCeo())return [['hub','Home'],['dash','Dashboards'],['catalog','Catalogue'],['game','Bless Game'],...(myReports().includes('act')?[['act','Activity']]:[])];
   const pending=myInstructions().filter(i=>!responded(i.id)).length;
-  const base=[['home','Instructions',pending],['uploads','My uploads'],['catalog','Catalogue'],['notes','Notifications',nu],['team','Team by role']];
+  const base=[['home','Instructions',pending],['uploads','My uploads'],['catalog','Catalogue'],['game','Bless Game'],['notes','Notifications',nu],['team','Team by role']];
   return hasGrants()?[...base,['hub','Reports'],...GRANT.filter(g=>['dash','act'].includes(g[0])&&myReports().includes(g[0])).map(g=>[g[0],g[1]])]:base;
 }
 function showApp(){
@@ -170,7 +171,7 @@ function targetChips(ins){
 /* ---------- views: mount builds static parts (forms), update fills live parts ---------- */
 function mount(){
   const v=$('#view');const r=S.route;
-  if(isCeo()){if(!['hub','dash','shop','odoo','meta','catalog'].includes(S.route)&&!(S.route==='act'&&canSee('act')))S.route='hub'}
+  if(isCeo()){if(!['hub','dash','shop','odoo','meta','catalog','game'].includes(S.route)&&!(S.route==='act'&&canSee('act')))S.route='hub'}
   else if(!isAdmin()&&['hub','dash','send','content','users','priv','shop','eval','odoo','meta','act'].includes(r)){if(!(r==='hub'?hasGrants():canSee(r)))S.route='home'}
   if(S.route==='hub')v.innerHTML=`<div id="live"></div>`;
   else if(S.route==='dash'){v.innerHTML=`<div id="live"></div>`;if(!S.dash.d.shop&&!S.dash.busy)loadDash(false,true)}
@@ -201,6 +202,7 @@ function mount(){
   else if(S.route==='odoo'){v.innerHTML=`<div class="head"><div><h1>Odoo</h1><p>The executive brief first, then supply, sales and finance, read live from Odoo.</p></div></div><div id="live"></div>`;if(!S.od.cache[S.od.tab+'|'+(S.od.month||'')]&&!S.od.loading)loadOdoo();else renderOdoo()}
   else if(S.route==='meta'){v.innerHTML=`<div class="head"><div><h1>Meta Ads</h1><p>Facebook and Instagram advertising, read live from Meta. Pause campaigns and change budgets from here.</p></div></div><div id="live"></div>`;if(!S.meta.cache[S.meta.tab+'|'+(S.meta.month||'')]&&!S.meta.loading)loadMeta();else renderMeta()}
   else if(S.route==='shop'){v.innerHTML=`<div class="head"><div><h1>Shopify</h1><p>Sales, funnel, products, customer experience and retention, one tab each.</p></div></div><div id="live"></div>`;if(S.an.tab==='overview'){if(!S.shop.data&&!S.shop.loading)loadShop()}else loadAn();}
+  else if(S.route==='game'){v.innerHTML=`<div class="head"><div><h1>Bless Game</h1><p>Bundle Battle: guess which product customers buy together. Questions come from real orders.</p></div></div><div id="live"></div>`}
   else if(S.route==='act')v.innerHTML=`<div id="live"></div>`;
   else if(S.route==='priv')v.innerHTML=`<div class="head"><div><h1>User privileges</h1><p>Choose exactly which reports each person can open. Changes save at once and apply the next time they open the hub or reload.</p></div></div><div id="live"></div>`;
   else if(S.route==='users')v.innerHTML=`<div class="head"><div><h1>Users</h1><p>Add people, change their role, or set a new password.</p></div></div>
@@ -235,6 +237,7 @@ function update(){
   else if(r==='odoo')renderOdoo();
   else if(r==='meta')renderMeta();
   else if(r==='eval')renderEval();
+  else if(r==='game')gmRender();
   syncUploadAvail();renderSelBar();
 }
 
@@ -1916,6 +1919,51 @@ function anSection(sec){
   }catch(e){body=`<p class="muted">Could not show this part (${esc(e.message)}).</p>`}
   return `<section class="panel an${sec.kind==='text'?' soft':''}">${head}${body}</section>`;
 }
+/* ---------- Bless Game: Bundle Battle ---------- */
+S.gm=S.gm||{phase:'idle',q:[],i:0,score:0,ok:0,pick:-1,t0:0,board:null,err:'',busy:false,gain:0};
+async function gmLoadBoard(){try{const j=await api('GET','/api/data?game=board');S.gm.board=j.board}catch(e){}if(S.route==='game')gmRender()}
+async function gmStart(){
+  const g=S.gm;g.busy=true;g.err='';gmRender();
+  try{const j=await api('GET','/api/data?game=play');g.q=j.questions;g.board=j.board;g.i=0;g.score=0;g.ok=0;g.pick=-1;g.phase='play';g.t0=Date.now()}
+  catch(e){g.err=e.message;g.phase='idle'}
+  g.busy=false;gmRender();
+}
+function gmPick(i){
+  const g=S.gm;if(g.pick>=0)return;const q=g.q[g.i],secs=(Date.now()-g.t0)/1000;g.pick=i;g.gain=0;
+  if(i===q.a){g.ok++;g.gain=10+Math.max(0,Math.min(5,Math.round(5-secs/2)));g.score+=g.gain}
+  gmRender();
+}
+async function gmNext(){
+  const g=S.gm;
+  if(g.i+1<g.q.length){g.i++;g.pick=-1;g.t0=Date.now();gmRender();return}
+  g.phase='done';g.busy=true;gmRender();
+  try{const j=await api('POST','/api/data?game=1',{score:g.score,correct:g.ok});g.board=j.board}catch(e){g.err=e.message}
+  g.busy=false;gmRender();
+}
+const gmImg=u=>u?`<img src="${esc(u)}" alt="" loading="lazy">`:'<span class="gm-ph"></span>';
+function gmBoard(){
+  const b=S.gm.board;if(!b)return '';
+  const rows=b.rows.length?b.rows.map((r,i)=>`<div class="gm-lr${r.username===b.me?' me':''}"><span class="gm-rk">${['🥇','🥈','🥉'][i]||i+1}</span><b dir="auto">${esc(r.username)}</b><span class="muted">${r.plays} play${r.plays===1?'':'s'}</span><b class="gm-pt">${r.best}</b></div>`).join(''):'<p class="muted">No scores yet this month. Be the first.</p>';
+  return `<section class="panel"><h2>Leaderboard this month</h2><p class="muted">Best round per person. Your best ever: <b>${b.mine.best}</b> points in ${b.mine.plays} round${b.mine.plays===1?'':'s'}.</p>${rows}</section>`;
+}
+function gmRender(){
+  if(S.route!=='game')return;const L=$('#live');if(!L)return;const g=S.gm;
+  if(!g.board&&!g.busy&&g.phase==='idle'&&!g.err){g.board=null;gmLoadBoard()}
+  let main='';
+  if(g.phase==='play'){
+    const q=g.q[g.i],done=g.pick>=0;
+    main=`<section class="panel gm"><div class="gm-top"><span>Question ${g.i+1} of ${g.q.length}</span><b>${g.score} points</b></div><div class="gm-prog"><span style="width:${(g.i+(done?1:0))/g.q.length*100}%"></span></div>
+    <div class="gm-q">${gmImg(q.pi)}<div><span class="muted">Customers who buy</span><h2 dir="auto">${esc(q.p)}</h2><span class="muted">most often add which product to the same order?</span></div></div>
+    <div class="gm-opts">${q.o.map((o,i)=>`<button type="button" class="gm-o${done?(i===q.a?' good':i===g.pick?' bad':' dim'):''}" data-act="gm-pick" data-i="${i}" ${done?'disabled':''}>${gmImg(o.i)}<span dir="auto">${esc(o.t)}</span></button>`).join('')}</div>
+    ${done?`<div class="gm-fb ${g.pick===q.a?'good':'bad'}"><b>${g.pick===q.a?'Correct! +'+g.gain+' points':'Not this time.'}</b><span>${esc(q.f)}</span><button class="btn primary" data-act="gm-next">${g.i+1<g.q.length?'Next question':'See my score'}</button></div>`:'<p class="muted">Faster answers earn up to 5 bonus points.</p>'}</section>`;
+  }else if(g.phase==='done'){
+    const n=g.q.length,msg=g.ok>=n-1?'Bundle master! You know our customers.':g.ok>=n*0.6?'Nice work. Your instincts are good.':'Keep playing. The Bought together tab will teach you the pairs.';
+    main=`<section class="panel gm gm-end"><h2>${g.ok} of ${n} correct</h2><div class="gm-big">${g.score}<span>points</span></div><p>${msg}</p>${g.err?`<p class="muted">Your score could not be saved: ${esc(g.err)}</p>`:''}<button class="btn primary" data-act="gm-start" ${g.busy?'disabled':''}>Play again</button></section>`;
+  }else{
+    main=`<section class="panel gm gm-start"><h2>Bundle Battle</h2><p>${'Ten questions. Each shows a Bless product. Pick the product customers most often buy in the same order. Correct answers earn 10 points, plus up to 5 for speed.'}</p>${g.err?`<p style="color:var(--danger)">${esc(g.err)}</p>`:''}<button class="btn primary" data-act="gm-start" ${g.busy?'disabled':''}>${g.busy?'Getting your questions…':'Start playing'}</button></section>`;
+  }
+  L.innerHTML=main+(g.phase==='play'?'':gmBoard());
+}
 /* Frequently bought together: search, sort, and plain-language strength */
 S.tg=S.tg||{q:'',sort:'n',n:15,sec:null};
 function tgRows(){
@@ -2771,6 +2819,9 @@ document.addEventListener('click',async e=>{
   else if(a==='tpl'){const el=$('#in-b'),tp=BRIEF_TPL[b.dataset.k];if(el&&tp&&(!el.value.trim()||arm(b))){el.value=tp[1];delete b.dataset.armed;b.classList.remove('armed');b.textContent=tp[0];el.focus();briefQ()}}
   else if(a==='gr-rep'){S.od.grep=b.dataset.rep||'';renderOdoo();const el=document.getElementById(b.closest('.gr-rep')?'gr-tasks':'');if(el&&el.scrollIntoView)el.scrollIntoView({block:'start'})}
   else if(a==='gr-jump'){const el=document.getElementById('gr-'+b.dataset.k);if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'start'})}
+  else if(a==='gm-start')gmStart();
+  else if(a==='gm-pick')gmPick(+b.dataset.i);
+  else if(a==='gm-next')gmNext();
   else if(a==='tg-sort'){S.tg.sort=b.dataset.v;S.tg.n=15;tgRefresh(true)}
   else if(a==='tg-more'){S.tg.n+=15;tgRefresh()}
   else if(a==='gr-drop-by'){S.grDrop.by=b.dataset.v;S.grDrop.n=8;grDropRefresh(true)}
