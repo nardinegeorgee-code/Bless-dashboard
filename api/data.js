@@ -1,11 +1,13 @@
+import { gameApi } from './_game.js';
 import { route, allow, db, getUser, mapUser, mapInstruction, mapSubmission, mapComment, mapRevision } from './_lib.js';
 
 // One read endpoint. The server decides what each person may see:
 // the Super Admin gets everything; everyone else gets the team list,
 // the instructions addressed to them and their own uploads.
 export default route(async (req, res) => {
-  allow(req, ['GET']);
+  allow(req, req.query.game ? ['GET', 'POST'] : ['GET']);
   res.setHeader('Cache-Control', 'no-store');
+  if (req.query.game) return gameApi(req, res);
   const q = db();
 
   const [{ n }] = await q`SELECT COUNT(*)::int AS n FROM users`;
