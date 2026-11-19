@@ -202,7 +202,7 @@ function mount(){
   else if(S.route==='odoo'){v.innerHTML=`<div class="head"><div><h1>Odoo</h1><p>The executive brief first, then supply, sales and finance, read live from Odoo.</p></div></div><div id="live"></div>`;if(!S.od.cache[S.od.tab+'|'+(S.od.month||'')]&&!S.od.loading)loadOdoo();else renderOdoo()}
   else if(S.route==='meta'){v.innerHTML=`<div class="head"><div><h1>Meta Ads</h1><p>Facebook and Instagram advertising, read live from Meta. Pause campaigns and change budgets from here.</p></div></div><div id="live"></div>`;if(!S.meta.cache[S.meta.tab+'|'+(S.meta.month||'')]&&!S.meta.loading)loadMeta();else renderMeta()}
   else if(S.route==='shop'){v.innerHTML=`<div class="head"><div><h1>Shopify</h1><p>Sales, funnel, products, customer experience and retention, one tab each.</p></div></div><div id="live"></div>`;if(S.an.tab==='overview'){if(!S.shop.data&&!S.shop.loading)loadShop()}else loadAn();}
-  else if(S.route==='game'){v.innerHTML=`<div class="head"><div><h1>Bless Game</h1><p>Bundle Battle: guess which product customers buy together. Questions come from real orders.</p></div></div><div id="live"></div>`}
+  else if(S.route==='game'){v.innerHTML=`<div class="head"><div><h1>Bless Game</h1><p>A quick quiz about our products and customers. Every question comes from real orders.</p></div></div><div id="live"></div>`}
   else if(S.route==='act')v.innerHTML=`<div id="live"></div>`;
   else if(S.route==='priv')v.innerHTML=`<div class="head"><div><h1>User privileges</h1><p>Choose exactly which reports each person can open. Changes save at once and apply the next time they open the hub or reload.</p></div></div><div id="live"></div>`;
   else if(S.route==='users')v.innerHTML=`<div class="head"><div><h1>Users</h1><p>Add people, change their role, or set a new password.</p></div></div>
@@ -1920,17 +1920,17 @@ function anSection(sec){
   return `<section class="panel an${sec.kind==='text'?' soft':''}">${head}${body}</section>`;
 }
 /* ---------- Bless Game: Bundle Battle ---------- */
-S.gm=S.gm||{phase:'idle',q:[],i:0,score:0,ok:0,pick:-1,t0:0,board:null,err:'',busy:false,gain:0};
+S.gm=S.gm||{streak:0,best:0,phase:'idle',q:[],i:0,score:0,ok:0,pick:-1,t0:0,board:null,err:'',busy:false,gain:0};
 async function gmLoadBoard(){try{const j=await api('GET','/api/data?game=board');S.gm.board=j.board}catch(e){}if(S.route==='game')gmRender()}
 async function gmStart(){
   const g=S.gm;g.busy=true;g.err='';gmRender();
-  try{const j=await api('GET','/api/data?game=play');g.q=j.questions;g.board=j.board;g.i=0;g.score=0;g.ok=0;g.pick=-1;g.phase='play';g.t0=Date.now()}
+  try{const j=await api('GET','/api/data?game=play');g.q=j.questions;g.board=j.board;g.i=0;g.score=0;g.ok=0;g.streak=0;g.pick=-1;g.phase='play';g.t0=Date.now()}
   catch(e){g.err=e.message;g.phase='idle'}
   g.busy=false;gmRender();
 }
 function gmPick(i){
   const g=S.gm;if(g.pick>=0)return;const q=g.q[g.i],secs=(Date.now()-g.t0)/1000;g.pick=i;g.gain=0;
-  if(i===q.a){g.ok++;g.gain=10+Math.max(0,Math.min(5,Math.round(5-secs/2)));g.score+=g.gain}
+  if(i===q.a){g.ok++;g.streak++;g.gain=10+Math.max(0,Math.min(5,Math.round(5-secs/2)))+(g.streak>=2?Math.min(5,g.streak-1):0);g.score+=g.gain}else g.streak=0;
   gmRender();
 }
 async function gmNext(){
@@ -1952,15 +1952,15 @@ function gmRender(){
   let main='';
   if(g.phase==='play'){
     const q=g.q[g.i],done=g.pick>=0;
-    main=`<section class="panel gm"><div class="gm-top"><span>Question ${g.i+1} of ${g.q.length}</span><b>${g.score} points</b></div><div class="gm-prog"><span style="width:${(g.i+(done?1:0))/g.q.length*100}%"></span></div>
-    <div class="gm-q">${gmImg(q.pi)}<div><span class="muted">Customers who buy</span><h2 dir="auto">${esc(q.p)}</h2><span class="muted">most often add which product to the same order?</span></div></div>
-    <div class="gm-opts">${q.o.map((o,i)=>`<button type="button" class="gm-o${done?(i===q.a?' good':i===g.pick?' bad':' dim'):''}" data-act="gm-pick" data-i="${i}" ${done?'disabled':''}>${gmImg(o.i)}<span dir="auto">${esc(o.t)}</span></button>`).join('')}</div>
-    ${done?`<div class="gm-fb ${g.pick===q.a?'good':'bad'}"><b>${g.pick===q.a?'Correct! +'+g.gain+' points':'Not this time.'}</b><span>${esc(q.f)}</span><button class="btn primary" data-act="gm-next">${g.i+1<g.q.length?'Next question':'See my score'}</button></div>`:'<p class="muted">Faster answers earn up to 5 bonus points.</p>'}</section>`;
+    main=`<section class="panel gm"><div class="gm-top"><span>Question ${g.i+1} of ${g.q.length}</span><span>${g.streak>=2?'<span class="gm-fire">🔥 '+g.streak+' in a row</span> ':''}<b>${g.score} points</b></span></div><div class="gm-prog"><span style="width:${(g.i+(done?1:0))/g.q.length*100}%"></span></div>
+    <div class="gm-q">${q.pi?gmImg(q.pi):''}<div><span class="gm-kind">${esc(q.k)}</span><h2 dir="auto">${esc(q.h)}</h2></div></div>
+    <div class="gm-opts">${q.o.map((o,i)=>`<button type="button" class="gm-o${done?(i===q.a?' good':i===g.pick?' bad':' dim'):''}" data-act="gm-pick" data-i="${i}" ${done?'disabled':''}>${o.i===undefined?'':gmImg(o.i)}<span dir="auto">${esc(o.t)}</span></button>`).join('')}</div>
+    ${done?`<div class="gm-fb ${g.pick===q.a?'good':'bad'}"><b>${g.pick===q.a?'Correct! +'+g.gain+' points':'Not this time.'}</b><span>${esc(q.f)}</span><button class="btn primary" data-act="gm-next">${g.i+1<g.q.length?'Next question':'See my score'}</button></div>`:'<p class="muted">Faster answers earn up to 5 bonus points. Several correct answers in a row earn a streak bonus.</p>'}</section>`;
   }else if(g.phase==='done'){
     const n=g.q.length,msg=g.ok>=n-1?'Bundle master! You know our customers.':g.ok>=n*0.6?'Nice work. Your instincts are good.':'Keep playing. The Bought together tab will teach you the pairs.';
     main=`<section class="panel gm gm-end"><h2>${g.ok} of ${n} correct</h2><div class="gm-big">${g.score}<span>points</span></div><p>${msg}</p>${g.err?`<p class="muted">Your score could not be saved: ${esc(g.err)}</p>`:''}<button class="btn primary" data-act="gm-start" ${g.busy?'disabled':''}>Play again</button></section>`;
   }else{
-    main=`<section class="panel gm gm-start"><h2>Bundle Battle</h2><p>${'Ten questions. Each shows a Bless product. Pick the product customers most often buy in the same order. Correct answers earn 10 points, plus up to 5 for speed.'}</p>${g.err?`<p style="color:var(--danger)">${esc(g.err)}</p>`:''}<button class="btn primary" data-act="gm-start" ${g.busy?'disabled':''}>${g.busy?'Getting your questions…':'Start playing'}</button></section>`;
+    main=`<section class="panel gm gm-start"><h2>Bless Quiz Battle</h2><p>${'Ten mixed questions about our real customers and products: what sells together, best sellers, prices, busy days and more. Correct answers earn 10 points, plus up to 5 for speed and a streak bonus for answers in a row.'}</p>${g.err?`<p style="color:var(--danger)">${esc(g.err)}</p>`:''}<button class="btn primary" data-act="gm-start" ${g.busy?'disabled':''}>${g.busy?'Getting your questions…':'Start playing'}</button></section>`;
   }
   L.innerHTML=main+(g.phase==='play'?'':gmBoard());
 }
