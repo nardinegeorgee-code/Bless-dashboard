@@ -1720,3 +1720,6 @@ h1{font-weight:600;font-size:1.95rem}h2,h3{font-weight:600}
 .gm-lr b:nth-of-type(1){flex:1}
 .gm-rk{width:28px;text-align:center}
 @media(max-width:600px){.gm-opts{grid-template-columns:1fr}.gm-q img,.gm-q .gm-ph{width:80px;height:80px}}
+
+.gm-kind{display:inline-block;font-size:.75rem;letter-spacing:.04em;text-transform:uppercase;padding:3px 10px;border-radius:999px;background:rgba(127,127,127,.18);margin-bottom:6px}
+.gm-fire{color:#ff8a3d;font-weight:600;margin-inline-end:10px}
