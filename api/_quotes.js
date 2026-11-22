@@ -6,6 +6,10 @@
 // Any rejection sends the quote back to its creator (Rejected); editing it makes it a Draft again and
 // submitting again resets all three approvals.
 //
+// Tax: each quote says whether its prices include or exclude VAT (default 14%).
+// Validity: a submitted quote is valid for 3 days; after that it cannot be approved or converted.
+// The Super Admin or the CEO can extend the date as an exception.
+//
 // Products and customers are read live from Odoo (read-only). Invoices live in the hub; nothing is written to Odoo.
 
 import { db, HttpError, requireUser, rid } from './_lib.js';
@@ -14,6 +18,9 @@ import { odooConfig, call, fieldsOf, nm } from './_odoo.js';
 export const SLOTS = ['finance', 'ceo', 'super_admin'];
 export const SLOT_LABEL = { finance: 'Finance', ceo: 'CEO', super_admin: 'Super Admin' };
 export const WH_STEPS = ['ready', 'preparing', 'transferred'];
+export const VALID_DAYS = 3;
+export const DEFAULT_TAX = { mode: 'excluded', rate: 14 };
+const DAY = 864e5;
 
 let ready;
 export function ensureQuotes() {
@@ -37,6 +44,9 @@ export function ensureQuotes() {
         notes TEXT NOT NULL DEFAULT '', subtotal NUMERIC NOT NULL DEFAULT 0, discount_total NUMERIC NOT NULL DEFAULT 0, total NUMERIC NOT NULL DEFAULT 0,
         currency TEXT NOT NULL DEFAULT '', approvals JSONB NOT NULL DEFAULT '{}',
         wh_status TEXT NOT NULL DEFAULT 'ready', wh_history JSONB NOT NULL DEFAULT '[]')`;
+      await q`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS tax JSONB NOT NULL DEFAULT '{}'`;
+      await q`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS valid_until BIGINT`;
+      await q`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS tax JSONB NOT NULL DEFAULT '{}'`;
       await q`CREATE INDEX IF NOT EXISTS quotes_status_idx ON quotes (status)`;
       await q`CREATE INDEX IF NOT EXISTS invoices_wh_idx ON invoices (wh_status)`;
     })().catch((e) => { ready = null; throw e; });
@@ -53,6 +63,8 @@ export const isWarehouse = (u) => u.role === 'warehouse';
 const canSeeQuote = (u, row) => seesAll(u) || row.created_by === u.id;
 const canEditQuote = (u, row) => (row.created_by === u.id || u.role === 'super_admin') && ['draft', 'rejected'].includes(row.status);
 const canConvert = (u, row) => row.created_by === u.id || seesAll(u);
+const canExtend = (u) => u.role === 'super_admin' || u.role === 'ceo';
+const isExpired = (r, now = Date.now()) => !!(['pending', 'approved'].includes(r.status) && r.valid_until && Number(r.valid_until) < now);
 const canSeeInvoice = (u, row) => seesAll(u) || isWarehouse(u) || row.quote_by === u.id || row.created_by === u.id;
 const canMoveWarehouse = (u) => isWarehouse(u) || u.role === 'super_admin';
 
@@ -73,7 +85,12 @@ export function discountAmount(base, d /* , ctx */) {
   if (d.type === 'amount') return r2(Math.min(base, d.value));
   return 0;
 }
-export function priceQuote(lines, orderDiscount) {
+export function cleanTax(t) {
+  const mode = t && t.mode === 'included' ? 'included' : 'excluded';
+  const rate = t && t.rate !== undefined && t.rate !== '' && Number.isFinite(Number(t.rate)) ? Math.min(100, Math.max(0, Number(t.rate))) : DEFAULT_TAX.rate;
+  return { mode, rate };
+}
+export function priceQuote(lines, orderDiscount, taxIn) {
   const out = lines.map((l) => {
     const base = r2(l.price * l.qty), disc = discountAmount(base, l.discount, { line: l });
     return { ...l, base, disc, net: r2(base - disc) };
@@ -81,7 +98,12 @@ export function priceQuote(lines, orderDiscount) {
   const subtotal = r2(out.reduce((a, l) => a + l.net, 0));
   const lineDisc = r2(out.reduce((a, l) => a + l.disc, 0));
   const orderDisc = discountAmount(subtotal, orderDiscount, { quote: true });
-  return { lines: out, gross: r2(out.reduce((a, l) => a + l.base, 0)), lineDisc, subtotal, orderDisc, discountTotal: r2(lineDisc + orderDisc), total: r2(subtotal - orderDisc) };
+  const amount = r2(subtotal - orderDisc), tax = cleanTax(taxIn);
+  // excluded: prices are before VAT, VAT is added on top. included: prices already contain VAT, which is shown inside.
+  const untaxed = tax.mode === 'excluded' ? amount : r2(amount / (1 + tax.rate / 100));
+  const taxAmount = tax.mode === 'excluded' ? r2(amount * tax.rate / 100) : r2(amount - untaxed);
+  const total = tax.mode === 'excluded' ? r2(amount + taxAmount) : amount;
+  return { lines: out, gross: r2(out.reduce((a, l) => a + l.base, 0)), lineDisc, subtotal, orderDisc, discountTotal: r2(lineDisc + orderDisc), afterDiscount: amount, taxMode: tax.mode, taxRate: tax.rate, untaxed, tax: taxAmount, total };
 }
 const str = (v, n) => String(v ?? '').trim().slice(0, n);
 function cleanLines(list) {
@@ -108,22 +130,22 @@ const ev = (u, action, note = '') => ({ at: Date.now(), by: u.id, byName: u.user
 // ---------- shaping rows for the browser
 const J = (v, d) => (v == null ? d : v);
 function quoteOut(r, u) {
-  const priced = priceQuote(J(r.lines, []), J(r.discount, {}));
-  const ap = J(r.approvals, {});
+  const priced = priceQuote(J(r.lines, []), J(r.discount, {}), J(r.tax, {}));
+  const ap = J(r.approvals, {}), expired = isExpired(r);
   return {
     id: r.id, no: r.no, createdAt: Number(r.created_at), updatedAt: Number(r.updated_at), submittedAt: r.submitted_at ? Number(r.submitted_at) : 0,
     createdBy: r.created_by, createdByName: r.created_by_name, customer: J(r.customer, {}), lines: priced.lines, discount: cleanDiscount(J(r.discount, {})),
-    notes: r.notes, totals: priced, currency: r.currency, status: r.status, approvals: ap, history: J(r.history, []), invoiceId: r.invoice_id || null,
-    can: u ? { edit: canEditQuote(u, r), convert: r.status === 'approved' && canConvert(u, r), approve: r.status === 'pending' && !!slotOf(u) && ap[slotOf(u)] && ap[slotOf(u)].state === 'pending', withdraw: r.status === 'pending' && (r.created_by === u.id || u.role === 'super_admin'), del: canEditQuote(u, r) && r.status === 'draft' } : {},
+    notes: r.notes, tax: cleanTax(J(r.tax, {})), totals: priced, currency: r.currency, status: r.status, expired, validUntil: r.valid_until ? Number(r.valid_until) : 0, approvals: ap, history: J(r.history, []), invoiceId: r.invoice_id || null,
+    can: u ? { edit: canEditQuote(u, r), convert: r.status === 'approved' && !expired && canConvert(u, r), approve: r.status === 'pending' && !expired && !!slotOf(u) && ap[slotOf(u)] && ap[slotOf(u)].state === 'pending', withdraw: (r.status === 'pending' || (r.status === 'approved' && expired)) && (r.created_by === u.id || u.role === 'super_admin'), extend: ['pending', 'approved'].includes(r.status) && canExtend(u), del: canEditQuote(u, r) && r.status === 'draft' } : {},
   };
 }
 function quoteSummary(r, u) {
   const o = quoteOut(r, u);
-  return { id: o.id, no: o.no, createdAt: o.createdAt, updatedAt: o.updatedAt, createdBy: o.createdBy, createdByName: o.createdByName, customer: o.customer, items: o.lines.length, units: o.lines.reduce((a, l) => a + l.qty, 0), total: o.totals.total, currency: o.currency, status: o.status, approvals: o.approvals, invoiceId: o.invoiceId, priceChanged: o.lines.some((l) => l.listPrice != null && Math.abs(l.listPrice - l.price) > 0.004), can: o.can };
+  return { id: o.id, no: o.no, createdAt: o.createdAt, updatedAt: o.updatedAt, createdBy: o.createdBy, createdByName: o.createdByName, customer: o.customer, items: o.lines.length, units: o.lines.reduce((a, l) => a + l.qty, 0), total: o.totals.total, taxMode: o.tax.mode, currency: o.currency, status: o.status, expired: o.expired, validUntil: o.validUntil, approvals: o.approvals, invoiceId: o.invoiceId, priceChanged: o.lines.some((l) => l.listPrice != null && Math.abs(l.listPrice - l.price) > 0.004), can: o.can };
 }
 function invoiceOut(r, u) {
   const hideMoney = u && isWarehouse(u);
-  const priced = priceQuote(J(r.lines, []), J(r.discount, {}));
+  const priced = priceQuote(J(r.lines, []), J(r.discount, {}), J(r.tax, {}));
   const lines = priced.lines.map((l) => (hideMoney ? { pid: l.pid, name: l.name, code: l.code, barcode: l.barcode, qty: l.qty } : l));
   return {
     id: r.id, no: r.no, quoteId: r.quote_id, quoteNo: r.quote_no, createdAt: Number(r.created_at), updatedAt: Number(r.updated_at), createdByName: r.created_by_name, quoteByName: r.quote_by_name,
@@ -221,14 +243,15 @@ export async function quotesApi(req, res) {
     const lines = cleanLines(body.lines || []);
     const discount = cleanDiscount(body.discount || {});
     const notes = str(body.notes, 3000);
-    const priced = priceQuote(lines, discount);
+    const tax = cleanTax(body.tax || {});
+    const priced = priceQuote(lines, discount, tax);
     const currency = str(body.currency, 3) || prodCache.currency || 'EGP';
     if (!body.id) {
       const [{ n }] = await q`SELECT nextval('quote_no_seq')::int AS n`;
       const no = `Q-${new Date(now).getFullYear()}-${String(n).padStart(4, '0')}`, id = rid('q');
       const hist = [ev(u, 'created')];
-      await q`INSERT INTO quotes (id, no, created_at, updated_at, created_by, created_by_name, customer, lines, discount, notes, subtotal, discount_total, total, currency, status, approvals, history)
-        VALUES (${id}, ${no}, ${now}, ${now}, ${u.id}, ${u.username}, ${JSON.stringify(customer)}::jsonb, ${JSON.stringify(lines)}::jsonb, ${JSON.stringify(discount)}::jsonb, ${notes},
+      await q`INSERT INTO quotes (id, no, created_at, updated_at, created_by, created_by_name, customer, lines, discount, tax, notes, subtotal, discount_total, total, currency, status, approvals, history)
+        VALUES (${id}, ${no}, ${now}, ${now}, ${u.id}, ${u.username}, ${JSON.stringify(customer)}::jsonb, ${JSON.stringify(lines)}::jsonb, ${JSON.stringify(discount)}::jsonb, ${JSON.stringify(tax)}::jsonb, ${notes},
         ${priced.subtotal}, ${priced.discountTotal}, ${priced.total}, ${currency}, 'draft', ${JSON.stringify(blankApprovals())}::jsonb, ${JSON.stringify(hist)}::jsonb)`;
       const [r] = await q`SELECT * FROM quotes WHERE id = ${id}`;
       return res.json({ quote: quoteOut(r, u) });
@@ -236,7 +259,7 @@ export async function quotesApi(req, res) {
     const r = await load(body.id);
     if (!canEditQuote(u, r)) throw new HttpError(409, 'This quotation can no longer be edited.');
     const hist = [...J(r.history, []), ev(u, r.status === 'rejected' ? 'edited after rejection' : 'edited')].slice(-200);
-    await q`UPDATE quotes SET customer = ${JSON.stringify(customer)}::jsonb, lines = ${JSON.stringify(lines)}::jsonb, discount = ${JSON.stringify(discount)}::jsonb, notes = ${notes},
+    await q`UPDATE quotes SET customer = ${JSON.stringify(customer)}::jsonb, lines = ${JSON.stringify(lines)}::jsonb, discount = ${JSON.stringify(discount)}::jsonb, tax = ${JSON.stringify(tax)}::jsonb, notes = ${notes},
       subtotal = ${priced.subtotal}, discount_total = ${priced.discountTotal}, total = ${priced.total}, currency = ${currency}, status = 'draft', updated_at = ${now}, history = ${JSON.stringify(hist)}::jsonb WHERE id = ${r.id}`;
     const [r2] = await q`SELECT * FROM quotes WHERE id = ${r.id}`;
     return res.json({ quote: quoteOut(r2, u) });
@@ -246,17 +269,18 @@ export async function quotesApi(req, res) {
     const r = await load(body.id);
     if (!canEditQuote(u, r)) throw new HttpError(409, 'Only a draft can be submitted.');
     if (!J(r.lines, []).length) throw new HttpError(400, 'Add at least one item before submitting.');
-    const hist = [...J(r.history, []), ev(u, 'submitted for approval')].slice(-200);
-    await q`UPDATE quotes SET status = 'pending', approvals = ${JSON.stringify(blankApprovals())}::jsonb, submitted_at = ${now}, updated_at = ${now}, history = ${JSON.stringify(hist)}::jsonb WHERE id = ${r.id}`;
+    const until = now + VALID_DAYS * DAY;
+    const hist = [...J(r.history, []), ev(u, `submitted for approval (valid until ${new Date(until).toISOString().slice(0, 10)})`)].slice(-200);
+    await q`UPDATE quotes SET status = 'pending', valid_until = ${until}, approvals = ${JSON.stringify(blankApprovals())}::jsonb, submitted_at = ${now}, updated_at = ${now}, history = ${JSON.stringify(hist)}::jsonb WHERE id = ${r.id}`;
     const [r2] = await q`SELECT * FROM quotes WHERE id = ${r.id}`;
     return res.json({ quote: quoteOut(r2, u) });
   }
 
   if (a === 'withdraw') {
     const r = await load(body.id);
-    if (r.status !== 'pending' || (r.created_by !== u.id && u.role !== 'super_admin')) throw new HttpError(409, 'Only a quotation waiting for approval can be taken back.');
+    if (!(r.status === 'pending' || (r.status === 'approved' && isExpired(r))) || (r.created_by !== u.id && u.role !== 'super_admin')) throw new HttpError(409, 'Only a quotation waiting for approval, or an expired one, can be taken back.');
     const hist = [...J(r.history, []), ev(u, 'taken back to edit')].slice(-200);
-    await q`UPDATE quotes SET status = 'draft', approvals = ${JSON.stringify(blankApprovals())}::jsonb, updated_at = ${now}, history = ${JSON.stringify(hist)}::jsonb WHERE id = ${r.id}`;
+    await q`UPDATE quotes SET status = 'draft', valid_until = NULL, approvals = ${JSON.stringify(blankApprovals())}::jsonb, updated_at = ${now}, history = ${JSON.stringify(hist)}::jsonb WHERE id = ${r.id}`;
     const [r2] = await q`SELECT * FROM quotes WHERE id = ${r.id}`;
     return res.json({ quote: quoteOut(r2, u) });
   }
@@ -266,6 +290,7 @@ export async function quotesApi(req, res) {
     if (!slot) throw new HttpError(403, 'Only Finance, the CEO and the Super Admin approve quotations.');
     const r = await load(body.id);
     if (r.status !== 'pending') throw new HttpError(409, 'This quotation is not waiting for approval.');
+    if (isExpired(r)) throw new HttpError(409, 'This quotation has expired. The Super Admin or the CEO can extend it, or the creator can take it back and submit it again.');
     const ap = { ...blankApprovals(), ...J(r.approvals, {}) };
     if (ap[slot].state !== 'pending') throw new HttpError(409, 'You have already decided on this quotation.');
     const note = str(body.note, 1000);
@@ -277,6 +302,22 @@ export async function quotesApi(req, res) {
     // only update if nobody changed it in the meantime
     const done = await q`UPDATE quotes SET approvals = ${JSON.stringify(ap)}::jsonb, status = ${status}, updated_at = ${now}, history = ${JSON.stringify(hist)}::jsonb WHERE id = ${r.id} AND status = 'pending' AND updated_at = ${r.updated_at} RETURNING id`;
     if (!done.length) throw new HttpError(409, 'Someone changed this quotation at the same moment. Reload and try again.');
+    const [r2] = await q`SELECT * FROM quotes WHERE id = ${r.id}`;
+    return res.json({ quote: quoteOut(r2, u) });
+  }
+
+  if (a === 'extend') {
+    // exception: the Super Admin or the CEO moves the expiry date
+    if (!canExtend(u)) throw new HttpError(403, 'Only the Super Admin or the CEO can change the expiry date.');
+    const r = await load(body.id);
+    if (!['pending', 'approved'].includes(r.status)) throw new HttpError(409, 'Only a submitted or approved quotation has an expiry date.');
+    let until = Number(body.until);
+    if (!Number.isFinite(until)) throw new HttpError(400, 'Choose the new expiry date.');
+    until = Math.min(until, now + 90 * DAY);
+    if (until <= now) throw new HttpError(400, 'The new expiry date must be in the future.');
+    const note = str(body.note, 500);
+    const hist = [...J(r.history, []), ev(u, `changed the expiry date to ${new Date(until).toISOString().slice(0, 10)} (exception)`, note)].slice(-200);
+    await q`UPDATE quotes SET valid_until = ${until}, updated_at = ${now}, history = ${JSON.stringify(hist)}::jsonb WHERE id = ${r.id}`;
     const [r2] = await q`SELECT * FROM quotes WHERE id = ${r.id}`;
     return res.json({ quote: quoteOut(r2, u) });
   }
@@ -294,15 +335,16 @@ export async function quotesApi(req, res) {
     const ap = J(r.approvals, {});
     if (!SLOTS.every((s) => ap[s] && ap[s].state === 'approved')) throw new HttpError(409, 'All three approvals are needed before converting to an invoice.');
     if (!canConvert(u, r)) throw new HttpError(403, 'You cannot convert this quotation.');
+    if (isExpired(r)) throw new HttpError(409, 'This quotation has expired. The Super Admin or the CEO can extend it first.');
     const [{ n }] = await q`SELECT nextval('invoice_no_seq')::int AS n`;
     const no = `INV-${new Date(now).getFullYear()}-${String(n).padStart(4, '0')}`, id = rid('i');
     // claim the quote first so it can never become two invoices
     const claimed = await q`UPDATE quotes SET status = 'invoiced', invoice_id = ${id}, updated_at = ${now} WHERE id = ${r.id} AND status = 'approved' RETURNING id`;
     if (!claimed.length) throw new HttpError(409, 'This quotation was already converted.');
-    const lines = J(r.lines, []), discount = J(r.discount, {}), priced = priceQuote(lines, discount);
+    const lines = J(r.lines, []), discount = J(r.discount, {}), tax = cleanTax(J(r.tax, {})), priced = priceQuote(lines, discount, tax);
     const whh = [{ at: now, by: u.id, byName: u.username, status: 'ready', note: 'Invoice created' }];
-    await q`INSERT INTO invoices (id, no, quote_id, quote_no, created_at, updated_at, created_by, created_by_name, quote_by, quote_by_name, customer, lines, discount, notes, subtotal, discount_total, total, currency, approvals, wh_status, wh_history)
-      VALUES (${id}, ${no}, ${r.id}, ${r.no}, ${now}, ${now}, ${u.id}, ${u.username}, ${r.created_by}, ${r.created_by_name}, ${JSON.stringify(r.customer)}::jsonb, ${JSON.stringify(lines)}::jsonb, ${JSON.stringify(discount)}::jsonb, ${r.notes},
+    await q`INSERT INTO invoices (id, no, quote_id, quote_no, created_at, updated_at, created_by, created_by_name, quote_by, quote_by_name, customer, lines, discount, tax, notes, subtotal, discount_total, total, currency, approvals, wh_status, wh_history)
+      VALUES (${id}, ${no}, ${r.id}, ${r.no}, ${now}, ${now}, ${u.id}, ${u.username}, ${r.created_by}, ${r.created_by_name}, ${JSON.stringify(r.customer)}::jsonb, ${JSON.stringify(lines)}::jsonb, ${JSON.stringify(discount)}::jsonb, ${JSON.stringify(tax)}::jsonb, ${r.notes},
       ${priced.subtotal}, ${priced.discountTotal}, ${priced.total}, ${r.currency}, ${JSON.stringify(ap)}::jsonb, 'ready', ${JSON.stringify(whh)}::jsonb)`;
     const hist = [...J(r.history, []), ev(u, `converted to invoice ${no}`)].slice(-200);
     await q`UPDATE quotes SET history = ${JSON.stringify(hist)}::jsonb WHERE id = ${r.id}`;
@@ -332,7 +374,7 @@ export async function quoteCounts(u) {
     if (!slot && !isWarehouse(u)) return out;
     await ensureQuotes();
     const q = db();
-    if (slot) { const [{ n }] = await q`SELECT COUNT(*)::int AS n FROM quotes WHERE status = 'pending' AND approvals -> ${slot} ->> 'state' = 'pending'`; out.approve = n; }
+    if (slot) { const [{ n }] = await q`SELECT COUNT(*)::int AS n FROM quotes WHERE status = 'pending' AND (valid_until IS NULL OR valid_until > ${Date.now()}) AND approvals -> ${slot} ->> 'state' = 'pending'`; out.approve = n; }
     if (isWarehouse(u) || u.role === 'super_admin') { const [{ n }] = await q`SELECT COUNT(*)::int AS n FROM invoices WHERE wh_status = 'ready'`; out.wh = n; }
     return out;
   } catch (e) { return {}; }
