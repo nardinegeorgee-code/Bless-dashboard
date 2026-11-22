@@ -3390,7 +3390,7 @@ document.addEventListener('input',e=>{const t=e.target;if(t&&t.id==='pr-q'){S.pr
 S.qt={list:null,me:null,f:'all',q:'',busy:false,err:'',cur:null,draft:null,dirty:false,inv:null,invs:null,invMe:null,wh:null,whMe:null,whOpen:new Set(),pick:{},ps:[],psMsg:'',cs:[],csOpen:false,currency:'',arm:''};
 S.qtc=S.qtc||{};
 const QT_SLOTS=[['finance','Finance'],['ceo','CEO'],['super_admin','Super Admin']];
-const QT_ST={draft:['Draft','#9CA3AF'],pending:['Pending approval','#E0A24F'],approved:['Approved','#4ADE80'],rejected:['Rejected','#F87171'],invoiced:['Converted to invoice','#B07CE0']};
+const QT_ST={draft:['Draft','#9CA3AF'],pending:['Pending approval','#E0A24F'],approved:['Approved','#4ADE80'],rejected:['Rejected','#F87171'],invoiced:['Converted to invoice','#B07CE0'],expired:['Expired','#F87171']};
 const WH_ST={ready:['Ready for Warehouse','#E0A24F'],preparing:['Preparing','#5B8DEF'],transferred:['Transferred to Distributor','#4ADE80']};
 const qtRoutes=['quotes','quote','invoices','invoice','warehouse'];
 const qtCreate=()=>isAdmin()||myReports().includes('quote');
@@ -3414,9 +3414,11 @@ const qi=(k,s=16)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="no
 
 // same money rules as the server (api/_quotes.js priceQuote); the server recalculates on save
 function qDisc(base,d){if(!d||d.type==='none')return 0;const v=Math.max(0,Number(d.value)||0);if(d.type==='percent')return Math.round(base*Math.min(100,v))/100;if(d.type==='amount')return Math.round(Math.min(base,v)*100)/100;return 0}
-function qPrice(lines,od){const r2=n=>Math.round(n*100)/100;const ls=lines.map(l=>{const base=r2((Number(l.price)||0)*(Number(l.qty)||0)),disc=qDisc(base,l.discount);return {...l,base,disc,net:r2(base-disc)}});const subtotal=r2(ls.reduce((a,l)=>a+l.net,0)),lineDisc=r2(ls.reduce((a,l)=>a+l.disc,0)),orderDisc=qDisc(subtotal,od);return {lines:ls,gross:r2(ls.reduce((a,l)=>a+l.base,0)),lineDisc,subtotal,orderDisc,discountTotal:r2(lineDisc+orderDisc),total:r2(subtotal-orderDisc)}}
-const qBlank=()=>({id:null,no:'',status:'draft',customer:null,lines:[],discount:{type:'none',value:0},notes:'',currency:''});
-const qFrom=q=>({id:q.id,no:q.no,status:q.status,createdAt:q.createdAt,customer:q.customer&&q.customer.name?q.customer:null,lines:q.lines.map(l=>({pid:l.pid,name:l.name,code:l.code,barcode:l.barcode,listPrice:l.listPrice,price:l.price,qty:l.qty,discount:l.discount||{type:'none',value:0}})),discount:q.discount||{type:'none',value:0},notes:q.notes||'',currency:q.currency});
+function qPrice(lines,od){const r2=n=>Math.round(n*100)/100;const ls=lines.map(l=>{const base=r2((Number(l.price)||0)*(Number(l.qty)||0)),disc=qDisc(base,l.discount);return {...l,base,disc,net:r2(base-disc)}});const subtotal=r2(ls.reduce((a,l)=>a+l.net,0)),lineDisc=r2(ls.reduce((a,l)=>a+l.disc,0)),orderDisc=qDisc(subtotal,od);const amount=r2(subtotal-orderDisc),tx=qTax(arguments[2]),untaxed=tx.mode==='excluded'?amount:r2(amount/(1+tx.rate/100)),tax=tx.mode==='excluded'?r2(amount*tx.rate/100):r2(amount-untaxed);return {lines:ls,gross:r2(ls.reduce((a,l)=>a+l.base,0)),lineDisc,subtotal,orderDisc,discountTotal:r2(lineDisc+orderDisc),afterDiscount:amount,taxMode:tx.mode,taxRate:tx.rate,untaxed,tax,total:tx.mode==='excluded'?r2(amount+tax):amount}}
+function qTax(t){const mode=t&&t.mode==='included'?'included':'excluded';const r=t&&t.rate!==undefined&&t.rate!==''&&isFinite(+t.rate)?Math.min(100,Math.max(0,+t.rate)):14;return {mode,rate:r}}
+const QT_DAYS=3;
+const qBlank=()=>({id:null,no:'',status:'draft',customer:null,lines:[],discount:{type:'none',value:0},tax:{mode:'excluded',rate:14},notes:'',currency:''});
+const qFrom=q=>({id:q.id,no:q.no,status:q.status,createdAt:q.createdAt,customer:q.customer&&q.customer.name?q.customer:null,lines:q.lines.map(l=>({pid:l.pid,name:l.name,code:l.code,barcode:l.barcode,listPrice:l.listPrice,price:l.price,qty:l.qty,discount:l.discount||{type:'none',value:0}})),discount:q.discount||{type:'none',value:0},tax:qTax(q.tax),notes:q.notes||'',currency:q.currency});
 
 function qtEnter(){
   const r=S.route,L=$('#live');if(!L)return;
@@ -3452,14 +3454,14 @@ function qtListHTML(){
   const Q=S.qt,list=Q.list,slot=qtSlot(),can=qtCreate();
   const head=`<div class="head"><div><h1>Quotations</h1><p>Quotes for distributors and customers. Finance, the CEO and the Super Admin each approve, in any order. All three are needed before a quote can become an invoice.</p></div>${can?`<button class="btn primary" data-act="go" data-route="quote" data-param="new">${qi('plus')}New quotation</button>`:''}</div>`;
   if(!list)return head+(Q.err?empty('Could not load quotations',esc(Q.err)):'<div class="qt-load">Loading quotations…</div>');
-  const mine=q=>slot&&q.status==='pending'&&q.approvals&&q.approvals[slot]&&q.approvals[slot].state==='pending';
-  const F=[['all','All',()=>true],...(slot?[['mine','Needs your approval',mine]]:[]),['draft','Drafts',q=>q.status==='draft'],['pending','Pending approval',q=>q.status==='pending'],['approved','Approved',q=>q.status==='approved'],['rejected','Rejected',q=>q.status==='rejected'],['invoiced','Invoiced',q=>q.status==='invoiced']];
+  const mine=q=>slot&&q.status==='pending'&&!q.expired&&q.approvals&&q.approvals[slot]&&q.approvals[slot].state==='pending';
+  const F=[['all','All',()=>true],...(slot?[['mine','Needs your approval',mine]]:[]),['draft','Drafts',q=>q.status==='draft'],['pending','Pending approval',q=>q.status==='pending'&&!q.expired],['approved','Approved',q=>q.status==='approved'&&!q.expired],['expired','Expired',q=>q.expired],['rejected','Rejected',q=>q.status==='rejected'],['invoiced','Invoiced',q=>q.status==='invoiced']];
   const f=F.find(x=>x[0]===Q.f)||F[0];
   const s=Q.q.trim().toLowerCase();
   const rows=list.filter(f[2]).filter(q=>!s||(q.no+' '+(q.customer.name||'')+' '+(q.customer.city||'')+' '+q.createdByName).toLowerCase().includes(s));
   const tiles=`<div class="qt-tiles">${F.map(([k,l,fn])=>{const n=list.filter(fn).length;return `<button class="qt-tile${Q.f===k?' on':''}${k==='mine'&&n?' hot':''}" data-act="qt-f" data-f="${k}"><b>${n}</b><span>${l}</span></button>`}).join('')}</div>`;
   const bar=`<div class="qt-bar"><input class="input" id="qt-q" placeholder="Search number, customer, city or person…" value="${esc(Q.q)}" autocomplete="off"></div>`;
-  const table=rows.length?`<div class="tablewrap"><table class="dt qt-table"><thead><tr><th>Number</th><th>Date</th><th>Customer</th><th>Created by</th><th class="num">Items</th><th class="num">Total</th><th>Approvals</th><th>Status</th></tr></thead><tbody>${rows.map(q=>`<tr class="qt-row" data-act="go" data-route="quote" data-param="${q.id}" tabindex="0"><td class="mono"><b>${esc(q.no)}</b></td><td>${qDate(q.createdAt)}</td><td><b>${esc(q.customer.name||'')}</b>${q.customer.city?`<small class="muted"> · ${esc(q.customer.city)}</small>`:''}</td><td>${qAv(q.createdBy,q.createdByName)}</td><td class="num">${q.items}<small class="muted"> · ${qNum(q.units)} pcs</small></td><td class="num"><b>${qMoney(q.total,q.currency)}</b>${q.priceChanged?'<small class="qt-flag" title="A price differs from Odoo">price changed</small>':''}</td><td>${qDots(q.approvals)}</td><td>${qPill(q.status)}</td></tr>`).join('')}</tbody></table></div>`:empty(list.length?'Nothing matches':'No quotations yet',list.length?'Change the filter or search.':can?'Press New quotation to make the first one.':'Quotations appear here when the team creates them.');
+  const table=rows.length?`<div class="tablewrap"><table class="dt qt-table"><thead><tr><th>Number</th><th>Date</th><th>Customer</th><th>Created by</th><th class="num">Items</th><th class="num">Total</th><th>Approvals</th><th>Status</th></tr></thead><tbody>${rows.map(q=>`<tr class="qt-row" data-act="go" data-route="quote" data-param="${q.id}" tabindex="0"><td class="mono"><b>${esc(q.no)}</b></td><td>${qDate(q.createdAt)}</td><td><b>${esc(q.customer.name||'')}</b>${q.customer.city?`<small class="muted"> · ${esc(q.customer.city)}</small>`:''}</td><td>${qAv(q.createdBy,q.createdByName)}</td><td class="num">${q.items}<small class="muted"> · ${qNum(q.units)} pcs</small></td><td class="num"><b>${qMoney(q.total,q.currency)}</b>${q.priceChanged?'<small class="qt-flag" title="A price differs from Odoo">price changed</small>':''}</td><td>${qDots(q.approvals)}</td><td>${qPill(q.expired?'expired':q.status)}${q.validUntil&&!q.expired&&['pending','approved'].includes(q.status)?`<small class="qt-exp${q.validUntil-Date.now()<864e5?' soon':''}">valid until ${qDate(q.validUntil)}</small>`:''}</td></tr>`).join('')}</tbody></table></div>`:empty(list.length?'Nothing matches':'No quotations yet',list.length?'Change the filter or search.':can?'Press New quotation to make the first one.':'Quotations appear here when the team creates them.');
   return head+tiles+bar+table;
 }
 
@@ -3481,9 +3483,11 @@ function qtBuilderHTML(){
       <div id="qt-lines">${qtLinesHTML()}</div></section>
     <section class="qt-card"><h3>Notes</h3><textarea class="textarea" id="qt-notes" placeholder="Delivery details, payment terms, anything the approvers should know…">${esc(d.notes||'')}</textarea></section>
   </div><aside class="qt-side">
-    <section class="qt-card qt-totals"><h3>Totals</h3><div id="qt-sum"></div>
+    <section class="qt-card qt-totals"><h3>Totals</h3>
+      <div class="qt-tax"><span>Prices on this quotation</span><div class="qt-seg" role="group" aria-label="Tax">${[['excluded','Exclude VAT'],['included','Include VAT']].map(([m,l])=>`<button type="button" class="${d.tax.mode===m?'on':''}" aria-pressed="${d.tax.mode===m}" data-act="qt-tax" data-m="${m}">${l}</button>`).join('')}</div><label class="qt-rate">VAT rate <input class="input" type="number" min="0" max="100" step="0.5" data-qtax="rate" value="${d.tax.rate}">%</label></div>
+      <div id="qt-sum"></div>
       <div class="qt-od"><label>Discount on the whole quotation</label><div class="qt-dsel">${qDiscCtl('qo','',d.discount)}</div><small class="muted">Discount rules are not final yet: for now enter a percent or an amount.</small></div></section>
-    <section class="qt-card qt-flow"><h3>What happens next</h3><ol><li><b>Submit</b> sends it to Finance, the CEO and the Super Admin at the same time.</li><li>They approve <b>in any order</b>. One rejection sends it back to you with the reason.</li><li>When <b>all three</b> approve, “Convert to invoice” unlocks.</li><li>The invoice goes to the <b>Warehouse</b> queue to be prepared and sent.</li></ol></section>
+    <section class="qt-card qt-flow"><h3>What happens next</h3><ol><li><b>Submit</b> sends it to Finance, the CEO and the Super Admin at the same time. It is <b>valid for ${QT_DAYS} days</b> from then.</li><li>They approve <b>in any order</b>. One rejection sends it back to you with the reason.</li><li>When <b>all three</b> approve, “Convert to invoice” unlocks.</li><li>The invoice goes to the <b>Warehouse</b> queue to be prepared and sent.</li></ol></section>
     ${d.id?`<button class="btn danger${S.qt.arm==='del'?' armed':''}" data-act="qt-del">${S.qt.arm==='del'?'Click again to delete this draft':'Delete draft'}</button>`:''}
   </aside></div>`;
 }
@@ -3492,7 +3496,7 @@ function qDiscCtl(kind,i,dd){
   return `<select class="select" data-${kind}="type" ${i!==''?`data-i="${i}"`:''} aria-label="Discount type"><option value="none" ${t==='none'?'selected':''}>No discount</option><option value="percent" ${t==='percent'?'selected':''}>Percent %</option><option value="amount" ${t==='amount'?'selected':''}>Amount</option></select>${t==='none'?'':`<input class="input" type="number" min="0" step="0.01" ${t==='percent'?'max="100"':''} data-${kind}="value" ${i!==''?`data-i="${i}"`:''} value="${dd.value||''}" placeholder="${t==='percent'?'%':'0.00'}" aria-label="Discount value">`}`;
 }
 function qtLinesHTML(){
-  const d=S.qt.draft,P=qPrice(d.lines,d.discount);
+  const d=S.qt.draft,P=qPrice(d.lines,d.discount,d.tax);
   if(!d.lines.length)return `<div class="qt-empty">${qi('scan',28)}<b>No items yet</b><span>Scan a barcode or search above. Scanning the same product again adds one more.</span></div>`;
   return `<div class="tablewrap"><table class="dt qt-lines"><thead><tr><th>#</th><th>Product</th><th class="num">Unit price</th><th class="num">Quantity</th><th>Discount</th><th class="num">Line total</th><th></th></tr></thead><tbody>${P.lines.map((l,i)=>{
     const changed=l.listPrice!=null&&Math.abs(l.listPrice-l.price)>0.004;
@@ -3505,9 +3509,13 @@ function qtLinesHTML(){
     <td><button class="qt-x" data-act="qt-rm" data-i="${i}" aria-label="Remove ${esc(l.name)}">${qi('x',15)}</button></td></tr>`}).join('')}</tbody></table></div>`;
 }
 const qLineTot=l=>`<b>${qMoney(l.net)}</b>${l.disc?`<small class="muted"><s>${qMoney(l.base)}</s></small>`:''}`;
+function qTotHTML(P,c){
+  const tx=P.taxMode==='included';
+  return `<dl class="qt-dl"><dt>Before discounts</dt><dd>${qMoney(P.gross,c)}</dd>${P.lineDisc?`<dt>Item discounts</dt><dd>− ${qMoney(P.lineDisc,c)}</dd>`:''}${P.orderDisc?`<dt>Quotation discount</dt><dd>− ${qMoney(P.orderDisc,c)}</dd>`:''}<dt>${tx?'Amount before VAT':'Total before VAT'}</dt><dd>${qMoney(P.untaxed,c)}</dd><dt>VAT ${qNum(P.taxRate)}%${tx?' (included)':''}</dt><dd>${tx?'':'+ '}${qMoney(P.tax,c)}</dd></dl><div class="qt-total"><span>Total<small>${tx?'prices include VAT':'VAT added on top'}</small></span><b>${qMoney(P.total,c)}</b></div>`;
+}
 function qtSum(){
-  const d=S.qt.draft,el=$('#qt-sum');if(!d||!el)return;const P=qPrice(d.lines,d.discount);
-  el.innerHTML=`<dl class="qt-dl"><dt>Items</dt><dd>${d.lines.length} · ${qNum(d.lines.reduce((a,l)=>a+(Number(l.qty)||0),0))} pcs</dd><dt>Before discounts</dt><dd>${qMoney(P.gross)}</dd>${P.lineDisc?`<dt>Item discounts</dt><dd>− ${qMoney(P.lineDisc)}</dd>`:''}<dt>Subtotal</dt><dd>${qMoney(P.subtotal)}</dd>${P.orderDisc?`<dt>Quotation discount</dt><dd>− ${qMoney(P.orderDisc)}</dd>`:''}</dl><div class="qt-total"><span>Total</span><b>${qMoney(P.total)}</b></div>`;
+  const d=S.qt.draft,el=$('#qt-sum');if(!d||!el)return;const P=qPrice(d.lines,d.discount,d.tax);
+  el.innerHTML=`<p class="qt-items">${d.lines.length} items · ${qNum(d.lines.reduce((a,l)=>a+(Number(l.qty)||0),0))} pcs</p>`+qTotHTML(P);
   P.lines.forEach((l,i)=>{const c=$('#qt-lt-'+i);if(c)c.innerHTML=qLineTot(l)});
 }
 function qtLinesRedraw(){const el=$('#qt-lines');if(el)el.innerHTML=qtLinesHTML();qtSum()}
@@ -3542,7 +3550,7 @@ async function qtCustSearch(s){
     dl.hidden=false;}
   catch(e){dl.innerHTML=`<div class="qt-none">${esc(e.message)}</div>${s?`<button type="button" class="qt-opt new" data-act="qt-pick-c" data-k="-1"><span><b>Use “${esc(s)}”</b><small>Typed by hand</small></span></button>`:''}`;dl.hidden=false}
 }
-function qtPayload(){const d=S.qt.draft;return {id:d.id||undefined,customer:d.customer||{},lines:d.lines,discount:d.discount,notes:($('#qt-notes')?.value??d.notes)||'',currency:S.qt.currency}}
+function qtPayload(){const d=S.qt.draft;return {id:d.id||undefined,customer:d.customer||{},lines:d.lines,discount:d.discount,tax:d.tax,notes:($('#qt-notes')?.value??d.notes)||'',currency:S.qt.currency}}
 async function qtSave(silent){
   const d=S.qt.draft;if(!d)return null;d.notes=$('#qt-notes')?.value??d.notes;
   const j=await api('POST','/api/data?q=1',{action:'save',...qtPayload()});
@@ -3562,7 +3570,7 @@ function qtViewHTML(){
     q.status==='rejected'&&q.can.edit?`<button class="btn primary" data-act="qt-fix">Fix and resubmit</button>`:'',
     q.can.withdraw?`<button class="btn" data-act="qt-withdraw">Take back to edit</button>`:'',
     `<button class="btn ghost" data-act="qt-print">${qi('print')}Print</button>`].join('');
-  const banner=q.status==='approved'?`<div class="qt-banner ok">${qi('ok',18)}<div><b>All three approved.</b> ${q.can.convert?'You can now convert it to an invoice.':'The creator, Finance, the CEO or the Super Admin can now convert it to an invoice.'}</div></div>`
+  const banner=q.expired?`<div class="qt-banner bad">${qi('wait',18)}<div><b>This quotation expired on ${qTime(q.validUntil)}.</b> It cannot be ${q.status==='approved'?'converted':'approved'} until the Super Admin or the CEO extends it, or it is taken back and submitted again.</div></div>`:q.status==='approved'?`<div class="qt-banner ok">${qi('ok',18)}<div><b>All three approved.</b> ${q.can.convert?'You can now convert it to an invoice.':'The creator, Finance, the CEO or the Super Admin can now convert it to an invoice.'}</div></div>`
     :q.status==='rejected'&&rej?`<div class="qt-banner bad">${qi('no',18)}<div><b>Rejected by ${esc(ap[rej[0]].byName)} (${rej[1]})</b> on ${qTime(ap[rej[0]].at)}.<br>Reason: “${esc(ap[rej[0]].note)}”${q.can.edit?'<br>Fix it and submit again: all three approvals start over.':''}</div></div>`
     :q.status==='pending'?`<div class="qt-banner wait">${qi('wait',18)}<div><b>Waiting for approval: ${nOk} of 3 done.</b> Finance, the CEO and the Super Admin can approve in any order.</div></div>`
     :q.status==='invoiced'?`<div class="qt-banner inv">${qi('inv',18)}<div><b>Converted to invoice ${esc(q.invoiceNo||'')}.</b> It is now in the warehouse queue.</div></div>`:'';
@@ -3571,14 +3579,17 @@ function qtViewHTML(){
       ${a.by?`<div class="qt-apby">${qAv(a.by,a.byName)}<small>${qTime(a.at)}</small></div>`:''}${a.note?`<p class="qt-apnote">“${esc(a.note)}”</p>`:''}
       ${me?`<div class="qt-apdo"><button class="btn primary" data-act="qt-approve">${qi('ok')}Approve</button><textarea class="textarea" id="qt-note" placeholder="Note (needed to reject, optional to approve)"></textarea><button class="btn danger" data-act="qt-reject">Reject with this reason</button></div>`:''}</div>`};
   const P=q.totals;
+  const left=q.validUntil?q.validUntil-Date.now():0,days=Math.ceil(left/864e5);
+  const valid=q.validUntil&&['pending','approved'].includes(q.status)?`<section class="qt-card qt-valid${q.expired?' exp':left<864e5?' soon':''}"><div class="qt-vh">${qi('wait',18)}<div><b>${q.expired?'Expired on '+qTime(q.validUntil):'Valid until '+qTime(q.validUntil)}</b><small>${q.expired?'It can no longer be approved or converted.'+(q.can.withdraw?' Take it back to edit and submit again for 3 new days.':'')+(q.can.extend?' You can extend it as an exception.':''):(days<=1?'Less than a day left':days+' days left')+' · quotations are valid '+QT_DAYS+' days from submitting'}</small></div></div>
+    ${q.can.extend?`<div class="qt-ext qt-noprint"><label>New expiry date <input class="input" type="date" id="qt-ext-d" min="${new Date(Date.now()+864e5).toISOString().slice(0,10)}" value="${new Date(Math.max(Date.now(),q.validUntil)+QT_DAYS*864e5).toISOString().slice(0,10)}"></label><input class="input" id="qt-ext-n" placeholder="Reason for the exception (optional)"><button class="btn" data-act="qt-extend">Extend validity</button></div>`:''}</section>`:q.status==='draft'?'':'';
   return `<button class="btn ghost back qt-noprint" data-act="go" data-route="quotes">${qi('back')} Quotations</button>
-  <div class="qt-bhead"><div><span class="eyebrow">Quotation</span><h1>${esc(q.no)} ${qPill(q.status)}</h1><p class="muted">${esc(q.customer.name||'')}${q.customer.city?' · '+esc(q.customer.city):''} · created ${qDate(q.createdAt)} by ${esc(q.createdByName)}${q.submittedAt?' · submitted '+qTime(q.submittedAt):''}</p></div><div class="row qt-noprint">${actions}</div></div>
-  ${banner}
+  <div class="qt-bhead"><div><span class="eyebrow">Quotation</span><h1>${esc(q.no)} ${qPill(q.expired?'expired':q.status)}</h1><p class="muted">${esc(q.customer.name||'')}${q.customer.city?' · '+esc(q.customer.city):''} · created ${qDate(q.createdAt)} by ${esc(q.createdByName)}${q.submittedAt?' · submitted '+qTime(q.submittedAt):''}</p></div><div class="row qt-noprint">${actions}</div></div>
+  ${banner}${valid}
   <section class="qt-card"><div class="qt-ch"><h3>Approvals</h3><span class="qt-prog"><i style="width:${nOk/3*100}%"></i></span><small class="muted">${nOk} of 3 · any order</small></div><div class="qt-aps">${QT_SLOTS.map(card).join('')}</div></section>
   <div class="qt-grid"><div class="qt-main">
-  <section class="qt-card"><h3>Items</h3><div class="tablewrap"><table class="dt"><thead><tr><th>#</th><th>Product</th><th>Barcode</th><th class="num">Unit price</th><th class="num">Qty</th><th>Discount</th><th class="num">Total</th></tr></thead><tbody>${P.lines.map((l,i)=>{const ch=l.listPrice!=null&&Math.abs(l.listPrice-l.price)>0.004;return `<tr><td class="muted">${i+1}</td><td><b>${esc(l.name)}</b>${l.code?`<small class="mono muted"> ${esc(l.code)}</small>`:''}${l.pid?'':' <small class="qt-flag">not in Odoo</small>'}</td><td class="mono">${esc(l.barcode||'–')}</td><td class="num">${qMoney(l.price,q.currency)}${ch?`<small class="qt-flag">Odoo price ${qMoney(l.listPrice,q.currency)}</small>`:''}</td><td class="num">${qNum(l.qty)}</td><td>${l.discount&&l.discount.type!=='none'?(l.discount.type==='percent'?l.discount.value+'%':qMoney(l.discount.value,q.currency)):'–'}</td><td class="num"><b>${qMoney(l.net,q.currency)}</b></td></tr>`}).join('')}</tbody></table></div></section>
+  <section class="qt-card"><div class="qt-ch"><h3>Items</h3><span class="qt-taxtag">${q.tax.mode==='included'?'Prices include':'Prices exclude'} VAT ${qNum(q.tax.rate)}%</span></div><div class="tablewrap"><table class="dt"><thead><tr><th>#</th><th>Product</th><th>Barcode</th><th class="num">Unit price</th><th class="num">Qty</th><th>Discount</th><th class="num">Total</th></tr></thead><tbody>${P.lines.map((l,i)=>{const ch=l.listPrice!=null&&Math.abs(l.listPrice-l.price)>0.004;return `<tr><td class="muted">${i+1}</td><td><b>${esc(l.name)}</b>${l.code?`<small class="mono muted"> ${esc(l.code)}</small>`:''}${l.pid?'':' <small class="qt-flag">not in Odoo</small>'}</td><td class="mono">${esc(l.barcode||'–')}</td><td class="num">${qMoney(l.price,q.currency)}${ch?`<small class="qt-flag">Odoo price ${qMoney(l.listPrice,q.currency)}</small>`:''}</td><td class="num">${qNum(l.qty)}</td><td>${l.discount&&l.discount.type!=='none'?(l.discount.type==='percent'?l.discount.value+'%':qMoney(l.discount.value,q.currency)):'–'}</td><td class="num"><b>${qMoney(l.net,q.currency)}</b></td></tr>`}).join('')}</tbody></table></div></section>
   ${q.notes?`<section class="qt-card"><h3>Notes</h3><p class="qt-notes">${esc(q.notes)}</p></section>`:''}
-  </div><aside class="qt-side"><section class="qt-card qt-totals"><h3>Totals</h3><dl class="qt-dl"><dt>Before discounts</dt><dd>${qMoney(P.gross,q.currency)}</dd>${P.lineDisc?`<dt>Item discounts</dt><dd>− ${qMoney(P.lineDisc,q.currency)}</dd>`:''}<dt>Subtotal</dt><dd>${qMoney(P.subtotal,q.currency)}</dd>${P.orderDisc?`<dt>Quotation discount</dt><dd>− ${qMoney(P.orderDisc,q.currency)}</dd>`:''}</dl><div class="qt-total"><span>Total</span><b>${qMoney(P.total,q.currency)}</b></div></section>
+  </div><aside class="qt-side"><section class="qt-card qt-totals"><h3>Totals</h3>${qTotHTML(P,q.currency)}</section>
   <section class="qt-card"><h3>History</h3><ol class="qt-hist">${[...q.history].reverse().map(h=>`<li><b>${esc(h.byName||'')}</b> ${esc(h.action)}${h.note?` <q>${esc(h.note)}</q>`:''}<small>${qTime(h.at)}</small></li>`).join('')}</ol></section></aside></div>`;
 }
 async function qtAct(action,extra={}){
@@ -3586,7 +3597,7 @@ async function qtAct(action,extra={}){
   try{const j=await api('POST','/api/data?q=1',{action,id:q.id,...extra});
     if(action==='convert'){toast(`Invoice ${j.invoiceNo} created and sent to the warehouse`);go('invoice',j.invoiceId);sync();return}
     S.qt.cur=j.quote;if(j.quote.can.edit&&j.quote.status==='draft'){S.qt.draft=qFrom(j.quote);qtWarm()}qtRender();sync();
-    toast({approve:'Approved',reject:'Rejected: the creator will see your reason',withdraw:'Taken back: you can edit it now',submit:'Submitted for approval'}[action]||'Saved');
+    toast({extend:'Expiry date changed',approve:'Approved',reject:'Rejected: the creator will see your reason',withdraw:'Taken back: you can edit it now',submit:'Submitted for approval'}[action]||'Saved');
   }catch(e){toast(e.message)}
 }
 
@@ -3613,7 +3624,7 @@ function qtInvHTML(){
     <div class="qt-docp"><div><span class="eyebrow">Bill to</span><b>${esc(i.customer.name||'')}</b><p>${[i.customer.city,i.customer.phone].filter(Boolean).map(esc).join('<br>')}</p></div><div><span class="eyebrow">Prepared by</span><b>${esc(i.quoteByName||'')}</b><p>Converted by ${esc(i.createdByName||'')}</p></div><div><span class="eyebrow">Warehouse</span>${qPill(i.whStatus,WH_ST)}</div></div>
     <table class="qt-doct"><thead><tr><th>#</th><th>Product</th><th>Barcode</th><th class="num">Qty</th>${P?'<th class="num">Unit price</th><th class="num">Discount</th><th class="num">Total</th>':''}</tr></thead><tbody>${i.lines.map((l,n)=>`<tr><td>${n+1}</td><td><b>${esc(l.name)}</b>${l.code?`<small> ${esc(l.code)}</small>`:''}</td><td class="mono">${esc(l.barcode||'–')}</td><td class="num">${qNum(l.qty)}</td>${P?`<td class="num">${qMoney(l.price,i.currency)}</td><td class="num">${l.disc?'− '+qMoney(l.disc,i.currency):'–'}</td><td class="num"><b>${qMoney(l.net,i.currency)}</b></td>`:''}</tr>`).join('')}</tbody></table>
     <div class="qt-docf"><div class="qt-docap"><span class="eyebrow">Approved by</span>${QT_SLOTS.map(([k,l])=>ap[k]&&ap[k].state==='approved'?`<p><b>${l}</b> ${esc(ap[k].byName)} <small>${qTime(ap[k].at)}</small></p>`:'').join('')}${i.notes?`<span class="eyebrow" style="margin-top:10px">Notes</span><p>${esc(i.notes)}</p>`:''}</div>
-    ${P?`<dl class="qt-dl qt-docsum"><dt>Items</dt><dd>${i.items} · ${qNum(i.units)} pcs</dd><dt>Before discounts</dt><dd>${qMoney(P.gross,i.currency)}</dd>${P.discountTotal?`<dt>Discounts</dt><dd>− ${qMoney(P.discountTotal,i.currency)}</dd>`:''}<dt class="tot">Total</dt><dd class="tot">${qMoney(P.total,i.currency)}</dd></dl>`:`<p class="muted">${i.items} items · ${qNum(i.units)} pcs</p>`}</div>
+    ${P?`<dl class="qt-dl qt-docsum"><dt>Items</dt><dd>${i.items} · ${qNum(i.units)} pcs</dd><dt>Before discounts</dt><dd>${qMoney(P.gross,i.currency)}</dd>${P.discountTotal?`<dt>Discounts</dt><dd>− ${qMoney(P.discountTotal,i.currency)}</dd>`:''}<dt>${P.taxMode==='included'?'Amount before VAT':'Total before VAT'}</dt><dd>${qMoney(P.untaxed,i.currency)}</dd><dt>VAT ${qNum(P.taxRate)}%${P.taxMode==='included'?' (included)':''}</dt><dd>${qMoney(P.tax,i.currency)}</dd><dt class="tot">Total</dt><dd class="tot">${qMoney(P.total,i.currency)}</dd></dl>`:`<p class="muted">${i.items} items · ${qNum(i.units)} pcs</p>`}</div>
   </article>`;
 }
 function qtWhButtons(i){
@@ -3678,6 +3689,8 @@ document.addEventListener('click',async e=>{
   else if(a==='qt-fix'){S.qt.draft=qFrom(S.qt.cur);S.qt.draft.status='draft';S.qt.dirty=true;qtWarm();qtRender()}
   else if(a==='qt-convert'){b.disabled=true;await qtAct('convert')}
   else if(a==='qt-print')window.print();
+  else if(a==='qt-tax'){d.tax={...d.tax,mode:b.dataset.m};S.qt.dirty=true;document.querySelectorAll('[data-act="qt-tax"]').forEach(x=>{const on=x.dataset.m===d.tax.mode;x.classList.toggle('on',on);x.setAttribute('aria-pressed',on)});qtSum()}
+  else if(a==='qt-extend'){const v=$('#qt-ext-d')?.value;if(!v){toast('Choose the new expiry date.');return}const until=new Date(v+'T23:59:59').getTime();b.disabled=true;await qtAct('extend',{until,note:$('#qt-ext-n')?.value||''})}
   else if(a==='qt-wh')qtWhMove(b.dataset.id,b.dataset.s);
   else if(a==='qt-wh-open'){const id=b.dataset.id;S.qt.whOpen.has(id)?S.qt.whOpen.delete(id):S.qt.whOpen.add(id);qtRender()}
   else if(a==='qt-wh-reload'){S.qt.wh=null;qtRender();qtLoadWh()}
@@ -3692,6 +3705,7 @@ document.addEventListener('input',e=>{
   if(t.dataset.ql){const l=d.lines[+t.dataset.i];if(!l)return;const f=t.dataset.ql;
     if(f==='name')l.name=t.value;else if(f==='price')l.price=Math.max(0,Number(t.value)||0);else if(f==='qty')l.qty=Math.max(0,Number(t.value)||0);else if(f==='value')l.discount={...l.discount,value:Math.max(0,Number(t.value)||0)};
     S.qt.dirty=true;qtSum();return}
+  if(t.dataset.qtax==='rate'){d.tax={...d.tax,rate:t.value===''?14:Math.min(100,Math.max(0,Number(t.value)||0))};S.qt.dirty=true;qtSum();return}
   if(t.dataset.qo==='value'){d.discount={...d.discount,value:Math.max(0,Number(t.value)||0)};S.qt.dirty=true;qtSum()}
 });
 document.addEventListener('change',e=>{
