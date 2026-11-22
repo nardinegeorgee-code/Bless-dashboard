@@ -82,25 +82,52 @@ async function logout(msg){try{await api('POST','/api/auth?action=logout')}catch
 
 /* ---------- auth screens ---------- */
 const brandHTML=`<div class="brand"><img class="logo" src="/bless-logo.png" alt="Bless" width="116" height="44"><small>Team Hub</small></div>`;
+// Sign-in and first-setup screens: butterfly from the logo as the emblem and drifting background, show/hide password
+const IC_USER='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>';
+const IC_LOCK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>';
+const IC_EYE='<svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.600-7 10-7 10 7 10 7-3.600 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18M10.600 6.100A9.800 9.800 0 0 1 12 6c6.400 0 10 6 10 6a17 17 0 0 1-3.300 3.900M6.600 6.600C3.700 8.400 2 12 2 12s3.600 7 10 7a9.600 9.600 0 0 0 4.400-1.100"/><path d="M9.900 9.900a3 3 0 0 0 4.200 4.200"/></svg>';
+function authField(id,label,type,ac,extra=''){
+  const pw=type==='password';
+  return `<div class="field au-f"><label for="${id}">${label}</label><div class="au-in">${pw?IC_LOCK:IC_USER}<input class="input" id="${id}" type="${type}" autocomplete="${ac}" spellcheck="false" autocapitalize="off" ${extra} required>${pw?`<button type="button" class="au-eye" data-act="pw-toggle" data-for="${id}" aria-label="Show password" aria-pressed="false" title="Show password">${IC_EYE}</button>`:''}</div>${pw?`<small class="au-caps" data-caps="${id}">Caps Lock is on</small>`:''}</div>`;
+}
+function authShell(form,title,sub,body,btn){
+  const flies=[1,2,3,4,5,6].map(i=>`<i class="au-fly f${i}"></i>`).join('');
+  return `<div class="auth au"><div class="au-sky" aria-hidden="true"><i class="au-glow g1"></i><i class="au-glow g2"></i><i class="au-glow g3"></i><i class="au-big"></i>${flies}</div>
+  <form class="auth-card au-card" data-form="${form}" novalidate>
+    <div class="au-head"><div class="au-emblem" aria-hidden="true"><i class="au-bf"></i></div><div class="au-word">BLESS</div><div class="au-sub">Team Hub</div></div>
+    <div class="au-title"><h1>${title}</h1><p class="muted">${sub}</p></div>
+    ${body}
+    <div class="err" id="${form==='login'?'li':'su'}-err" role="alert"></div>
+    <button class="btn primary au-go" type="submit"><span>${btn}</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+  </form></div>`;
+}
+function authWire(){
+  document.querySelectorAll('#app .au input[type=password]').forEach(inp=>{
+    const cap=$(`[data-caps="${inp.id}"]`);
+    const chk=e=>{if(cap&&e.getModifierState)cap.classList.toggle('on',e.getModifierState('CapsLock'))};
+    inp.addEventListener('keydown',chk);inp.addEventListener('keyup',chk);inp.addEventListener('blur',()=>cap&&cap.classList.remove('on'));
+  });
+}
+function togglePw(b){
+  const inp=document.getElementById(b.dataset.for);if(!inp)return;
+  const show=inp.type==='password';inp.type=show?'text':'password';
+  b.setAttribute('aria-pressed',show);b.classList.toggle('on',show);
+  const t=show?'Hide password':'Show password';b.setAttribute('aria-label',t);b.title=t;
+  const n=inp.value.length;inp.focus();try{inp.setSelectionRange(n,n)}catch(e){}
+}
 function showSetup(){
   S.screen='setup';
-  $('#app').innerHTML=`<div class="auth"><form class="auth-card" data-form="setup">${brandHTML}
-    <div><h1 style="font-size:1.4rem">Create the Super Admin</h1><p class="muted" style="margin-top:6px">No accounts exist yet. This first account controls the hub: it sends instructions, sees every upload and manages users.</p></div>
-    <div class="field"><label for="su-u">Username</label><input class="input" id="su-u" autocomplete="username" required></div>
-    <div class="field"><label for="su-p">Password</label><input class="input" id="su-p" type="password" autocomplete="new-password" minlength="4" required></div>
-    <div class="field"><label for="su-p2">Confirm password</label><input class="input" id="su-p2" type="password" autocomplete="new-password" required></div>
-    <div class="err" id="su-err"></div>
-    <button class="btn primary" type="submit">Create account and sign in</button></form></div>`;
+  $('#app').innerHTML=authShell('setup','Create the Super Admin','No accounts exist yet. This first account controls the hub: it sends instructions, sees every upload and manages users.',
+    authField('su-u','Username','text','username')+authField('su-p','Password','password','new-password','minlength="4"')+authField('su-p2','Confirm password','password','new-password'),
+    'Create account and sign in');
+  authWire();setTimeout(()=>$('#su-u')?.focus(),0);
 }
 function showLogin(){
   S.screen='login';
-  $('#app').innerHTML=`<div class="auth"><form class="auth-card" data-form="login">${brandHTML}
-    <div><h1 style="font-size:1.4rem">Sign in</h1><p class="muted" style="margin-top:6px">Use the username and password your Super Admin gave you.</p></div>
-    <div class="field"><label for="li-u">Username</label><input class="input" id="li-u" autocomplete="username" required></div>
-    <div class="field"><label for="li-p">Password</label><input class="input" id="li-p" type="password" autocomplete="current-password" required></div>
-    <div class="err" id="li-err"></div>
-    <button class="btn primary" type="submit">Sign in</button></form></div>`;
-  setTimeout(()=>$('#li-u')?.focus(),0);
+  $('#app').innerHTML=authShell('login','Welcome back','Sign in with the username and password your Super Admin gave you.',
+    authField('li-u','Username','text','username')+authField('li-p','Password','password','current-password'),
+    'Sign in');
+  authWire();setTimeout(()=>$('#li-u')?.focus(),0);
 }
 const validName=u=>u.length>=2&&u.length<=40;
 
@@ -2776,6 +2803,7 @@ document.addEventListener('click',async e=>{
   else if(a==='ov-reset'){S.ov.role='';S.ov.period='all';ovRender()}
   else if(a==='ov-tab'){const id=b.dataset.sec,el=document.getElementById(id);if(!el)return;ovLock=Date.now()+900;ovMark(id);ovSetHash(id);el.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'})}
   else if(a==='logout')logout();
+  else if(a==='pw-toggle')togglePw(b);
   else if(a==='shop-sync')runSync();
   else if(a==='ev-reload')loadEval();
   else if(a==='ev-csv')evCsv();
@@ -2944,7 +2972,10 @@ document.addEventListener('submit',async e=>{
   else if(k==='login'){
     const u=$('#li-u').value.trim().replace(/\s+/g,' '),p=$('#li-p').value,err=$('#li-err');
     err.textContent='';
-    try{await api('POST','/api/auth?action=login',{username:u,password:p});S.lastJson='';S.route='hub';await sync()}catch(x){err.textContent=x.message}
+    if(!u||!p){err.textContent='Enter your username and password.';return}
+    const go=f.querySelector('.au-go');if(go){go.disabled=true;go.classList.add('busy')}
+    try{await api('POST','/api/auth?action=login',{username:u,password:p});S.lastJson='';S.route='hub';await sync()}catch(x){err.textContent=x.message;f.classList.remove('shake');void f.offsetWidth;f.classList.add('shake')}
+    finally{if(go&&go.isConnected){go.disabled=false;go.classList.remove('busy')}}
   }
   else if(k==='cmt'){
     const id=f.dataset.id,t=f.querySelector('textarea'),body=t.value.trim();if(!body)return;
