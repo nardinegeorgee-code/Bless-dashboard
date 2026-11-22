@@ -1,6 +1,7 @@
 import { upload } from '@vercel/blob/client';
 import { zipSync, unzipSync, strFromU8 } from 'fflate';
 import './style.css';
+import { avatarSVG, randomAvatar, cleanAvatar, OPTS, COLORS, PAL, CAST } from './avatar.js';
 
 const ROLES=[
   {key:'super_admin',label:'Super Admin',tok:'--role-sa'},
@@ -88,32 +89,126 @@ const IC_LOCK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 const IC_EYE='<svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.600-7 10-7 10 7 10 7-3.600 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18M10.600 6.100A9.800 9.800 0 0 1 12 6c6.400 0 10 6 10 6a17 17 0 0 1-3.300 3.900M6.600 6.600C3.700 8.400 2 12 2 12s3.600 7 10 7a9.600 9.600 0 0 0 4.400-1.100"/><path d="M9.900 9.900a3 3 0 0 0 4.200 4.200"/></svg>';
 function authField(id,label,type,ac,extra=''){
   const pw=type==='password';
-  return `<div class="field au-f"><label for="${id}">${label}</label><div class="au-in">${pw?IC_LOCK:IC_USER}<input class="input" id="${id}" type="${type}" autocomplete="${ac}" spellcheck="false" autocapitalize="off" ${extra} required>${pw?`<button type="button" class="au-eye" data-act="pw-toggle" data-for="${id}" aria-label="Show password" aria-pressed="false" title="Show password">${IC_EYE}</button>`:''}</div>${pw?`<small class="au-caps" data-caps="${id}">Caps Lock is on</small>`:''}</div>`;
+  return `<div class="field au-f"><label for="${id}">${label}</label><div class="au-in">${pw?IC_LOCK:IC_USER}<input class="input${pw?' au-pw':''}" id="${id}" type="${type}" autocomplete="${ac}" spellcheck="false" autocapitalize="off" ${extra} required>${pw?`<span class="au-mask" data-mask="${id}" aria-hidden="true"></span><button type="button" class="au-eye" data-act="pw-toggle" data-for="${id}" aria-label="Show password" aria-pressed="false" title="Show password">${IC_EYE}</button>`:''}</div>${pw?`<small class="au-caps" data-caps="${id}">Caps Lock is on</small>`:''}</div>`;
+}
+// password characters are drawn as little Bless butterflies instead of dots
+function pwMask(inp){
+  const m=document.querySelector(`[data-mask="${inp.id}"]`);if(!m)return;
+  const n=inp.value.length,have=m.querySelectorAll('i').length;
+  if(n<have){m.querySelectorAll('i').forEach((el,k)=>{if(k>=n)el.remove()})}
+  else for(let k=have;k<n;k++){const el=document.createElement('i');m.insertBefore(el,m.querySelector('b'))}
+  if(!m.querySelector('b'))m.appendChild(document.createElement('b'));
+  m.classList.toggle('empty',!n);
 }
 function authShell(form,title,sub,body,btn){
-  const flies=[1,2,3,4,5,6].map(i=>`<i class="au-fly f${i}"></i>`).join('');
-  return `<div class="auth au"><div class="au-sky" aria-hidden="true"><i class="au-glow g1"></i><i class="au-glow g2"></i><i class="au-glow g3"></i><i class="au-big"></i>${flies}</div>
+  const flies=[1,2,3,4,5,6,7,8].map(i=>`<i class="au-fly f${i}"></i>`).join('');
+  const cast=CAST.map((c,i)=>`<div class="au-char${i?'':' on'}">${avatarSVG(c,{cls:'au-csvg'})}</div>`).join('');
+  return `<div class="auth au"><div class="au-sky" aria-hidden="true"><i class="au-glow g1"></i><i class="au-glow g2"></i><i class="au-glow g3"></i><div class="au-ghost">${avatarSVG(CAST[0],{cls:'au-csvg'})}</div>${flies}</div>
+  <div class="au-panel">
   <form class="auth-card au-card" data-form="${form}" novalidate>
-    <div class="au-head"><div class="au-emblem" aria-hidden="true"><i class="au-bf"></i></div><div class="au-word">BLESS</div><div class="au-sub">Team Hub</div></div>
+    <div class="au-logo"><i class="au-bf"></i><span><b>BLESS</b><small>Team Hub</small></span></div>
     <div class="au-title"><h1>${title}</h1><p class="muted">${sub}</p></div>
     ${body}
     <div class="err" id="${form==='login'?'li':'su'}-err" role="alert"></div>
     <button class="btn primary au-go" type="submit"><span>${btn}</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
-  </form></div>`;
+    <p class="au-foot">New to the team? Ask your Super Admin for an account. After signing in you will make your own avatar.</p>
+  </form>
+  <div class="au-stage" aria-hidden="true"><div class="au-halo"></div>${cast}<i class="au-sf s1"></i><i class="au-sf s2"></i><i class="au-sf s3"></i><i class="au-sf s4"></i><i class="au-sf s5"></i><div class="au-cap">Everyone on the team has their own avatar</div></div>
+  </div></div>`;
+}
+let castTimer=null;
+function castCycle(){
+  clearInterval(castTimer);
+  castTimer=setInterval(()=>{
+    const cs=[...document.querySelectorAll('.au-char')];if(!cs.length){clearInterval(castTimer);return}
+    const i=cs.findIndex(c=>c.classList.contains('on')),n=(i+1)%cs.length;
+    cs[i].classList.remove('on');cs[n].classList.add('on');
+    const gh=document.querySelector('.au-ghost');if(gh)gh.innerHTML=avatarSVG(CAST[n],{cls:'au-csvg'});
+  },3800);
 }
 function authWire(){
   document.querySelectorAll('#app .au input[type=password]').forEach(inp=>{
     const cap=$(`[data-caps="${inp.id}"]`);
     const chk=e=>{if(cap&&e.getModifierState)cap.classList.toggle('on',e.getModifierState('CapsLock'))};
     inp.addEventListener('keydown',chk);inp.addEventListener('keyup',chk);inp.addEventListener('blur',()=>cap&&cap.classList.remove('on'));
+    inp.addEventListener('input',()=>pwMask(inp));pwMask(inp);
+    // browsers may autofill after render
+    setTimeout(()=>pwMask(inp),600);
   });
+  castCycle();
 }
 function togglePw(b){
   const inp=document.getElementById(b.dataset.for);if(!inp)return;
   const show=inp.type==='password';inp.type=show?'text':'password';
-  b.setAttribute('aria-pressed',show);b.classList.toggle('on',show);
+  b.setAttribute('aria-pressed',show);b.classList.toggle('on',show);inp.closest('.au-in').classList.toggle('shown',show);pwMask(inp);
   const t=show?'Hide password':'Show password';b.setAttribute('aria-label',t);b.title=t;
   const n=inp.value.length;inp.focus();try{inp.setSelectionRange(n,n)}catch(e){}
+}
+// ---------- Avatar maker: everyone builds their own character the first time they sign in ----------
+const AV_TABS=[
+  ['body','Body',[['g','Gender'],['skin','Skin tone','c'],['face','Face shape','head']]],
+  ['eyes','Eyes',[['eyes','Eyes','eyes'],['eyeC','Eye colour','c'],['brows','Eyebrows','eyes']]],
+  ['face','Nose & mouth',[['nose','Nose','mouth'],['mouth','Mouth','mouth'],['lips','Lip colour','c'],['cheeks','Cheeks','face']]],
+  ['hair','Hair',[['hair','Hairstyle','head'],['hairC','Hair colour','c']]],
+  ['facial','Moustache & beard',[['stache','Moustache','lower'],['beard','Beard','lower']]],
+  ['outfit','Outfit',[['outfit','Outfit','body'],['outC','Outfit colour','c']]],
+  ['extras','Extras',[['head','Head cover','head'],['headC','Head cover colour','c'],['glasses','Glasses','face'],['ears','Earrings','head'],['bg','Background','full']]],
+];
+function avGender(g){
+  const c=S.av.cfg;
+  if(g==='f'){c.stache='none';c.beard='none';if(['short','side','quiff','buzz','bald'].includes(c.hair))c.hair='long'}
+  else{c.lips='';c.ears='none';if(c.head==='hijab')c.head='none';if(['long','wavy','bob','bun','pony','pixie'].includes(c.hair))c.hair='short';if(c.outfit==='top')c.outfit='tee'}
+}
+function showAvatarMaker(first){
+  S.screen='avatar';
+  const cfg=S.me&&S.me.avatar?cleanAvatar(S.me.avatar):randomAvatar();
+  S.av={cfg:{...cfg},tab:'body',first:!!first,hist:[],last:JSON.stringify(cfg)};
+  const flies=[1,2,3,4,5,6].map(i=>`<i class="au-fly f${i}"></i>`).join('');
+  $('#app').innerHTML=`<div class="au avm"><div class="au-sky" aria-hidden="true"><i class="au-glow g1"></i><i class="au-glow g2"></i><i class="au-glow g3"></i>${flies}</div>
+    <div class="avm-wrap">
+      <header class="avm-head"><div class="au-logo"><i class="au-bf"></i><span><b>BLESS</b><small>Team Hub</small></span></div>
+        <div><h1>${first?'Create your avatar':'Edit your avatar'}</h1><p class="muted">${first?'Everyone on the team has one. Make it look like you: it shows next to your name across the hub.':'Change anything you like, then save.'}</p></div></header>
+      <div class="avm-grid">
+        <section class="avm-prev"><div class="avm-big" id="av-big"></div><div class="avm-who"><b>${esc(S.me.username)}</b>${roleChip(S.me.role)}</div>
+          <div class="avm-pbtns"><button type="button" class="btn" data-act="av-rand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1.3" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.3" fill="currentColor"/><circle cx="15.5" cy="8.5" r="1.3" fill="currentColor"/><circle cx="8.5" cy="15.5" r="1.3" fill="currentColor"/></svg>Surprise me</button><button type="button" class="btn" data-act="av-undo" id="av-undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>Undo</button></div>
+        </section>
+        <section class="avm-panel"><nav class="avm-tabs" id="av-tabs" role="tablist"></nav><div class="avm-opts" id="av-opts"></div>
+          <div class="avm-foot"><div class="err" id="av-err"></div>${first?'':'<button type="button" class="btn ghost" data-act="av-cancel">Cancel</button>'}<button type="button" class="btn primary au-go" data-act="av-save"><span>${first?'Save my avatar and continue':'Save changes'}</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
+        </section>
+      </div>
+    </div></div>`;
+  renderAv(true);
+}
+function renderAv(noHist){
+  const A=S.av;if(!A)return;
+  const key=JSON.stringify(A.cfg);
+  if(!noHist&&key!==A.last){A.hist.push(JSON.parse(A.last));if(A.hist.length>40)A.hist.shift()}
+  A.last=key;
+  $('#av-big').innerHTML=avatarSVG(A.cfg,{title:'Your avatar'});
+  const u=$('#av-undo');if(u)u.disabled=!A.hist.length;
+  $('#av-tabs').innerHTML=AV_TABS.map(([k,l])=>`<button type="button" role="tab" class="avm-tab${A.tab===k?' on':''}" aria-selected="${A.tab===k}" data-act="av-tab" data-t="${k}">${l}</button>`).join('');
+  const tab=AV_TABS.find(t=>t[0]===A.tab)||AV_TABS[0];
+  const c=A.cfg;
+  $('#av-opts').innerHTML=tab[2].map(([k,label,view])=>{
+    if(view==='c'){
+      const list=COLORS[k];
+      return `<div class="avm-grp"><h4>${label}</h4><div class="avm-sw">${list.map(v=>`<button type="button" class="avm-c${c[k]===v?' on':''}${v?'':' none'}" style="--c:${v||'transparent'}" data-act="av-set" data-k="${k}" data-v="${v}" title="${v?v:'None'}" aria-label="${label} ${v||'none'}" aria-pressed="${c[k]===v}"></button>`).join('')}</div></div>`;
+    }
+    if(k==='g')return `<div class="avm-grp"><h4>${label}</h4><div class="avm-seg">${OPTS.g.map(([v,l])=>`<button type="button" class="${c.g===v?'on':''}" data-act="av-set" data-k="g" data-v="${v}" aria-pressed="${c.g===v}">${avatarSVG({...c,g:v,bg:'none'},{view:'head',cls:'avm-gico'})}${l}</button>`).join('')}</div></div>`;
+    return `<div class="avm-grp"><h4>${label}</h4><div class="avm-tiles">${OPTS[k].map(([v,l])=>{
+      const prev={...c,[k]:v};if(k!=='bg')prev.bg='none';
+      if(k==='hair'&&c.head!=='none')prev.head='none';
+      return `<button type="button" class="avm-t${c[k]===v?' on':''}" data-act="av-set" data-k="${k}" data-v="${v}" aria-pressed="${c[k]===v}"><span class="avm-ti">${avatarSVG(prev,{view})}</span><span class="avm-tl">${l}</span></button>`}).join('')}</div>${k==='hair'&&c.head!=='none'?'<p class="avm-note">Your head cover hides most of the hair. Set Head cover to None in Extras to see it.</p>':''}</div>`;
+  }).join('');
+}
+async function saveAvatar(b){
+  const A=S.av;if(!A)return;const err=$('#av-err');err.textContent='';
+  b.disabled=true;b.classList.add('busy');
+  try{
+    const j=await api('POST','/api/auth?action=avatar',{avatar:cleanAvatar(A.cfg)});
+    S.me={...S.me,avatar:j.avatar};const u=S.users.find(x=>x.id===S.me.id);if(u)u.avatar=j.avatar;
+    const first=A.first;S.av=null;S.lastJson='';showApp();toast(first?'Lovely! Your avatar is saved.':'Avatar updated.');
+  }catch(x){err.textContent=x.message;b.disabled=false;b.classList.remove('busy')}
 }
 function showSetup(){
   S.screen='setup';
@@ -173,9 +268,10 @@ function navItems(){
   return hasGrants()?[...base,['hub','Reports'],...GRANT.filter(g=>['dash','act'].includes(g[0])&&myReports().includes(g[0])).map(g=>[g[0],g[1]])]:base;
 }
 function showApp(){
+  if(S.me&&!S.me.avatar){showAvatarMaker(true);return}
   S.screen='app';applySideMin();
   $('#app').innerHTML=`<div class="shell"><aside class="side">${brandHTML}<nav class="nav" id="nav" aria-label="Pages"></nav>
-    <div class="me"><div class="who"><b>${esc(S.me.username)}</b>${roleChip(S.me.role)}</div><button class="btn sm so" data-act="logout" title="Sign out"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10"/></svg><span class="nl">Sign out</span></button></div><button class="sidetog" data-act="theme-toggle" title="Switch between dark and light" aria-label="Switch theme"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.800A9 9 0 1 1 11.200 3a7 7 0 0 0 9.800 9.800z"/></svg><span class="nl">${theme()==='light'?'Dark mode':'Light mode'}</span></button><button class="sidetog" data-act="side-toggle" title="Make the menu smaller or larger" aria-label="Toggle menu size"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m14.500 7-5 5 5 5"/></svg><span class="nl">Make smaller</span></button></aside>
+    <div class="me"><div class="who"><button type="button" class="me-av" data-act="avatar-edit" title="Edit my avatar" aria-label="Edit my avatar">${avatarSVG(S.me.avatar)}</button><span class="me-nm"><b>${esc(S.me.username)}</b>${roleChip(S.me.role)}</span></div><button class="btn sm so" data-act="logout" title="Sign out"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10"/></svg><span class="nl">Sign out</span></button></div><button class="sidetog" data-act="theme-toggle" title="Switch between dark and light" aria-label="Switch theme"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.800A9 9 0 1 1 11.200 3a7 7 0 0 0 9.800 9.800z"/></svg><span class="nl">${theme()==='light'?'Dark mode':'Light mode'}</span></button><button class="sidetog" data-act="side-toggle" title="Make the menu smaller or larger" aria-label="Toggle menu size"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m14.500 7-5 5 5 5"/></svg><span class="nl">Make smaller</span></button></aside>
     <main class="main"><div class="wrap" id="view"></div></main></div>`;
   mount();
 }
@@ -822,7 +918,7 @@ function hubHTML(){
   const list=REPORTS.filter(r=>r.admin?isAdmin():(isAdmin()||(isCeo()&&r.ceo)||canSee(r.k)&&GRANT.some(g=>g[0]===r.k)));
   const t=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric',timeZone:'Africa/Cairo'});
   const tile=r=>`<button class="hub-t${r.feat?' feat':''}" style="--hc:${r.c}" data-act="go" data-route="${r.k}"><span class="kico" style="--kc:${r.c}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[r.ico]||NAV_ICON[r.ico]||''}</svg></span><span class="hub-tt">${r.t}</span><span class="hub-td">${r.d}</span><span class="hub-go">Open report <i>→</i></span></button>`;
-  return `<div class="hub-bar">${brandHTML}<div class="row"><span class="muted">${esc(S.me.username)}</span>${roleChip(S.me.role)}<button class="btn sm so" data-act="theme-toggle">${theme()==='light'?'Dark':'Light'} mode</button><button class="btn sm so" data-act="logout">Sign out</button></div></div><div class="head"><div><h1>Welcome, ${esc(S.me.username)}</h1><p>${t}. Choose a report to open.</p></div></div><div class="hub-grid">${list.map(tile).join('')}</div>`;
+  return `<div class="hub-bar">${brandHTML}<div class="row"><span class="muted">${esc(S.me.username)}</span>${roleChip(S.me.role)}<button class="btn sm so" data-act="theme-toggle">${theme()==='light'?'Dark':'Light'} mode</button><button class="btn sm so" data-act="logout">Sign out</button></div></div><div class="head"><div class="hub-hi"><button type="button" class="hub-av" data-act="avatar-edit" title="Edit my avatar">${avatarSVG(S.me.avatar)}</button><div><h1>Welcome, ${esc(S.me.username)}</h1><p>${t}. Choose a report to open.</p></div></div></div><div class="hub-grid">${list.map(tile).join('')}</div>`;
 }
 S.dash={d:{},err:{},done:{},busy:false,tok:0,at:0,focus:'all',trendM:'money',dayM:'revenue',dayCmp:true,off:{},prodBy:'revenue',prodQ:'',geo:'countries',campBy:'spend'};
 const DC={shop:'#7FD1C0',odoo:'#B79CE0',meta:'#EE9F8E',good:'#6FCF9F',bad:'#F28B96',pink:'#E58FB0',blue:'#8FB4E8',amber:'#E8C27A'};
@@ -2804,6 +2900,13 @@ document.addEventListener('click',async e=>{
   else if(a==='ov-tab'){const id=b.dataset.sec,el=document.getElementById(id);if(!el)return;ovLock=Date.now()+900;ovMark(id);ovSetHash(id);el.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'})}
   else if(a==='logout')logout();
   else if(a==='pw-toggle')togglePw(b);
+  else if(a==='avatar-edit')showAvatarMaker(false);
+  else if(a==='av-tab'){S.av.tab=b.dataset.t;renderAv()}
+  else if(a==='av-set'){S.av.cfg[b.dataset.k]=b.dataset.v;if(b.dataset.k==='g')avGender(b.dataset.v);renderAv()}
+  else if(a==='av-rand'){S.av.cfg=randomAvatar(S.av.cfg.g);renderAv()}
+  else if(a==='av-undo'){if(S.av.hist.length){S.av.cfg=S.av.hist.pop();renderAv(true)}}
+  else if(a==='av-save')saveAvatar(b);
+  else if(a==='av-cancel'){S.av=null;S.lastJson='';showApp()}
   else if(a==='shop-sync')runSync();
   else if(a==='ev-reload')loadEval();
   else if(a==='ev-csv')evCsv();

@@ -134,6 +134,21 @@ export default route(async (req, res) => {
     return res.json({ ok: true });
   }
 
+  if (action === 'avatar') {
+    // Each person saves their own avatar: a small flat object of short option names and #rrggbb colours.
+    const u = await requireUser(req);
+    const src = body.avatar && typeof body.avatar === 'object' && !Array.isArray(body.avatar) ? body.avatar : null;
+    if (!src) throw new HttpError(400, 'Missing avatar.');
+    const out = {};
+    for (const [k, v] of Object.entries(src).slice(0, 30)) {
+      if (!/^[a-zA-Z]{1,12}$/.test(k) || typeof v !== 'string' || !/^(#[0-9a-fA-F]{6}|[a-z]{0,16})$/.test(v)) continue;
+      out[k] = v;
+    }
+    if (!Object.keys(out).length) throw new HttpError(400, 'That avatar could not be read.');
+    await q`UPDATE users SET avatar = ${JSON.stringify(out)}::jsonb WHERE id = ${u.id}`;
+    return res.json({ ok: true, avatar: out });
+  }
+
   if (action === 'logout') {
     clearSession(res);
     return res.json({ ok: true });
