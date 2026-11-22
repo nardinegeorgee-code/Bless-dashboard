@@ -230,7 +230,7 @@ function showLogin(){
 const validName=u=>u.length>=2&&u.length<=40;
 
 /* ---------- app shell ---------- */
-const NAV_ICON={quotes:'<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h6M9 16h4"/>',invoices:'<path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/>',warehouse:'<path d="M3 9l9-6 9 6v12H3z"/><path d="M7 21v-8h10v8M7 17h10"/>',
+const NAV_ICON={stock:'<path d="M3 7l9-4 9 4-9 4z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/>',quotes:'<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h6M9 16h4"/>',invoices:'<path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/>',warehouse:'<path d="M3 9l9-6 9 6v12H3z"/><path d="M7 21v-8h10v8M7 17h10"/>',
   hub:'<path d="M4 11.5 12 5l8 6.5"/><path d="M6 10v9h12v-9"/><path d="M10 19v-5h4v5"/>',
   dash:'<path d="M4 20V10M10 20V4M16 20v-7M21 20H3"/>',
   home:'<rect x="4" y="4" width="7" height="7" rx="1.500"/><rect x="13" y="4" width="7" height="7" rx="1.500"/><rect x="4" y="13" width="7" height="7" rx="1.500"/><rect x="13" y="13" width="7" height="7" rx="1.500"/>',
@@ -298,7 +298,8 @@ function targetChips(ins){
 function mount(){
   const v=$('#view');const r=S.route;
   if(qtRoutes.includes(S.route)&&!qtAllowed(S.route)){S.route=isAdmin()||isCeo()?'hub':'home';S.param=null}
-  if(isCeo()){if(!['hub','dash','shop','odoo','meta','catalog','game',...qtRoutes].includes(S.route)&&!(S.route==='act'&&canSee('act')))S.route='hub'}
+  if(S.route==='stock'&&!stSee()){S.route=isAdmin()||isCeo()?'hub':'home'}
+  if(isCeo()){if(!['hub','dash','shop','odoo','meta','catalog','game','stock',...qtRoutes].includes(S.route)&&!(S.route==='act'&&canSee('act')))S.route='hub'}
   else if(!isAdmin()&&['hub','dash','send','content','users','priv','shop','eval','odoo','meta','act'].includes(r)){if(!(r==='hub'?hasGrants():canSee(r)))S.route='home'}
   if(S.route==='hub')v.innerHTML=`<div id="live"></div>`;
   else if(S.route==='dash'){v.innerHTML=`<div id="live"></div>`;if(!S.dash.d.shop&&!S.dash.busy)loadDash(false,true)}
@@ -332,6 +333,7 @@ function mount(){
   else if(S.route==='game'){v.innerHTML=`<div class="head"><div><h1>Bless Game</h1><p>A quick quiz about our products and customers. Every question comes from real orders.</p></div></div><div id="live"></div>`}
   else if(S.route==='act')v.innerHTML=`<div id="live"></div>`;
   else if(qtRoutes.includes(S.route)){v.innerHTML=`<div id="live"></div>`;setTimeout(qtEnter,0)}
+  else if(S.route==='stock'){v.innerHTML=`<div id="live"></div>`;setTimeout(stEnter,0)}
   else if(S.route==='priv')v.innerHTML=`<div class="head"><div><h1>User privileges</h1><p>Choose exactly which reports each person can open. Changes save at once and apply the next time they open the hub or reload.</p></div></div><div id="live"></div>`;
   else if(S.route==='users')v.innerHTML=`<div class="head"><div><h1>Users</h1><p>Add people, change their role, or set a new password.</p></div></div>
     <form class="panel" data-form="adduser"><h2>Add a user</h2><div class="grid2">
@@ -366,7 +368,7 @@ function update(){
   else if(r==='meta')renderMeta();
   else if(r==='eval')renderEval();
   else if(r==='game')gmRender();
-  else if(qtRoutes.includes(r)){/* these pages load their own data */}
+  else if(qtRoutes.includes(r)||r==='stock'){/* these pages load their own data */}
   syncUploadAvail();renderSelBar();
 }
 
@@ -3224,7 +3226,7 @@ document.addEventListener('submit',async e=>{
   else if(k==='up-free')submitUpload('free');
 });
 
-(function(){try{let h=location.hash.slice(1);if(h.startsWith('home:')){S.ovSec=S.ovPending=h.slice(5);h='home'}if(h.startsWith('ins-')){S.route='ins';S.param=h.slice(4)}else if(/^(quote|invoice)-/.test(h)){S.route=h.split('-')[0];S.param=h.slice(h.indexOf('-')+1)}else if(['quotes','invoices','warehouse'].includes(h))S.route=h;else if(['catalog','hub','dash','home','uploads','notes','team','send','content','users','shop','eval','odoo','meta'].includes(h))S.route=h}catch(e){}})();
+(function(){try{let h=location.hash.slice(1);if(h.startsWith('home:')){S.ovSec=S.ovPending=h.slice(5);h='home'}if(h.startsWith('ins-')){S.route='ins';S.param=h.slice(4)}else if(/^(quote|invoice)-/.test(h)){S.route=h.split('-')[0];S.param=h.slice(h.indexOf('-')+1)}else if(['quotes','invoices','warehouse','stock'].includes(h))S.route=h;else if(['catalog','hub','dash','home','uploads','notes','team','send','content','users','shop','eval','odoo','meta'].includes(h))S.route=h}catch(e){}})();
 boot();
 
 /* Side charts (pies and bar panels) can be dragged out of the way. Position is remembered while the page is open; double-click the title to put it back. */
@@ -3401,7 +3403,7 @@ const qtSeeQuotes=()=>qtCreate()||qtAll();
 const qtSeeInv=()=>qtAll()||isWh()||qtCreate();
 const qtSeeWh=()=>isWh()||qtAll();
 function qtAllowed(r){return r==='quotes'||r==='quote'?qtSeeQuotes():r==='invoices'||r==='invoice'?qtSeeInv():r==='warehouse'?qtSeeWh():true}
-function qtNav(){const o=[];if(qtSeeQuotes())o.push(['quotes','Quotations',S.qtc.approve||0]);if(qtSeeInv())o.push(['invoices','Invoices']);if(qtSeeWh())o.push(['warehouse','Warehouse',S.qtc.wh||0]);return o}
+function qtNav(){const o=[];if(typeof stSee==='function'&&stSee())o.push(['stock',isAdmin()&&!stLive()?'Stock · preview':'Stock']);if(qtSeeQuotes())o.push(['quotes','Quotations',S.qtc.approve||0]);if(qtSeeInv())o.push(['invoices','Invoices']);if(qtSeeWh())o.push(['warehouse','Warehouse',S.qtc.wh||0]);return o}
 const qMoney=(n,c)=>{c=c||S.qt.currency||'EGP';try{return new Intl.NumberFormat(undefined,{style:'currency',currency:c,minimumFractionDigits:2,maximumFractionDigits:2}).format(n||0)}catch(e){return (Number(n)||0).toFixed(2)+' '+c}};
 const qNum=n=>(Number(n)||0).toLocaleString(undefined,{maximumFractionDigits:2});
 const qDate=t=>t?new Date(t).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}):'–';
@@ -3503,7 +3505,7 @@ function qtLinesHTML(){
   return `<div class="tablewrap"><table class="dt qt-lines"><thead><tr><th>#</th><th>Product</th><th class="num">Unit price</th><th class="num">Quantity</th><th>Discount</th><th class="num">Line total</th><th></th></tr></thead><tbody>${P.lines.map((l,i)=>{
     const changed=l.listPrice!=null&&Math.abs(l.listPrice-l.price)>0.004;
     return `<tr data-row="${i}"><td class="muted">${i+1}</td>
-    <td class="qt-pcell">${l.pid?`<b>${esc(l.name)}</b>`:`<input class="input qt-name" data-ql="name" data-i="${i}" value="${esc(l.name)}" placeholder="Item name">`}<small class="mono">${[l.code,l.barcode].filter(Boolean).map(esc).join(' · ')||(l.pid?'':'Not in Odoo')}</small></td>
+    <td class="qt-pcell">${l.pid?`<b>${esc(l.name)}</b>`:`<input class="input qt-name" data-ql="name" data-i="${i}" value="${esc(l.name)}" placeholder="Item name">`}<small class="mono">${[l.code,l.barcode].filter(Boolean).map(esc).join(' · ')||(l.pid?'':'Not in Odoo')}</small>${l.avail!=null?`<small class="qt-av-line${l.qty>l.avail?' short':''}">${l.qty>l.avail?`Only ${stN(Math.max(0,l.avail))} available`:`${stN(l.avail)} available`}</small>`:''}</td>
     <td class="num"><input class="input qt-in" type="number" min="0" step="0.01" data-ql="price" data-i="${i}" value="${l.unit}">${changed?`<small class="qt-flag">Odoo price ${qMoney(l.listUnit)} <button class="qt-mini" data-act="qt-reset" data-i="${i}">reset</button></small>`:''}</td>
     <td class="num"><div class="qt-qty"><button class="qt-step" data-act="qt-qty" data-i="${i}" data-d="-1" aria-label="One less">−</button><input class="input qt-in" type="number" min="0" step="1" data-ql="qty" data-i="${i}" value="${l.qty}"><button class="qt-step" data-act="qt-qty" data-i="${i}" data-d="1" aria-label="One more">+</button></div></td>
     <td><div class="qt-dsel">${qDiscCtl('ql',i,l.discount)}</div></td>
@@ -3525,7 +3527,7 @@ function qtAddProduct(p){
   const d=S.qt.draft;if(!d)return;
   const i=d.lines.findIndex(l=>l.pid&&l.pid===p.pid);
   if(i>=0)d.lines[i].qty=(Number(d.lines[i].qty)||0)+1;
-  else d.lines.push({pid:p.pid,name:p.name,code:p.code||'',barcode:p.barcode||'',listPrice:p.price,price:p.price,qty:1,discount:{type:'none',value:0}});
+  else d.lines.push({pid:p.pid,name:p.name,code:p.code||'',barcode:p.barcode||'',listPrice:p.price,price:p.price,qty:1,avail:p.avail,discount:{type:'none',value:0}});
   S.qt.dirty=true;qtLinesRedraw();
   const row=document.querySelector(`[data-row="${i>=0?i:d.lines.length-1}"]`);if(row){row.classList.add('qt-flash');setTimeout(()=>row.classList.remove('qt-flash'),900)}
   const inp=$('#qt-ps');if(inp){inp.value='';inp.focus()}const dl=$('#qt-ps-list');if(dl)dl.hidden=true;
@@ -3540,7 +3542,7 @@ async function qtProdSearch(s,enter){
     if(enter&&j.exact){qtAddProduct(j.exact);return}
     if(enter&&S.qt.ps.length===1){qtAddProduct(S.qt.ps[0]);return}
     if($('#qt-ps')&&$('#qt-ps').value.trim()!==s&&!enter)return;
-    dl.innerHTML=S.qt.ps.length?S.qt.ps.map((p,k)=>`<button type="button" class="qt-opt${k===0?' first':''}" data-act="qt-pick-p" data-k="${k}"><span><b>${esc(p.name)}</b><small class="mono">${[p.code,p.barcode].filter(Boolean).map(esc).join(' · ')}</small></span><em>${qMoney(p.price,j.currency)}</em></button>`).join(''):`<div class="qt-none">No product matches “${esc(s)}”. <button type="button" class="qt-mini" data-act="qt-custom" data-name="${esc(s)}">Add it by hand</button></div>`;
+    dl.innerHTML=S.qt.ps.length?S.qt.ps.map((p,k)=>`<button type="button" class="qt-opt${k===0?' first':''}" data-act="qt-pick-p" data-k="${k}"><span><b>${esc(p.name)}</b><small class="mono">${[p.code,p.barcode].filter(Boolean).map(esc).join(' · ')}</small></span>${p.avail!=null?`<em class="qt-av-tag${p.avail<=0?' out':''}">${p.avail<=0?'None available':stN(p.avail)+' available'}</em>`:''}<em>${qMoney(p.price,j.currency)}</em></button>`).join(''):`<div class="qt-none">No product matches “${esc(s)}”. <button type="button" class="qt-mini" data-act="qt-custom" data-name="${esc(s)}">Add it by hand</button></div>`;
     dl.hidden=false;
   }catch(e){dl.innerHTML=`<div class="qt-none">${esc(e.message)}</div>`;dl.hidden=false}
 }
@@ -3729,3 +3731,288 @@ document.addEventListener('keydown',e=>{
 });
 document.addEventListener('focusin',e=>{if(e.target&&e.target.id==='qt-cs'&&S.qt.draft&&!S.qt.draft.customer)qtCustSearch(e.target.value.trim())});
 window.addEventListener('beforeunload',e=>{if(S.route==='quote'&&S.qt.draft&&S.qt.dirty){e.preventDefault();e.returnValue=''}});
+
+// =====================================================================================
+// Inventory & stock (preview until the Super Admin makes it live). Server: api/_stock.js via /api/data?st=...
+// =====================================================================================
+const stToday=()=>new Date().toISOString().slice(0,10);
+S.st={tab:'overview',home:null,err:'',docs:{},doc:null,moves:null,mf:{type:'',loc:'',q:'',from:'',to:''},cmp:null,q:'',loc:'',show:'active',invs:null,arm:'',ps:{},
+  f:{rec:{loc:'main',sourceType:'supplier',source:'',ref:'',date:stToday(),notes:'',lines:[]},adj:{loc:'main',reason:'',direction:'remove',bucket:'sellable',notes:'',lines:[]},trf:{loc:'main',toLoc:'',notes:'',lines:[]},ret:{source:'customer',invoiceId:'',customer:'',loc:'main',notes:'',lines:[]},cnt:{loc:'main',scope:'all'}}};
+const stLive=()=>!!(S.qtc&&S.qtc.stockLive);
+const stSee=()=>isAdmin()||(stLive()&&!!S.me&&['ceo','finance','warehouse'].includes(S.me.role));
+const ST_TYPES={OPENING:['Opening','#9CA3AF'],IN:['In','#4ADE80'],OUT:['Out','#F87171'],RETURN:['Return','#B07CE0'],ADJUSTMENT:['Adjustment','#E0A24F'],COUNT:['Count','#5B8DEF'],TRANSFER:['Transfer','#2DD4BF']};
+const ST_KIND={receipt:'Receipt',count:'Stock count',return:'Return',adjust:'Adjustment',transfer:'Transfer'};
+const ST_STATUS={draft:['Counting','#9CA3AF'],pending:['Waiting for approval','#E0A24F'],posted:['Applied','#4ADE80'],rejected:['Rejected','#F87171'],cancelled:['Cancelled','#6B7280'],posting:['Applying…','#5B8DEF'],ready:['Ready','#5B8DEF']};
+const stN=n=>(Number(n)||0).toLocaleString(undefined,{maximumFractionDigits:3});
+const stSigned=n=>`<b class="st-chg ${n>0?'up':n<0?'down':''}">${n>0?'+':''}${stN(n)}</b>`;
+const stLocName=id=>{const l=(S.st.home&&S.st.home.locations||[]).find(x=>x.id===id);return l?l.name:id||'–'};
+const stLocOpts=(sel,all,activeOnly=true)=>`${all?`<option value="">All locations</option>`:''}${(S.st.home?S.st.home.locations:[]).filter(l=>!activeOnly||l.active).map(l=>`<option value="${l.id}" ${sel===l.id?'selected':''}>${esc(l.name)}</option>`).join('')}`;
+async function stLoadHome(){try{S.st.home=await api('GET','/api/data?st=home');S.st.err=''}catch(e){S.st.err=e.message}if(S.route==='stock')stRender()}
+async function stLoadDocs(kind){try{const j=await api('GET','/api/data?st=docs&kind='+kind);S.st.docs[kind]=j.docs}catch(e){S.st.docs[kind]=[];toast(e.message)}if(S.route==='stock')stRender()}
+async function stOpenDoc(id){S.st.doc={loading:true};stRender();try{const j=await api('GET','/api/data?st=doc&id='+encodeURIComponent(id));S.st.doc=j.doc}catch(e){S.st.doc=null;toast(e.message)}stRender()}
+function stEnter(){stRender();stLoadHome();stTabLoad()}
+function stTabLoad(){const t=S.st.tab;if(t==='receive')stLoadDocs('receipt');if(t==='count')stLoadDocs('count');if(t==='returns'){stLoadDocs('return');if(!S.st.invs)api('GET','/api/data?st=invoices').then(j=>{S.st.invs=j.invoices;stRender()}).catch(()=>{S.st.invs=[]})}if(t==='adjust'){stLoadDocs('adjust');stLoadDocs('transfer')}if(t==='ledger')stLoadMoves()}
+function stRender(){
+  const L=$('#live');if(!L||S.route!=='stock')return;
+  const H=S.st.home,me=H&&H.me||{};
+  const tabs=[['overview','Overview'],['receive','Receive stock'],['count','Stock count'],['returns','Returns'],['adjust','Adjust & transfer'],['ledger','Ledger'],...(me.admin?[['settings','Settings']]:[])];
+  const live=H?H.settings.live:stLive();
+  const head=`<div class="head"><div><h1>Stock ${live?'':'<span class="st-prev">Preview</span>'}</h1><p>Every change to stock is written to the ledger: stock in, dispatch, counts, returns, adjustments and transfers.</p></div></div>
+  ${H&&!live?`<div class="qt-banner wait st-banner">${qi('wait',18)}<div><b>Preview: not live.</b> Only you can see this. Odoo stays the source of stock: nothing here changes Odoo, quotations or invoices until you press <b>Make live</b> in Settings. Use it freely to test, then wipe the test data before going live.</div></div>`:''}
+  <nav class="st-tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${S.st.tab===k}" class="${S.st.tab===k?'on':''}" data-act="st-tab" data-t="${k}">${l}${k==='overview'&&H&&H.pending.length&&me.approve?`<span class="count">${H.pending.length}</span>`:''}</button>`).join('')}</nav>`;
+  if(!H){L.innerHTML=head+(S.st.err?empty('Could not load stock',esc(S.st.err)):'<div class="qt-load">Loading stock…</div>');return}
+  if(S.st.doc){L.innerHTML=head+stDocHTML();return}
+  const body={overview:stOverviewHTML,receive:stReceiveHTML,count:stCountHTML,returns:stReturnsHTML,adjust:stAdjustHTML,ledger:stLedgerHTML,settings:stSettingsHTML}[S.st.tab]||stOverviewHTML;
+  L.innerHTML=head+body();
+}
+
+// ---------- overview
+function stRows(){
+  const H=S.st.home,loc=S.st.loc,q=S.st.q.trim().toLowerCase();
+  return H.rows.map(r=>{const on=loc?(r.loc[loc]||0):r.onHand,dm=loc?(r.damaged[loc]||0):r.dmg,av=loc?on:r.available;const st=on<=0&&(r.min!=null||r.reserved||r.onHand!==0||Object.keys(r.loc).length)?'out':r.min!=null&&av<=r.min?'low':'ok';return {...r,on,dm,av,st}})
+    .filter(r=>S.st.show==='all'||r.onHand!==0||r.dmg!==0||r.reserved||r.min!=null||Object.keys(r.loc).length)
+    .filter(r=>S.st.show!=='low'||r.st!=='ok').filter(r=>S.st.show!=='damaged'||r.dm>0)
+    .filter(r=>!q||(r.name+' '+r.code+' '+r.barcode).toLowerCase().includes(q))
+    .sort((a,b)=>({out:0,low:1,ok:2}[a.st]-{out:0,low:1,ok:2}[b.st])||a.name.localeCompare(b.name));
+}
+function stOverviewHTML(){
+  const H=S.st.home,me=H.me,tracked=H.rows.filter(r=>r.onHand!==0||r.dmg!==0||Object.keys(r.loc).length);
+  const T=(n,l,c,f)=>`<button class="qt-tile" style="--qc:${c}" data-act="st-show" data-s="${f||''}"><b>${n}</b><span>${l}</span></button>`;
+  const low=tracked.filter(r=>r.min!=null&&r.available<=r.min&&r.available>0),out=tracked.filter(r=>r.available<=0);
+  const tiles=`<div class="qt-tiles">${T(tracked.length,'Products with stock','#B07CE0','active')}${T(stN(tracked.reduce((a,r)=>a+r.onHand,0)),'Units on hand','#4ADE80','active')}${T(stN(tracked.reduce((a,r)=>a+r.reserved,0)),'Reserved for invoices','#5B8DEF','active')}${T(stN(tracked.reduce((a,r)=>a+r.available,0)),'Available to sell','#2DD4BF','active')}${T(stN(tracked.reduce((a,r)=>a+r.dmg,0)),'Damaged / quarantine','#F87171','damaged')}${T(low.length,'Running low','#E0A24F','low')}${T(out.length,'Out of stock','#F87171','low')}</div>`;
+  const pend=H.pending.length?`<section class="qt-card st-pend"><div class="qt-ch"><h3>Waiting for approval</h3><small class="muted">${me.approve?'You can approve these':'The Super Admin or Finance approve these'}</small></div><div class="st-plist">${H.pending.map(d=>`<button class="st-pi" data-act="st-doc" data-id="${d.id}"><b class="mono">${esc(d.no)}</b><span>${ST_KIND[d.kind]} · ${esc(stLocName(d.loc))} · ${d.lines.length} products</span><small>${esc(d.createdByName)} · ${qDate(d.createdAt)}</small></button>`).join('')}</div></section>`:'';
+  const alerts=low.length||out.length?`<section class="qt-card st-alerts"><h3>Low stock alerts</h3><div class="st-alist">${[...out,...low].slice(0,12).map(r=>`<div class="st-al ${r.available<=0?'out':'low'}"><b>${esc(r.name)}</b><span>${r.available<=0?'Out of stock':'Only '+stN(r.available)+' available'}${r.min!=null?' · minimum '+stN(r.min):''}</span></div>`).join('')}</div></section>`:'';
+  const rows=stRows(),cmp=S.st.cmp;
+  const cmpMap=cmp?new Map(cmp.map(c=>[c.key,c])):null;
+  const empty0=!tracked.length?`<div class="qt-empty">${qi('box',28)}<b>No stock recorded yet</b><span>${me.admin?'Import opening balances from Odoo in Settings, or receive stock.':'Stock appears here after the first receipt.'}</span></div>`:'';
+  const bar=`<div class="st-bar"><input class="input" id="st-q" placeholder="Search product, code or barcode…" value="${esc(S.st.q)}" autocomplete="off"><select class="select" id="st-loc">${stLocOpts(S.st.loc,true,false)}</select><select class="select" id="st-show"><option value="active" ${S.st.show==='active'?'selected':''}>Products with stock</option><option value="low" ${S.st.show==='low'?'selected':''}>Low or out</option><option value="damaged" ${S.st.show==='damaged'?'selected':''}>Damaged</option><option value="all" ${S.st.show==='all'?'selected':''}>All Odoo products</option></select><button class="btn sm" data-act="st-cmp">${cmp?'Hide Odoo':'Compare with Odoo'}</button></div>`;
+  const canMin=me.admin||me.role==='warehouse';
+  const table=rows.length?`<div class="tablewrap"><table class="dt st-table"><thead><tr><th>Product</th><th class="num">On hand${S.st.loc?'':' (all)'}</th>${S.st.loc?'':'<th class="num">Reserved</th><th class="num">Available</th>'}<th class="num">Damaged</th><th class="num">Low at</th><th>Status</th>${cmp?'<th class="num">Odoo</th><th class="num">Difference</th>':''}<th></th></tr></thead><tbody>${rows.slice(0,400).map(r=>{const c=cmpMap&&cmpMap.get(r.key);const diff=c&&c.hub!=null?r.onHand-c.odoo:null;
+    return `<tr><td><b>${esc(r.name||'Product '+r.pid)}</b><small class="mono muted">${[r.code,r.barcode].filter(Boolean).map(esc).join(' · ')}</small>${!S.st.loc&&H.locations.length>1&&Object.keys(r.loc).length?`<small class="st-locs">${Object.entries(r.loc).filter(([,v])=>v).map(([k,v])=>`${esc(stLocName(k))}: ${stN(v)}`).join(' · ')}</small>`:''}</td><td class="num"><b>${stN(r.on)}</b></td>${S.st.loc?'':`<td class="num">${r.reserved?stN(r.reserved):'–'}</td><td class="num"><b>${stN(r.av)}</b></td>`}<td class="num">${r.dm?`<span class="st-dmg">${stN(r.dm)}</span>`:'–'}</td>
+    <td class="num">${canMin?`<input class="input st-min" type="number" min="0" data-stmin="${r.pid}" value="${r.min??''}" placeholder="–" aria-label="Low-stock minimum for ${esc(r.name)}">`:(r.min??'–')}</td><td>${r.st==='out'?'<span class="qt-pill" style="--qc:#F87171">Out</span>':r.st==='low'?'<span class="qt-pill" style="--qc:#E0A24F">Low</span>':'<span class="qt-pill" style="--qc:#4ADE80">OK</span>'}</td>${cmp?`<td class="num">${c?stN(c.odoo):'–'}</td><td class="num">${diff==null?'–':diff===0?'<span class="muted">same</span>':stSigned(diff)}</td>`:''}<td><button class="btn sm ghost" data-act="st-led" data-key="${r.key}">History</button></td></tr>`}).join('')}</tbody></table></div>${rows.length>400?`<p class="muted">Showing 400 of ${rows.length}. Search to narrow.</p>`:''}`:(tracked.length?empty('Nothing matches','Change the search or filter.'):'');
+  return tiles+pend+alerts+bar+(empty0||table);
+}
+
+// ---------- shared product picker + lines
+function stPicker(f,label){return `<div class="qt-search qt-scan"><span class="qt-sico">${qi('scan',20)}</span><input class="input" id="st-ps-${f}" data-stps="${f}" placeholder="${label||'Scan a barcode, or type a product name or code, then press Enter'}" autocomplete="off"><div class="qt-drop" id="st-pl-${f}" hidden></div></div>`}
+async function stSearch(f,s,enter){
+  const dl=$('#st-pl-'+f);if(!dl)return;
+  const loc=f==='cnt'?(S.st.doc&&S.st.doc.loc):(S.st.f[f]&&S.st.f[f].loc)||'';
+  try{const j=await api('GET',`/api/data?st=products&loc=${encodeURIComponent(loc)}&s=${encodeURIComponent(s)}`);S.st.ps[f]=j.products||[];
+    if(enter&&(j.exact||S.st.ps[f].length===1)){stAdd(f,j.exact||S.st.ps[f][0]);return}
+    dl.innerHTML=S.st.ps[f].length?S.st.ps[f].map((p,k)=>`<button type="button" class="qt-opt${k===0?' first':''}" data-act="st-pick" data-f="${f}" data-k="${k}"><span><b>${esc(p.name)}</b><small class="mono">${[p.code,p.barcode].filter(Boolean).map(esc).join(' · ')}</small></span>${p.here!=null?`<em>${stN(p.here)} here</em>`:''}</button>`).join(''):`<div class="qt-none">No product matches “${esc(s)}”.</div>`;dl.hidden=false;
+  }catch(e){dl.innerHTML=`<div class="qt-none">${esc(e.message)}</div>`;dl.hidden=false}
+}
+function stAdd(f,p){
+  if(f==='cnt'){const d=S.st.doc;let i=d.lines.findIndex(l=>l.pid===p.pid);if(i<0){d.lines.push({key:'o'+p.pid,pid:p.pid,name:p.name,code:p.code,barcode:p.barcode,counted:1,reason:'',systemNow:p.here??0});i=d.lines.length-1}else d.lines[i].counted=(Number(d.lines[i].counted)||0)+1;S.st.dirty=true;stRender();const row=document.querySelector(`[data-strow="${i}"]`);if(row){row.classList.add('qt-flash');row.scrollIntoView({block:'nearest'})}setTimeout(()=>$('#st-ps-cnt')?.focus(),0);toast(`${p.name}: counted ${d.lines[i].counted}`);return}
+  const F=S.st.f[f],i=F.lines.findIndex(l=>l.pid===p.pid&&f!=='ret');
+  if(i>=0)F.lines[i].qty=(Number(F.lines[i].qty)||0)+1;
+  else F.lines.push({pid:p.pid,name:p.name,code:p.code,barcode:p.barcode,qty:1,here:p.here,lot:'',expiry:'',reason:'',cond:f==='ret'?(F.source==='internal'?'damaged':'restock'):''});
+  stRender();setTimeout(()=>{const n=$('#st-ps-'+f);if(n)n.focus()},0);toast(i>=0?`${p.name}: ${F.lines[i].qty}`:`Added ${p.name}`);
+}
+function stLinesHTML(f,cols){
+  const F=S.st.f[f];
+  if(!F.lines.length)return `<div class="qt-empty">${qi('scan',26)}<b>No products yet</b><span>Scan or search above. Scanning the same product again adds one.</span></div>`;
+  const C=cols;
+  return `<div class="tablewrap"><table class="dt st-lines"><thead><tr><th>Product</th>${C.includes('here')?'<th class="num">In stock here</th>':''}<th class="num">Quantity</th>${C.includes('cond')?'<th>Condition</th>':''}${C.includes('reason')?'<th>Reason</th>':''}${C.includes('lot')?'<th>Lot / batch</th><th>Expiry</th>':''}<th></th></tr></thead><tbody>${F.lines.map((l,i)=>`<tr><td><b>${esc(l.name)}</b><small class="mono muted">${[l.code,l.barcode].filter(Boolean).map(esc).join(' · ')}</small></td>${C.includes('here')?`<td class="num">${l.here==null?'–':stN(l.here)}</td>`:''}
+    <td class="num"><input class="input qt-in" type="number" min="0" step="1" data-stl="qty" data-f="${f}" data-i="${i}" value="${l.qty}"></td>
+    ${C.includes('cond')?`<td><select class="select st-sel" data-stl="cond" data-f="${f}" data-i="${i}">${Object.entries(S.st.home.conds).filter(([k])=>!(F.source==='internal'&&k==='restock')).map(([k,v])=>`<option value="${k}" ${l.cond===k?'selected':''}>${v}</option>`).join('')}</select></td>`:''}
+    ${C.includes('reason')?`<td><input class="input" data-stl="reason" data-f="${f}" data-i="${i}" value="${esc(l.reason||'')}" placeholder="Why?"></td>`:''}
+    ${C.includes('lot')?`<td><input class="input st-lot" data-stl="lot" data-f="${f}" data-i="${i}" value="${esc(l.lot||'')}" placeholder="Optional"></td><td><input class="input st-exp" type="date" data-stl="expiry" data-f="${f}" data-i="${i}" value="${esc(l.expiry||'')}"></td>`:''}
+    <td><button class="qt-x" data-act="st-rm" data-f="${f}" data-i="${i}" aria-label="Remove">${qi('x',15)}</button></td></tr>`).join('')}</tbody></table></div><p class="st-sum">${F.lines.length} products · ${stN(F.lines.reduce((a,l)=>a+(Number(l.qty)||0),0))} units</p>`;
+}
+function stDocList(kinds,title){
+  const list=kinds.flatMap(k=>S.st.docs[k]||[]).sort((a,b)=>b.createdAt-a.createdAt);
+  const loading=kinds.some(k=>!S.st.docs[k]);
+  return `<section class="qt-card"><h3>${title}</h3>${loading&&!list.length?'<div class="qt-load">Loading…</div>':list.length?`<div class="tablewrap"><table class="dt qt-table"><thead><tr><th>Number</th><th>Type</th><th>Date</th><th>Location</th><th class="num">Products</th><th class="num">Units</th><th>By</th><th>Status</th></tr></thead><tbody>${list.slice(0,60).map(d=>`<tr class="qt-row" data-act="st-doc" data-id="${d.id}"><td class="mono"><b>${esc(d.no)}</b></td><td>${ST_KIND[d.kind]}${d.kind==='adjust'?` <small class="muted">${esc(S.st.home.reasons[d.meta.reason]||'')}</small>`:''}${d.kind==='return'&&d.meta.invoiceNo?` <small class="muted">${esc(d.meta.invoiceNo)}</small>`:''}</td><td>${qDate(d.createdAt)}</td><td>${esc(stLocName(d.loc))}${d.toLoc?' → '+esc(stLocName(d.toLoc)):''}</td><td class="num">${d.lines.length}</td><td class="num">${stN(d.units||d.lines.reduce((a,l)=>a+(Number(l.counted??l.qty)||0),0))}</td><td>${esc(d.createdByName)}</td><td>${qPill(d.status,ST_STATUS)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">Nothing yet.</p>'}</section>`;
+}
+
+// ---------- receive
+function stReceiveHTML(){
+  const F=S.st.f.rec,me=S.st.home.me;
+  if(!me.receive)return `<p class="muted">Only the warehouse team and the Super Admin receive stock.</p>`+stDocList(['receipt'],'Receipts');
+  return `<section class="qt-card"><div class="qt-ch"><h3>Receive stock</h3><small class="muted">Goes straight into sellable stock and the ledger</small></div>
+    <div class="st-form"><label>Into location<select class="select" data-stf="rec.loc">${stLocOpts(F.loc)}</select></label>
+    <label>Source<select class="select" data-stf="rec.sourceType"><option value="supplier" ${F.sourceType==='supplier'?'selected':''}>Supplier delivery</option><option value="production" ${F.sourceType==='production'?'selected':''}>Production run</option><option value="other" ${F.sourceType==='other'?'selected':''}>Other</option></select></label>
+    <label>${F.sourceType==='production'?'Production line / run':'Supplier or source'}<input class="input" data-stf="rec.source" value="${esc(F.source)}" placeholder="${F.sourceType==='production'?'e.g. Line 2':'e.g. Al Ahram Packaging'}"></label>
+    <label>Reference<input class="input" data-stf="rec.ref" value="${esc(F.ref)}" placeholder="PO, batch or delivery note number"></label>
+    <label>Date<input class="input" type="date" data-stf="rec.date" value="${esc(F.date)}"></label>
+    <label class="wide">Notes<input class="input" data-stf="rec.notes" value="${esc(F.notes)}" placeholder="Optional"></label></div>
+    ${stPicker('rec')}<div id="st-lines-rec">${stLinesHTML('rec',['lot'])}</div>
+    <div class="st-act"><button class="btn primary" data-act="st-post" data-f="rec">${qi('box')}Receive into stock</button></div></section>`+stDocList(['receipt'],'Recent receipts');
+}
+
+// ---------- adjust & transfer
+function stAdjustHTML(){
+  const A=S.st.f.adj,T=S.st.f.trf,me=S.st.home.me,H=S.st.home;
+  const adj=me.adjust?`<section class="qt-card"><div class="qt-ch"><h3>Stock adjustment</h3><small class="muted">Needs approval by the Super Admin or Finance</small></div>
+    <div class="st-form"><label>Location<select class="select" data-stf="adj.loc">${stLocOpts(A.loc)}</select></label>
+    <label>Reason<select class="select" data-stf="adj.reason"><option value="">Choose…</option>${Object.entries(H.reasons).map(([k,v])=>`<option value="${k}" ${A.reason===k?'selected':''}>${v}</option>`).join('')}</select></label>
+    <label>Direction<select class="select" data-stf="adj.direction"><option value="remove" ${A.direction==='remove'?'selected':''}>Take out of stock (−)</option><option value="add" ${A.direction==='add'?'selected':''}>Add to stock (+)</option></select></label>
+    <label>Stock<select class="select" data-stf="adj.bucket"><option value="sellable" ${A.bucket==='sellable'?'selected':''}>Sellable</option><option value="damaged" ${A.bucket==='damaged'?'selected':''}>Damaged / quarantine</option></select></label>
+    <label class="wide">Explanation (required)<input class="input" data-stf="adj.notes" value="${esc(A.notes)}" placeholder="e.g. Influencer boxes for the November campaign"></label></div>
+    ${stPicker('adj')}<div id="st-lines-adj">${stLinesHTML('adj',['here','reason'])}</div>
+    <div class="st-act"><button class="btn primary" data-act="st-post" data-f="adj">Send for approval</button></div></section>`:'';
+  const multi=H.locations.filter(l=>l.active).length>1;
+  const trf=me.transfer?`<section class="qt-card"><div class="qt-ch"><h3>Transfer between locations</h3><small class="muted">Moves sellable stock at once</small></div>
+    ${multi?`<div class="st-form"><label>From<select class="select" data-stf="trf.loc">${stLocOpts(T.loc)}</select></label><label>To<select class="select" data-stf="trf.toLoc"><option value="">Choose…</option>${stLocOpts(T.toLoc).replace(`value="${T.loc}"`,`value="${T.loc}" disabled`)}</select></label><label class="wide">Notes<input class="input" data-stf="trf.notes" value="${esc(T.notes)}" placeholder="Optional"></label></div>
+    ${stPicker('trf')}<div id="st-lines-trf">${stLinesHTML('trf',['here'])}</div><div class="st-act"><button class="btn primary" data-act="st-post" data-f="trf">${qi('truck')}Move stock</button></div>`:`<p class="muted">There is only one location. ${me.admin?'Add more in Settings.':'The Super Admin can add more.'}</p>`}</section>`:'';
+  return `<div class="st-two">${adj}${trf}</div>`+stDocList(['adjust','transfer'],'Recent adjustments and transfers');
+}
+
+// ---------- returns
+function stReturnsHTML(){
+  const F=S.st.f.ret,me=S.st.home.me;
+  const inv=F.invoiceId&&S.st.invs?S.st.invs.find(i=>i.id===F.invoiceId):null;
+  const form=me.ret?`<section class="qt-card"><div class="qt-ch"><h3>Record a return</h3><small class="muted">Needs approval by the Super Admin or Finance</small></div>
+    <div class="qt-seg st-seg3" role="group">${[['invoice','From an invoice'],['customer','Customer, no invoice'],['internal','Internal damaged / expired']].map(([k,l])=>`<button type="button" class="${F.source===k?'on':''}" data-act="st-retsrc" data-s="${k}">${l}</button>`).join('')}</div>
+    <div class="st-form"><label>Location<select class="select" data-stf="ret.loc">${stLocOpts(F.loc)}</select></label>
+    ${F.source==='invoice'?`<label class="wide">Invoice<select class="select" data-stf="ret.invoiceId"><option value="">${S.st.invs?'Choose an invoice…':'Loading invoices…'}</option>${(S.st.invs||[]).map(i=>`<option value="${i.id}" ${F.invoiceId===i.id?'selected':''}>${esc(i.no)} · ${esc(i.customer.name||'')} · ${qDate(i.createdAt)}</option>`).join('')}</select></label>`:''}
+    ${F.source==='customer'?`<label class="wide">Returned by<input class="input" data-stf="ret.customer" value="${esc(F.customer)}" placeholder="Distributor or customer name"></label>`:''}
+    <label class="wide">Reason / notes<input class="input" data-stf="ret.notes" value="${esc(F.notes)}" placeholder="${F.source==='internal'?'e.g. Water leak in store room':'e.g. Distributor over-ordered'}"></label></div>
+    ${inv?`<div class="st-inv"><span>${esc(inv.no)} has ${inv.lines.length} products.</span><button class="btn sm" data-act="st-retinv">Add its items</button></div>`:''}
+    <div class="st-cond">${F.source==='internal'?'<b>Internal:</b> the quantity moves from sellable stock to the damaged bucket.':'<b>Restockable</b> goes back to sellable stock. <b>Damaged, Expired, Quarantine</b> go to the damaged bucket and are never sold.'}</div>
+    ${stPicker('ret')}<div id="st-lines-ret">${stLinesHTML('ret',['cond','reason','lot'])}</div>
+    <div class="st-act"><button class="btn primary" data-act="st-post" data-f="ret">Send for approval</button></div></section>`:'';
+  return form+stDocList(['return'],'Returns');
+}
+
+// ---------- counts
+function stCountHTML(){
+  const F=S.st.f.cnt,me=S.st.home.me;
+  const start=me.count?`<section class="qt-card"><div class="qt-ch"><h3>Start a stock count</h3><small class="muted">Count what is on the shelves; differences are applied after approval</small></div>
+    <div class="st-form"><label>Location<select class="select" data-stf="cnt.loc">${stLocOpts(F.loc)}</select></label><label>What to count<select class="select" data-stf="cnt.scope"><option value="all" ${F.scope==='all'?'selected':''}>Every product in stock at this location</option><option value="scan" ${F.scope==='scan'?'selected':''}>Start empty and scan products</option></select></label></div>
+    <div class="st-act"><button class="btn primary" data-act="st-cstart">Start counting</button></div></section>`:'';
+  return start+stDocList(['count'],'Stock counts');
+}
+function stDocHTML(){
+  const d=S.st.doc;
+  if(d.loading)return '<div class="qt-load">Loading…</div>';
+  const back=`<button class="btn ghost back" data-act="st-back">${qi('back')} Back</button>`;
+  const meta=d.meta||{},H=S.st.home;
+  if(d.kind==='count'&&d.status==='draft'&&d.can.edit)return back+stCountEditHTML();
+  const metaRows=[
+    d.kind==='receipt'&&[['Source',{supplier:'Supplier',production:'Production',other:'Other'}[meta.sourceType]+': '+(meta.source||'')],['Reference',meta.ref||'–'],['Date',meta.date]],
+    d.kind==='adjust'&&[['Reason',H.reasons[meta.reason]],['Direction',meta.direction==='add'?'Add to stock':'Take out of stock'],['Stock',meta.bucket==='damaged'?'Damaged / quarantine':'Sellable'],['Explanation',meta.notes]],
+    d.kind==='return'&&[['Type',{invoice:'From an invoice',customer:'Customer, no invoice',internal:'Internal damaged / expired'}[meta.source]],['Invoice',meta.invoiceNo||'–'],['Returned by',meta.customer||'–'],['Notes',meta.notes||'–']],
+    d.kind==='transfer'&&[['From',stLocName(d.loc)],['To',stLocName(d.toLoc)],['Notes',meta.notes||'–']],
+    d.kind==='count'&&[['Counted lines',d.lines.filter(l=>!l.skipped&&l.counted!=null).length+' of '+d.lines.length],['Total difference',stN(d.lines.reduce((a,l)=>a+(Number(l.variance)||0),0))+' units']],
+  ].find(Boolean)||[];
+  const isCount=d.kind==='count';
+  const lines=`<div class="tablewrap"><table class="dt"><thead><tr><th>Product</th>${isCount?'<th class="num">System</th><th class="num">Counted</th><th class="num">Difference</th><th>Reason</th>':`<th class="num">Quantity</th>${d.kind==='return'?'<th>Condition</th>':''}<th>Reason</th><th>Lot</th><th>Expiry</th>`}</tr></thead><tbody>${d.lines.filter(l=>!l.skipped).map(l=>`<tr><td><b>${esc(l.name)}</b><small class="mono muted">${[l.code,l.barcode].filter(Boolean).map(esc).join(' · ')}</small></td>${isCount?`<td class="num">${l.system==null?'–':stN(l.system)}</td><td class="num"><b>${l.counted==null?'–':stN(l.counted)}</b></td><td class="num">${l.variance==null?'–':l.variance?stSigned(l.variance):'<span class="muted">0</span>'}</td><td>${esc(l.reason||'')}</td>`:`<td class="num">${d.kind==='adjust'?stSigned(meta.direction==='add'?l.qty:-l.qty):stN(l.qty)}</td>${d.kind==='return'?`<td>${esc(H.conds[l.cond]||'')}</td>`:''}<td>${esc(l.reason||'')}</td><td class="mono">${esc(l.lot||'–')}</td><td>${esc(l.expiry||'–')}</td>`}</tr>`).join('')}</tbody></table></div>`;
+  const dec=d.decision&&d.decision.state?`<div class="qt-banner ${d.decision.state==='approved'?'ok':'bad'}">${qi(d.decision.state==='approved'?'ok':'no',18)}<div><b>${d.decision.state==='approved'?'Approved':'Rejected'} by ${esc(d.decision.byName)}</b> · ${qTime(d.decision.at)}${d.decision.note?`<br>“${esc(d.decision.note)}”`:''}</div></div>`:'';
+  const act=d.can.approve?`<section class="qt-card st-decide"><h3>Your decision</h3><textarea class="textarea" id="st-note" placeholder="Note (needed to reject)"></textarea><div class="row"><button class="btn primary" data-act="st-approve">${qi('ok')}Approve and apply to stock</button><button class="btn danger" data-act="st-reject">Reject</button></div></section>`:'';
+  return back+`<div class="qt-bhead"><div><span class="eyebrow">${ST_KIND[d.kind]}</span><h1>${esc(d.no)} ${qPill(d.status,ST_STATUS)}</h1><p class="muted">${esc(stLocName(d.loc))} · ${esc(d.createdByName)} · ${qTime(d.createdAt)}${d.postedAt?' · applied '+qTime(d.postedAt):''}</p></div>${d.can.cancel?`<button class="btn ghost" data-act="st-cancel">Cancel</button>`:''}</div>
+    ${dec}${act}<section class="qt-card"><dl class="st-meta">${metaRows.map(([k,v])=>`<dt>${k}</dt><dd>${esc(v||'–')}</dd>`).join('')}</dl></section><section class="qt-card"><h3>Products</h3>${lines}</section>
+    <section class="qt-card"><h3>History</h3><ol class="qt-hist">${[...d.history].reverse().map(h=>`<li><b>${esc(h.byName)}</b> ${esc(h.action)}${h.note?` <q>${esc(h.note)}</q>`:''}<small>${qTime(h.at)}</small></li>`).join('')}</ol></section>`;
+}
+function stCountEditHTML(){
+  const d=S.st.doc,counted=d.lines.filter(l=>l.counted!==null&&l.counted!==''&&l.counted!==undefined);
+  const dv=counted.reduce((a,l)=>a+((Number(l.counted)||0)-(Number(l.systemNow)||0)),0);
+  return `<div class="qt-bhead"><div><span class="eyebrow">Stock count · ${esc(stLocName(d.loc))}</span><h1>${esc(d.no)} ${qPill('draft',ST_STATUS)}</h1><p class="muted">${counted.length} of ${d.lines.length} counted · difference so far ${stN(dv)} units</p></div><div class="row"><button class="btn ghost" data-act="st-cancel">Cancel count</button><button class="btn" data-act="st-csave">Save</button><button class="btn primary" data-act="st-csubmit">Send for approval</button></div></div>
+  ${d.decision&&d.decision.state==='rejected'?`<div class="qt-banner bad">${qi('no',18)}<div><b>Sent back by ${esc(d.decision.byName)}:</b> “${esc(d.decision.note)}”</div></div>`:''}
+  <section class="qt-card">${stPicker('cnt','Scan each item to count it (+1 per scan), or search')}<p class="muted st-tip">Type the counted number for each product. Products you leave empty are not changed. Any difference needs a reason.</p>
+  <div class="tablewrap"><table class="dt st-cnt"><thead><tr><th>Product</th><th class="num">System</th><th class="num">Counted</th><th class="num">Difference</th><th>Reason for difference</th></tr></thead><tbody>${d.lines.map((l,i)=>{const has=l.counted!==null&&l.counted!==''&&l.counted!==undefined,v=has?(Number(l.counted)||0)-(Number(l.systemNow)||0):null;
+    return `<tr data-strow="${i}"><td><b>${esc(l.name)}</b><small class="mono muted">${[l.code,l.barcode].filter(Boolean).map(esc).join(' · ')}</small></td><td class="num">${stN(l.systemNow)}</td><td class="num"><input class="input qt-in" type="number" min="0" step="1" data-stc="counted" data-i="${i}" value="${has?l.counted:''}" placeholder="–"></td><td class="num" id="st-v-${i}">${v==null?'–':v?stSigned(v):'<span class="muted">0</span>'}</td><td><input class="input" data-stc="reason" data-i="${i}" value="${esc(l.reason||'')}" placeholder="${v?'Required':'Only if different'}"></td></tr>`}).join('')}</tbody></table></div></section>`;
+}
+
+// ---------- ledger
+async function stLoadMoves(){
+  const m=S.st.mf,qs=new URLSearchParams({st:'moves',type:m.type,loc:m.loc,key:m.key||'',from:m.from?new Date(m.from+'T00:00:00').getTime():'',to:m.to?new Date(m.to+'T23:59:59').getTime():''});
+  S.st.moves=null;stRender();
+  try{const j=await api('GET','/api/data?'+qs);S.st.moves=j.moves}catch(e){S.st.moves=[];toast(e.message)}stRender();
+}
+function stMovesFiltered(){const q=S.st.mf.q.trim().toLowerCase();return (S.st.moves||[]).filter(m=>!q||(m.name+' '+m.code+' '+m.barcode+' '+m.refNo+' '+m.byName).toLowerCase().includes(q))}
+function stLedgerHTML(){
+  const m=S.st.mf,list=stMovesFiltered();
+  const bar=`<div class="st-bar"><input class="input" id="st-mq" placeholder="Filter by product, barcode, reference or person…" value="${esc(m.q)}"><select class="select" data-stm="type"><option value="">All types</option>${Object.entries(ST_TYPES).map(([k,[l]])=>`<option value="${k}" ${m.type===k?'selected':''}>${l}</option>`).join('')}</select><select class="select" data-stm="loc">${stLocOpts(m.loc,true,false)}</select><label class="st-dt">From<input class="input" type="date" data-stm="from" value="${m.from}"></label><label class="st-dt">To<input class="input" type="date" data-stm="to" value="${m.to}"></label>${m.key?`<button class="btn sm" data-act="st-ledall">All products</button>`:''}<button class="btn sm" data-act="st-csv">Download CSV</button></div>`;
+  if(!S.st.moves)return bar+'<div class="qt-load">Loading the ledger…</div>';
+  return bar+`<p class="muted st-tip">The ledger can only grow: rows are never changed or deleted. ${list.length} rows${S.st.moves.length>=2000?' (latest 2,000)':''}.</p>`+(list.length?`<div class="tablewrap"><table class="dt st-led"><thead><tr><th>Date & time</th><th>Product</th><th>Location</th><th>Type</th><th class="num">Change</th><th class="num">Before</th><th class="num">After</th><th>Reference</th><th>By</th><th>Details</th></tr></thead><tbody>${list.slice(0,800).map(x=>`<tr><td class="nowrap">${qTime(x.at)}</td><td><b>${esc(x.name)}</b><small class="mono muted">${esc(x.barcode||x.code||'')}</small></td><td>${esc(x.locName)}${x.bucket==='damaged'?' <span class="st-dmg">damaged</span>':''}</td><td>${qPill(x.type,ST_TYPES)}</td><td class="num">${stSigned(x.qty)}</td><td class="num">${stN(x.before)}</td><td class="num"><b>${stN(x.after)}</b></td><td class="mono">${x.refType==='invoice'||x.refType==='odoo'?esc(x.refNo):`<button class="qt-mini" data-act="st-doc" data-id="${esc(x.refId)}">${esc(x.refNo)}</button>`}</td><td>${esc(x.byName)}</td><td class="st-why">${esc(x.reason)}${x.lot?` · lot ${esc(x.lot)}`:''}${x.expiry?` · exp ${esc(x.expiry)}`:''}</td></tr>`).join('')}</tbody></table></div>`:empty('No movements','Nothing matches these filters yet.'));
+}
+function stCsv(){
+  const rows=[['Date','Product','Code','Barcode','Location','Stock','Type','Change','Before','After','Reference','By','Details','Lot','Expiry'],...stMovesFiltered().map(x=>[new Date(x.at).toISOString(),x.name,x.code,x.barcode,x.locName,x.bucket,x.type,x.qty,x.before,x.after,x.refNo,x.byName,x.reason,x.lot,x.expiry])];
+  const csv=rows.map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿'+csv],{type:'text/csv'}));a.download=`stock-ledger-${stToday()}.csv`;a.click();
+}
+
+// ---------- settings (Super Admin)
+function stSettingsHTML(){
+  const H=S.st.home,set=H.settings;
+  return `<section class="qt-card st-live ${set.live?'on':''}"><div class="qt-ch"><h3>${set.live?'Live':'Preview (not live)'}</h3>${qPill(set.live?'posted':'draft',{posted:['Live','#4ADE80'],draft:['Preview','#E0A24F']})}</div>
+    ${set.live?`<p>Live since ${qTime(set.liveSince)}. The warehouse, Finance and the CEO can use it; invoices reserve stock and the warehouse deducts it on transfer; quotations show availability.</p>`:`<p>While in preview only you can open this module, and nothing affects quotations, invoices or Odoo. When you are ready: wipe the test data below, import opening balances from Odoo, then make it live.</p>
+    <div class="st-form"><label class="wide">Type MAKE LIVE to confirm<input class="input" id="st-live-c" placeholder="MAKE LIVE" autocomplete="off"></label></div><div class="st-act"><button class="btn primary" data-act="st-golive">Make live</button></div>`}</section>
+  <div class="st-two"><section class="qt-card"><h3>Locations</h3><div class="st-locs-ed">${H.locations.map(l=>`<div class="st-lrow"><input class="input" data-stloc="${l.id}" value="${esc(l.name)}"><label class="st-chk"><input type="checkbox" data-stlocact="${l.id}" ${l.active?'checked':''}> In use</label><button class="btn sm" data-act="st-locsave" data-id="${l.id}">Save</button></div>`).join('')}</div>
+    <div class="st-lrow"><input class="input" id="st-newloc" placeholder="New location, e.g. Alexandria store"><button class="btn sm primary" data-act="st-locadd">Add</button></div>
+    <label class="st-lab">Invoices are dispatched from<select class="select" id="st-disp">${stLocOpts(set.dispatchLoc)}</select></label></section>
+  <section class="qt-card"><h3>Opening balances from Odoo</h3><p class="muted">Copies each product's on-hand quantity from Odoo into the ledger as an "Opening" row. Products that already have stock history here are skipped, so it is safe to run again.</p>
+    <div class="st-form"><label>Into location<select class="select" id="st-implo">${stLocOpts('main')}</select></label></div><div class="st-act"><button class="btn" data-act="st-import">Import from Odoo</button></div>
+    ${set.live?'':`<hr class="st-hr"><h3>Wipe test data</h3><p class="muted">Deletes every movement, balance and document recorded during the preview. Only possible before going live.</p><div class="st-form"><label class="wide">Type RESET to confirm<input class="input" id="st-reset-c" placeholder="RESET" autocomplete="off"></label></div><div class="st-act"><button class="btn danger" data-act="st-reset">Wipe test data</button></div>`}</section></div>`;
+}
+
+// ---------- posting helpers
+async function stPostForm(f,b){
+  const F=S.st.f[f],lines=F.lines.map(l=>({pid:l.pid,name:l.name,code:l.code,barcode:l.barcode,qty:l.qty,lot:l.lot,expiry:l.expiry,reason:l.reason,cond:l.cond}));
+  const body=f==='rec'?{action:'receipt',loc:F.loc,lines,meta:{sourceType:F.sourceType,source:F.source,ref:F.ref,date:F.date,notes:F.notes}}:f==='adj'?{action:'adjust',loc:F.loc,reason:F.reason,direction:F.direction,bucket:F.bucket,notes:F.notes,lines}:f==='trf'?{action:'transfer',loc:F.loc,toLoc:F.toLoc,notes:F.notes,lines}:{action:'return',source:F.source,invoiceId:F.invoiceId,customer:F.customer,loc:F.loc,notes:F.notes,lines};
+  b.disabled=true;
+  try{const j=await api('POST','/api/data?st=1',body);
+    toast(`${j.doc.no}: ${j.doc.status==='posted'?'applied to stock':'sent for approval'}`);
+    F.lines=[];if(f==='rec'){F.source='';F.ref='';F.notes=''}if(f==='adj')F.notes='';if(f==='ret'){F.notes='';F.customer='';F.invoiceId=''}
+    S.st.docs={};await stLoadHome();stTabLoad();
+  }catch(x){toast(x.message);b.disabled=false}
+}
+async function stDocAct(action,extra={}){
+  const d=S.st.doc;try{const j=await api('POST','/api/data?st=1',{action,id:d.id,...extra});S.st.doc=j.doc;if(j.doc.kind==='count'&&j.doc.status==='draft'){await stOpenDoc(j.doc.id)}else stRender();S.st.docs={};stLoadHome();toast({approve:'Approved and applied to stock',reject:'Rejected',cancel:'Cancelled','count-save':'Saved','count-submit':'Sent for approval'}[action]||'Done')}catch(x){toast(x.message)}
+}
+const stCountLines=()=>S.st.doc.lines.map(l=>({pid:l.pid,name:l.name,code:l.code,barcode:l.barcode,counted:l.counted===''||l.counted===undefined?null:l.counted,reason:l.reason||''}));
+
+// ---------- events
+document.addEventListener('click',async e=>{
+  const b=e.target.closest('[data-act]');if(!e.target.closest('.qt-search'))document.querySelectorAll('[id^="st-pl-"]').forEach(d=>d.hidden=true);
+  if(!b||!b.dataset.act.startsWith('st-'))return;
+  const a=b.dataset.act;
+  if(a==='st-tab'){S.st.tab=b.dataset.t;S.st.doc=null;stRender();stTabLoad()}
+  else if(a==='st-show'){S.st.show=b.dataset.s||'active';S.st.tab='overview';stRender()}
+  else if(a==='st-cmp'){if(S.st.cmp){S.st.cmp=null;stRender();return}b.disabled=true;b.textContent='Reading Odoo…';try{const j=await api('GET','/api/data?st=compare');S.st.cmp=j.rows;stRender()}catch(x){toast(x.message);b.disabled=false}}
+  else if(a==='st-led'){S.st.mf={...S.st.mf,key:b.dataset.key,q:''};S.st.tab='ledger';stRender();stLoadMoves()}
+  else if(a==='st-ledall'){S.st.mf.key='';stLoadMoves()}
+  else if(a==='st-csv')stCsv();
+  else if(a==='st-pick'){const p=(S.st.ps[b.dataset.f]||[])[+b.dataset.k];if(p)stAdd(b.dataset.f,p)}
+  else if(a==='st-rm'){S.st.f[b.dataset.f].lines.splice(+b.dataset.i,1);stRender()}
+  else if(a==='st-post')stPostForm(b.dataset.f,b);
+  else if(a==='st-retsrc'){const F=S.st.f.ret;F.source=b.dataset.s;F.lines.forEach(l=>{if(F.source==='internal'&&l.cond==='restock')l.cond='damaged'});stRender()}
+  else if(a==='st-retinv'){const F=S.st.f.ret,inv=S.st.invs.find(i=>i.id===F.invoiceId);if(inv)inv.lines.filter(l=>l.pid).forEach(l=>F.lines.push({pid:l.pid,name:l.name,code:l.code||'',barcode:l.barcode||'',qty:l.qty,cond:'restock',reason:'',lot:'',expiry:''}));stRender()}
+  else if(a==='st-doc')stOpenDoc(b.dataset.id);
+  else if(a==='st-back'){S.st.doc=null;stRender();stTabLoad()}
+  else if(a==='st-approve'){b.disabled=true;await stDocAct('approve',{note:$('#st-note')?.value||''})}
+  else if(a==='st-reject'){const note=($('#st-note')?.value||'').trim();if(!note){toast('Write the reason first.');$('#st-note')?.focus();return}await stDocAct('reject',{note})}
+  else if(a==='st-cancel')await stDocAct('cancel');
+  else if(a==='st-cstart'){const F=S.st.f.cnt;b.disabled=true;try{const j=await api('POST','/api/data?st=1',{action:'count-start',loc:F.loc,scope:F.scope});await stOpenDoc(j.doc.id);S.st.docs={}}catch(x){toast(x.message);b.disabled=false}}
+  else if(a==='st-csave')await stDocAct('count-save',{lines:stCountLines()});
+  else if(a==='st-csubmit'){b.disabled=true;await stDocAct('count-submit',{lines:stCountLines()});b.disabled=false}
+  else if(a==='st-golive'){const c=$('#st-live-c')?.value||'';try{await api('POST','/api/data?st=1',{action:'settings',live:true,confirm:c});toast('The stock module is live');await sync();await stLoadHome()}catch(x){toast(x.message)}}
+  else if(a==='st-reset'){const c=$('#st-reset-c')?.value||'';try{await api('POST','/api/data?st=1',{action:'reset-preview',confirm:c});toast('Test data wiped');S.st.docs={};S.st.moves=null;await stLoadHome()}catch(x){toast(x.message)}}
+  else if(a==='st-import'){b.disabled=true;b.textContent='Importing…';try{const j=await api('POST','/api/data?st=1',{action:'import-odoo',loc:$('#st-implo').value});toast(`Imported ${j.imported} products from Odoo${j.skipped?` (${j.skipped} skipped)`:''}`);await stLoadHome()}catch(x){toast(x.message);b.disabled=false;b.textContent='Import from Odoo'}}
+  else if(a==='st-locsave'){const id=b.dataset.id;try{await api('POST','/api/data?st=1',{action:'location',id,name:document.querySelector(`[data-stloc="${id}"]`).value,active:document.querySelector(`[data-stlocact="${id}"]`).checked});toast('Location saved');await stLoadHome()}catch(x){toast(x.message)}}
+  else if(a==='st-locadd'){try{await api('POST','/api/data?st=1',{action:'location',name:$('#st-newloc').value});toast('Location added');await stLoadHome()}catch(x){toast(x.message)}}
+});
+let stPT=null,stMinT={};
+document.addEventListener('input',e=>{
+  const t=e.target;if(!t||S.route!=='stock')return;
+  if(t.dataset.stps){const f=t.dataset.stps,s=t.value.trim();clearTimeout(stPT);if(!s){$('#st-pl-'+f).hidden=true;return}stPT=setTimeout(()=>stSearch(f,s,false),220);return}
+  if(t.id==='st-q'){S.st.q=t.value;const pos=t.selectionStart;stRender();const n=$('#st-q');n.focus();try{n.setSelectionRange(pos,pos)}catch(x){}return}
+  if(t.id==='st-mq'){S.st.mf.q=t.value;const pos=t.selectionStart;stRender();const n=$('#st-mq');n.focus();try{n.setSelectionRange(pos,pos)}catch(x){}return}
+  if(t.dataset.stf&&t.tagName!=='SELECT'){const [f,k]=t.dataset.stf.split('.');S.st.f[f][k]=t.value;return}
+  if(t.dataset.stl&&t.tagName!=='SELECT'){const l=S.st.f[t.dataset.f].lines[+t.dataset.i];if(l)l[t.dataset.stl]=t.dataset.stl==='qty'?Math.max(0,Number(t.value)||0):t.value;return}
+  if(t.dataset.stc&&S.st.doc){const l=S.st.doc.lines[+t.dataset.i];if(!l)return;if(t.dataset.stc==='counted'){l.counted=t.value===''?null:Math.max(0,Number(t.value)||0);const v=l.counted==null?null:l.counted-(Number(l.systemNow)||0);const c=$('#st-v-'+t.dataset.i);if(c)c.innerHTML=v==null?'–':v?stSigned(v):'<span class="muted">0</span>'}else l.reason=t.value;return}
+  if(t.dataset.stmin){const pid=+t.dataset.stmin,r=S.st.home.rows.find(x=>x.pid===pid);clearTimeout(stMinT[pid]);stMinT[pid]=setTimeout(async()=>{try{await api('POST','/api/data?st=1',{action:'min',pid,name:r.name,code:r.code,barcode:r.barcode,min:t.value});r.min=t.value===''?null:Number(t.value);toast(`Low-stock level for ${r.name} saved`)}catch(x){toast(x.message)}},700)}
+});
+document.addEventListener('change',e=>{
+  const t=e.target;if(!t||S.route!=='stock')return;
+  if(t.id==='st-loc'){S.st.loc=t.value;stRender()}
+  else if(t.id==='st-show'){S.st.show=t.value;stRender()}
+  else if(t.dataset.stf&&t.tagName==='SELECT'){const [f,k]=t.dataset.stf.split('.');S.st.f[f][k]=t.value;stRender()}
+  else if(t.dataset.stl&&t.tagName==='SELECT'){const l=S.st.f[t.dataset.f].lines[+t.dataset.i];if(l)l[t.dataset.stl]=t.value}
+  else if(t.dataset.stm){S.st.mf[t.dataset.stm]=t.value;stLoadMoves()}
+  else if(t.id==='st-disp'){api('POST','/api/data?st=1',{action:'settings',dispatchLoc:t.value}).then(()=>{toast('Dispatch location saved');stLoadHome()}).catch(x=>toast(x.message))}
+});
+document.addEventListener('keydown',e=>{const t=e.target;if(t&&t.dataset&&t.dataset.stps&&e.key==='Enter'){e.preventDefault();clearTimeout(stPT);const s=t.value.trim();if(s)stSearch(t.dataset.stps,s,true)}});
