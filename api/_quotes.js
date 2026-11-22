@@ -15,6 +15,7 @@
 
 import { db, HttpError, requireUser, rid } from './_lib.js';
 import { odooConfig, call, fieldsOf, nm } from './_odoo.js';
+import { stockAvailability, stockOnDispatch } from './_stock.js';
 
 export const SLOTS = ['finance', 'ceo', 'super_admin'];
 export const SLOT_LABEL = { finance: 'Finance', ceo: 'CEO', super_admin: 'Super Admin' };
@@ -48,6 +49,7 @@ export function ensureQuotes() {
       await q`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS tax JSONB NOT NULL DEFAULT '{}'`;
       await q`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS valid_until BIGINT`;
       await q`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS tax JSONB NOT NULL DEFAULT '{}'`;
+      await q`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS stock_moved BOOLEAN NOT NULL DEFAULT false`;
       await q`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS example BOOLEAN NOT NULL DEFAULT false`;
       await q`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS example BOOLEAN NOT NULL DEFAULT false`;
       await q`CREATE SEQUENCE IF NOT EXISTS example_no_seq`;
@@ -163,6 +165,8 @@ function invoiceOut(r, u) {
 
 // ---------- Odoo look-ups (cached a few minutes per server instance)
 let prodCache = { at: 0, list: [], currency: '' };
+/** Odoo products (cached), shared with the stock module. */
+export function productList() { return products(); }
 async function products() {
   if (Date.now() - prodCache.at < 5 * 60 * 1000 && prodCache.list.length) return prodCache;
   const cfg = odooConfig();
@@ -211,12 +215,14 @@ export async function quotesApi(req, res) {
     if (k === 'products') {
       if (!canCreate(u)) throw new HttpError(403, 'You cannot create quotations.');
       const s = String(req.query.s || '').trim().toLowerCase();
-      const { list, currency } = await products();
-      if (!s) return res.json({ products: list.slice(0, 30), currency, total: list.length });
+      const { list: raw, currency } = await products();
+      const avail = await stockAvailability(); // null unless the stock module is live
+      const list = avail ? raw.map((p) => ({ ...p, avail: avail[p.pid] ?? 0 })) : raw;
+      if (!s) return res.json({ products: list.slice(0, 30), currency, total: list.length, stockLive: !!avail });
       const exact = list.filter((p) => p.barcode && p.barcode.toLowerCase() === s);
       const words = s.split(/\s+/).filter(Boolean);
       const hits = list.filter((p) => !exact.includes(p) && words.every((w) => (p.name + ' ' + p.code + ' ' + p.barcode).toLowerCase().includes(w)));
-      return res.json({ products: [...exact, ...hits].slice(0, 30), exact: exact.length === 1 ? exact[0] : null, currency, total: list.length });
+      return res.json({ products: [...exact, ...hits].slice(0, 30), exact: exact.length === 1 ? exact[0] : null, currency, total: list.length, stockLive: !!avail });
     }
     if (k === 'customers') {
       if (!canCreate(u)) throw new HttpError(403, 'You cannot create quotations.');
@@ -374,6 +380,8 @@ export async function quotesApi(req, res) {
     const [r] = await q`SELECT * FROM invoices WHERE id = ${String(body.id || '')}`;
     if (!r) throw new HttpError(404, 'Invoice not found.');
     if (r.wh_status === status) return res.json({ invoice: invoiceOut(r, u) });
+    // stock leaves on-hand when transferred (and comes back if that is undone); only when the stock module is live
+    if (status === 'transferred' || r.wh_status === 'transferred') await stockOnDispatch(r, u, status === 'transferred');
     const hist = [...J(r.wh_history, []), { at: now, by: u.id, byName: u.username, status, note: str(body.note, 500) }].slice(-100);
     await q`UPDATE invoices SET wh_status = ${status}, wh_history = ${JSON.stringify(hist)}::jsonb, updated_at = ${now} WHERE id = ${r.id}`;
     const [r2] = await q`SELECT * FROM invoices WHERE id = ${r.id}`;

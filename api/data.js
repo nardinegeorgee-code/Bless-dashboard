@@ -1,15 +1,17 @@
 import { gameApi } from './_game.js';
 import { quotesApi, quoteCounts } from './_quotes.js';
+import { stockApi, stockLive } from './_stock.js';
 import { route, allow, db, getUser, mapUser, mapInstruction, mapSubmission, mapComment, mapRevision } from './_lib.js';
 
 // One read endpoint. The server decides what each person may see:
 // the Super Admin gets everything; everyone else gets the team list,
 // the instructions addressed to them and their own uploads.
 export default route(async (req, res) => {
-  allow(req, req.query.game || req.query.q ? ['GET', 'POST'] : ['GET']);
+  allow(req, req.query.game || req.query.q || req.query.st ? ['GET', 'POST'] : ['GET']);
   res.setHeader('Cache-Control', 'no-store');
   if (req.query.game) return gameApi(req, res);
   if (req.query.q) return quotesApi(req, res); // quotations, approvals, invoices and the warehouse queue
+  if (req.query.st) return stockApi(req, res); // inventory (preview until the Super Admin makes it live)
   const q = db();
 
   const [{ n }] = await q`SELECT COUNT(*)::int AS n FROM users`;
@@ -44,5 +46,6 @@ export default route(async (req, res) => {
     revisions = (await q`SELECT * FROM sub_revisions WHERE submission_id = ANY(${ids}) ORDER BY saved_at`).map(mapRevision);
   }
   const qtc = await quoteCounts(me);
+  qtc.stockLive = await stockLive();
   res.json({ me: mapUser(me), users, instructions, submissions, speeds, comments, revisions, reads, qtc });
 });
