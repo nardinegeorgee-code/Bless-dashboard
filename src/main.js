@@ -13,6 +13,8 @@ const ROLES=[
   {key:'ecommerce',label:'E-Commerce',tok:'--role-ec'},
   {key:'salesperson',label:'Salesperson',tok:'--role-sp'},
   {key:'ceo',label:'CEO',tok:'--role-ceo'},
+  {key:'finance',label:'Finance',tok:'--role-fi'},
+  {key:'warehouse',label:'Warehouse',tok:'--role-wh'},
 ];
 const ROLE=Object.fromEntries(ROLES.map(r=>[r.key,r]));
 const TYPES={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml',mp4:'video/mp4',webm:'video/webm',pdf:'application/pdf',txt:'text/plain',csv:'text/csv',md:'text/markdown',json:'application/json'};
@@ -56,7 +58,7 @@ async function refresh(){
   if(j.setup){S.users=[];S.me=null;S.instructions=[];S.subs=[];S.usersReady=true;S.mode='setup';return onData()}
   if(!j.me){S.me=null;S.users=[];S.mode='login';S.usersReady=true;return onData()}
   S.mode='app';
-  S.users=j.users;S.instructions=j.instructions;S.subs=j.submissions;S.speeds=j.speeds||[];S.comments=j.comments||[];S.revs=j.revisions||[];S.reads=new Set(j.reads||[]);S.usersReady=true;
+  S.users=j.users;S.qtc=j.qtc||{};S.instructions=j.instructions;S.subs=j.submissions;S.speeds=j.speeds||[];S.comments=j.comments||[];S.revs=j.revisions||[];S.reads=new Set(j.reads||[]);S.usersReady=true;
   const roleChanged=!S.me||S.me.role!==j.me.role||S.me.id!==j.me.id;
   const wasNull=!S.me;S.me=j.me;
   if(wasNull||roleChanged){if(roleChanged&&!wasNull){S.route='hub';S.param=null}showApp()}
@@ -228,7 +230,7 @@ function showLogin(){
 const validName=u=>u.length>=2&&u.length<=40;
 
 /* ---------- app shell ---------- */
-const NAV_ICON={
+const NAV_ICON={quotes:'<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h6M9 16h4"/>',invoices:'<path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/>',warehouse:'<path d="M3 9l9-6 9 6v12H3z"/><path d="M7 21v-8h10v8M7 17h10"/>',
   hub:'<path d="M4 11.5 12 5l8 6.5"/><path d="M6 10v9h12v-9"/><path d="M10 19v-5h4v5"/>',
   dash:'<path d="M4 20V10M10 20V4M16 20v-7M21 20H3"/>',
   home:'<rect x="4" y="4" width="7" height="7" rx="1.500"/><rect x="13" y="4" width="7" height="7" rx="1.500"/><rect x="4" y="13" width="7" height="7" rx="1.500"/><rect x="13" y="13" width="7" height="7" rx="1.500"/>',
@@ -262,10 +264,10 @@ function applySideMin(){document.body.classList.toggle('side-min',sideMin())}
 function toggleSide(){try{localStorage.setItem(SIDE_MIN_KEY,sideMin()?'0':'1')}catch(e){document.body.classList.toggle('side-min')}applySideMin()}
 function navItems(){
   const nu=unreadNotes().length;
-  if(isAdmin())return [['hub','Home'],['dash','Dashboards'],['home','Team overview'],['send','Send instruction'],['content','All content'],['catalog','Catalogue'],['eval','Evaluation'],['team','Team by role'],['notes','Notifications',nu],['act','Activity'],['users','Users'],['priv','User privileges'],['game','Bless Game']];
-  if(isCeo())return [['hub','Home'],['dash','Dashboards'],['catalog','Catalogue'],['game','Bless Game'],...(myReports().includes('act')?[['act','Activity']]:[])];
+  if(isAdmin())return [['hub','Home'],['dash','Dashboards'],['home','Team overview'],['send','Send instruction'],['content','All content'],['catalog','Catalogue'],...qtNav(),['eval','Evaluation'],['team','Team by role'],['notes','Notifications',nu],['act','Activity'],['users','Users'],['priv','User privileges'],['game','Bless Game']];
+  if(isCeo())return [['hub','Home'],['dash','Dashboards'],...qtNav(),['catalog','Catalogue'],['game','Bless Game'],...(myReports().includes('act')?[['act','Activity']]:[])];
   const pending=myInstructions().filter(i=>!responded(i.id)).length;
-  const base=[['home','Instructions',pending],['uploads','My uploads'],['catalog','Catalogue'],['game','Bless Game'],['notes','Notifications',nu],['team','Team by role']];
+  const base=[['home','Instructions',pending],...qtNav(),['uploads','My uploads'],['catalog','Catalogue'],['game','Bless Game'],['notes','Notifications',nu],['team','Team by role']];
   return hasGrants()?[...base,['hub','Reports'],...GRANT.filter(g=>['dash','act'].includes(g[0])&&myReports().includes(g[0])).map(g=>[g[0],g[1]])]:base;
 }
 function showApp(){
@@ -280,7 +282,7 @@ function renderNav(){
   document.body.classList.toggle('on-hub',S.route==='hub');
   $('#nav').innerHTML=navItems().map(([k,l,c])=>`<button data-act="go" data-route="${k}" title="${esc(l)}" ${(dashSys()?k==='dash':S.route===k||(S.route==='ins'&&k===(isAdmin()?'send':'home')))?'aria-current="page"':''}>${navIco(k==='home'&&!isAdmin()?'ins':k)}<span class="nl">${l}</span>${c?`<span class="count">${c}</span>`:''}</button>`).join('');
 }
-function go(route,param,inDash){S.route=route;S.param=param||null;S.inDash=!!inDash;mount();window.scrollTo(0,0);try{history.replaceState(null,'','#'+(route==='ins'?'ins-'+param:route))}catch(e){}}
+function go(route,param,inDash){S.route=route;S.param=param||null;S.inDash=!!inDash;mount();window.scrollTo(0,0);try{history.replaceState(null,'','#'+(route==='ins'?'ins-'+param:(route==='quote'||route==='invoice')&&param?route+'-'+param:route))}catch(e){}}
 
 /* ---------- derived ---------- */
 function myInstructions(){return S.instructions.filter(i=>(i.roles||[]).includes(S.me.role)||(i.userIds||[]).includes(S.me.id))}
@@ -295,7 +297,8 @@ function targetChips(ins){
 /* ---------- views: mount builds static parts (forms), update fills live parts ---------- */
 function mount(){
   const v=$('#view');const r=S.route;
-  if(isCeo()){if(!['hub','dash','shop','odoo','meta','catalog','game'].includes(S.route)&&!(S.route==='act'&&canSee('act')))S.route='hub'}
+  if(qtRoutes.includes(S.route)&&!qtAllowed(S.route)){S.route=isAdmin()||isCeo()?'hub':'home';S.param=null}
+  if(isCeo()){if(!['hub','dash','shop','odoo','meta','catalog','game',...qtRoutes].includes(S.route)&&!(S.route==='act'&&canSee('act')))S.route='hub'}
   else if(!isAdmin()&&['hub','dash','send','content','users','priv','shop','eval','odoo','meta','act'].includes(r)){if(!(r==='hub'?hasGrants():canSee(r)))S.route='home'}
   if(S.route==='hub')v.innerHTML=`<div id="live"></div>`;
   else if(S.route==='dash'){v.innerHTML=`<div id="live"></div>`;if(!S.dash.d.shop&&!S.dash.busy)loadDash(false,true)}
@@ -328,6 +331,7 @@ function mount(){
   else if(S.route==='shop'){v.innerHTML=`<div class="head"><div><h1>Shopify</h1><p>Sales, funnel, products, customer experience and retention, one tab each.</p></div></div><div id="live"></div>`;if(S.an.tab==='overview'){if(!S.shop.data&&!S.shop.loading)loadShop()}else loadAn();}
   else if(S.route==='game'){v.innerHTML=`<div class="head"><div><h1>Bless Game</h1><p>A quick quiz about our products and customers. Every question comes from real orders.</p></div></div><div id="live"></div>`}
   else if(S.route==='act')v.innerHTML=`<div id="live"></div>`;
+  else if(qtRoutes.includes(S.route)){v.innerHTML=`<div id="live"></div>`;setTimeout(qtEnter,0)}
   else if(S.route==='priv')v.innerHTML=`<div class="head"><div><h1>User privileges</h1><p>Choose exactly which reports each person can open. Changes save at once and apply the next time they open the hub or reload.</p></div></div><div id="live"></div>`;
   else if(S.route==='users')v.innerHTML=`<div class="head"><div><h1>Users</h1><p>Add people, change their role, or set a new password.</p></div></div>
     <form class="panel" data-form="adduser"><h2>Add a user</h2><div class="grid2">
@@ -362,6 +366,7 @@ function update(){
   else if(r==='meta')renderMeta();
   else if(r==='eval')renderEval();
   else if(r==='game')gmRender();
+  else if(qtRoutes.includes(r)){/* these pages load their own data */}
   syncUploadAvail();renderSelBar();
 }
 
@@ -800,7 +805,7 @@ function prState(u){
   const have=new Set(Array.isArray(u.reports)?u.reports:[]),ceo=u.role==='ceo';
   const dash=ceo||have.has('dash'),odooAll=dash||have.has('odoo');
   const tab=t=>odooAll||have.has('odoo:'+t);
-  return {have,ceo,dash,odooAll,tab,shop:dash||have.has('shop'),meta:dash||have.has('meta'),act:have.has('act'),sheet:have.has('sheet'),nTabs:PR_TABS.filter(tab).length};
+  return {have,ceo,dash,odooAll,tab,quote:have.has('quote'),shop:dash||have.has('shop'),meta:dash||have.has('meta'),act:have.has('act'),sheet:have.has('sheet'),nTabs:PR_TABS.filter(tab).length};
 }
 // keep the stored list tidy: every tab ticked becomes plain 'odoo'
 function prNormal(set){
@@ -817,7 +822,7 @@ function prToggle(u,key,on){
   else on?set.add(key):set.delete(key);
   privSave(u.id,prNormal(set));
 }
-const PR_ICO={dash:'<path d="M4 13h6V4H4zM14 20h6v-9h-6zM14 4v4h6V4zM4 20h6v-4H4z"/>',shop:'<path d="M5 8h14l-1.4 11.2a2 2 0 0 1-2 1.8H8.4a2 2 0 0 1-2-1.8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',meta:'<path d="M3 12c2-5 5-6 7-2s5 7 8 2 1-7-2-5-6 9-9 9-4-2-4-4z"/>',odoo:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>',act:'<path d="M3 12h4l3 7 4-14 3 7h4"/>',sheet:'<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.500 4 4"/>',lock:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',ok:'<path d="m5 12 4 4 10-10"/>'};
+const PR_ICO={quotes:'<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h6M9 16h4"/>',quote:'<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h6M9 16h4"/>',dash:'<path d="M4 13h6V4H4zM14 20h6v-9h-6zM14 4v4h6V4zM4 20h6v-4H4z"/>',shop:'<path d="M5 8h14l-1.4 11.2a2 2 0 0 1-2 1.8H8.4a2 2 0 0 1-2-1.8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',meta:'<path d="M3 12c2-5 5-6 7-2s5 7 8 2 1-7-2-5-6 9-9 9-4-2-4-4z"/>',odoo:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>',act:'<path d="M3 12h4l3 7 4-14 3 7h4"/>',sheet:'<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.500 4 4"/>',lock:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',ok:'<path d="m5 12 4 4 10-10"/>'};
 const prIco=k=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${PR_ICO[k]||''}</svg>`;
 function prSwitch(u,key,on,locked,title,desc,ico,warn){
   return `<label class="pr-sw${on?' on':''}${locked?' locked':''}${warn?' warn':''}"><span class="pr-ic">${prIco(ico)}</span><span class="pr-tx"><b>${title}</b><small>${desc}</small></span><input type="checkbox" data-pr="${u.id}" data-k="${key}" ${on?'checked':''} ${locked?'disabled':''}><i class="pr-tg" aria-hidden="true"></i></label>`;
@@ -827,8 +832,8 @@ function prCard(u){
   const chips=[];
   if(st.dash)chips.push(['Dashboards','dash']);else{if(st.shop)chips.push(['Shopify','shop']);if(st.meta)chips.push(['Meta Ads','meta'])}
   if(!st.dash&&st.nTabs)chips.push([st.odooAll?'Odoo: all tabs':`Odoo: ${st.nTabs} of ${PR_TABS.length} tabs`,'odoo']);
-  if(st.act)chips.push(['Activity','act']);if(st.sheet)chips.push(['Edits courier sheet','sheet']);
-  const total=3+PR_TABS.length+2,got=(st.shop?1:0)+(st.meta?1:0)+(st.dash?1:0)+st.nTabs+(st.act?1:0)+(st.sheet?1:0);
+  if(st.quote)chips.push(['Quotations','quote']);if(st.act)chips.push(['Activity','act']);if(st.sheet)chips.push(['Edits courier sheet','sheet']);
+  const total=3+PR_TABS.length+3,got=(st.shop?1:0)+(st.meta?1:0)+(st.dash?1:0)+st.nTabs+(st.act?1:0)+(st.sheet?1:0)+(st.quote?1:0);
   const pct=Math.round(got/total*100);
   const head=`<button type="button" class="pr-head" data-act="pr-open" data-id="${u.id}" aria-expanded="${open}">
     <span class="pr-av">${avatarSVG(u.avatar)}</span>
@@ -857,6 +862,7 @@ function prCard(u){
     <div class="pr-sec"><div class="pr-sech"><h4>Odoo <span>${st.nTabs} of ${PR_TABS.length} tabs · view only</span></h4>${prSwitch(u,'odoo',st.odooAll,st.ceo||st.dash,'Every Odoo tab',st.ceo?ceoNote:st.dash?'Included with Dashboards':'Also gives tabs added later','odoo')}</div>
       <div class="pr-ogs">${odooGroups}</div>
       <p class="pr-lock">${prIco('lock')}Growth radar and Order forecast stay Super Admin only.</p></div>
+    <div class="pr-sec"><h4>Quotations</h4><div class="pr-sws">${prSwitch(u,'quote',st.quote,false,'Create quotations','Make quotations for distributors and customers, send them for approval and convert approved ones to invoices. They see only their own.','quotes')}<div class="pr-info">${u.role==='finance'||u.role==='ceo'?'<b>Approves quotations</b> as '+(u.role==='finance'?'Finance':'CEO')+' and sees every quotation and invoice.':u.role==='warehouse'?'<b>Warehouse role:</b> sees the warehouse queue and moves orders from ready to transferred.':'Approvals are done by Finance, the CEO and the Super Admin. The Warehouse role prepares invoices.'}</div></div></div>
     <div class="pr-two"><div class="pr-sec"><h4>Team</h4><div class="pr-sws">${prSwitch(u,'act',st.act,false,'Activity','Who used the hub, when, on which device and for how long.','act')}</div></div>
     <div class="pr-sec"><h4>Editing rights <span class="w">can change data</span></h4><div class="pr-sws">${prSwitch(u,'sheet',st.sheet,false,'Edit courier sheet','Add, change and delete orders in the courier sheet (Shopify profit). Give this only to the person who manages deliveries.','sheet',true)}</div></div></div>
     <div class="pr-fixed"><div><h4>${prIco('ok')}Always open to everyone</h4><ul>${PR_ALWAYS.map(([a,b])=>`<li><b>${a}</b><small>${b}</small></li>`).join('')}</ul></div><div><h4>${prIco('lock')}Super Admin only</h4><ul>${PR_ADMIN.map(([a,b])=>`<li><b>${a}</b><small>${b}</small></li>`).join('')}</ul></div></div>
@@ -866,7 +872,7 @@ function privHTML(){
   const people=S.users.filter(u=>u.role!=='super_admin');
   if(!people.length)return empty('No users yet','Add people in Users, then choose what they can open here.');
   const P=S.pr,roles=[...new Set(people.map(u=>u.role))];
-  const withAny=people.filter(u=>{const st=prState(u);return st.dash||st.shop||st.meta||st.nTabs||st.act||st.sheet}).length;
+  const withAny=people.filter(u=>{const st=prState(u);return st.quote||st.dash||st.shop||st.meta||st.nTabs||st.act||st.sheet}).length;
   const editors=people.filter(u=>prState(u).sheet).length,odooP=people.filter(u=>prState(u).nTabs).length;
   const stats=[[people.length,'People'],[withAny,'Can open reports'],[odooP,'See Odoo'],[editors,'Can edit data']];
   return `<div class="pr-top"><div class="pr-stats">${stats.map(([n,l])=>`<div><b>${n}</b><small>${l}</small></div>`).join('')}</div>
@@ -3003,7 +3009,7 @@ document.addEventListener('click',async e=>{
   else if(a==='pw-toggle')togglePw(b);
   else if(a==='pr-open'){const id=b.dataset.id;S.pr.open.has(id)?S.pr.open.delete(id):S.pr.open.add(id);update()}
   else if(a==='pr-expand'){const ppl=S.users.filter(u=>u.role!=='super_admin');if(S.pr.open.size>=ppl.length)S.pr.open.clear();else ppl.forEach(u=>S.pr.open.add(u.id));update()}
-  else if(a==='pr-preset'){const u=userById(b.dataset.id);if(u){const p=PR_PRESETS.find(x=>x[0]===b.dataset.p);const keep=(u.reports||[]).filter(k=>k==='sheet');privSave(u.id,p?prNormal(new Set([...p[2],...keep])):[])}}
+  else if(a==='pr-preset'){const u=userById(b.dataset.id);if(u){const p=PR_PRESETS.find(x=>x[0]===b.dataset.p);const keep=(u.reports||[]).filter(k=>k==='sheet'||k==='quote');privSave(u.id,p?prNormal(new Set([...p[2],...keep])):[])}}
   else if(a==='avatar-edit')showAvatarMaker(false);
   else if(a==='av-tab'){S.av.tab=b.dataset.t;renderAv()}
   else if(a==='av-set'){S.av.cfg[b.dataset.k]=b.dataset.v;if(b.dataset.k==='g')avGender(b.dataset.v);renderAv()}
@@ -3218,7 +3224,7 @@ document.addEventListener('submit',async e=>{
   else if(k==='up-free')submitUpload('free');
 });
 
-(function(){try{let h=location.hash.slice(1);if(h.startsWith('home:')){S.ovSec=S.ovPending=h.slice(5);h='home'}if(h.startsWith('ins-')){S.route='ins';S.param=h.slice(4)}else if(['catalog','hub','dash','home','uploads','notes','team','send','content','users','shop','eval','odoo','meta'].includes(h))S.route=h}catch(e){}})();
+(function(){try{let h=location.hash.slice(1);if(h.startsWith('home:')){S.ovSec=S.ovPending=h.slice(5);h='home'}if(h.startsWith('ins-')){S.route='ins';S.param=h.slice(4)}else if(/^(quote|invoice)-/.test(h)){S.route=h.split('-')[0];S.param=h.slice(h.indexOf('-')+1)}else if(['quotes','invoices','warehouse'].includes(h))S.route=h;else if(['catalog','hub','dash','home','uploads','notes','team','send','content','users','shop','eval','odoo','meta'].includes(h))S.route=h}catch(e){}})();
 boot();
 
 /* Side charts (pies and bar panels) can be dragged out of the way. Position is remembered while the page is open; double-click the title to put it back. */
@@ -3376,3 +3382,331 @@ document.addEventListener('input',e=>{const t=e.target;if(t&&t.dataset&&t.datase
 
 document.addEventListener('change',e=>{const t=e.target;if(t&&t.dataset&&t.dataset.grtm){S.grTm[t.dataset.grtm]=t.value;grTmRefresh(true)}});
 document.addEventListener('input',e=>{const t=e.target;if(t&&t.id==='pr-q'){S.pr.q=t.value;prFilter()}});
+
+// =====================================================================================
+// Quotations -> approvals (Finance, CEO, Super Admin, any order) -> invoice -> warehouse
+// Server: api/_quotes.js through /api/data?q=...
+// =====================================================================================
+S.qt={list:null,me:null,f:'all',q:'',busy:false,err:'',cur:null,draft:null,dirty:false,inv:null,invs:null,invMe:null,wh:null,whMe:null,whOpen:new Set(),pick:{},ps:[],psMsg:'',cs:[],csOpen:false,currency:'',arm:''};
+S.qtc=S.qtc||{};
+const QT_SLOTS=[['finance','Finance'],['ceo','CEO'],['super_admin','Super Admin']];
+const QT_ST={draft:['Draft','#9CA3AF'],pending:['Pending approval','#E0A24F'],approved:['Approved','#4ADE80'],rejected:['Rejected','#F87171'],invoiced:['Converted to invoice','#B07CE0']};
+const WH_ST={ready:['Ready for Warehouse','#E0A24F'],preparing:['Preparing','#5B8DEF'],transferred:['Transferred to Distributor','#4ADE80']};
+const qtRoutes=['quotes','quote','invoices','invoice','warehouse'];
+const qtCreate=()=>isAdmin()||myReports().includes('quote');
+const qtSlot=()=>S.me&&['finance','ceo','super_admin'].includes(S.me.role)?S.me.role:null;
+const qtAll=()=>!!S.me&&['super_admin','ceo','finance'].includes(S.me.role);
+const isWh=()=>!!S.me&&S.me.role==='warehouse';
+const qtSeeQuotes=()=>qtCreate()||qtAll();
+const qtSeeInv=()=>qtAll()||isWh()||qtCreate();
+const qtSeeWh=()=>isWh()||qtAll();
+function qtAllowed(r){return r==='quotes'||r==='quote'?qtSeeQuotes():r==='invoices'||r==='invoice'?qtSeeInv():r==='warehouse'?qtSeeWh():true}
+function qtNav(){const o=[];if(qtSeeQuotes())o.push(['quotes','Quotations',S.qtc.approve||0]);if(qtSeeInv())o.push(['invoices','Invoices']);if(qtSeeWh())o.push(['warehouse','Warehouse',S.qtc.wh||0]);return o}
+const qMoney=(n,c)=>{c=c||S.qt.currency||'EGP';try{return new Intl.NumberFormat(undefined,{style:'currency',currency:c,minimumFractionDigits:2,maximumFractionDigits:2}).format(n||0)}catch(e){return (Number(n)||0).toFixed(2)+' '+c}};
+const qNum=n=>(Number(n)||0).toLocaleString(undefined,{maximumFractionDigits:2});
+const qDate=t=>t?new Date(t).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}):'–';
+const qTime=t=>t?new Date(t).toLocaleString(undefined,{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'';
+const qPill=(st,map=QT_ST)=>{const m=map[st]||[st,'#999'];return `<span class="qt-pill" style="--qc:${m[1]}">${m[0]}</span>`};
+const qAv=(id,name)=>{const u=userById(id);return `<span class="qt-who"><span class="qt-av">${avatarSVG(u&&u.avatar)}</span>${esc(name||(u&&u.username)||'')}</span>`};
+const qDots=ap=>`<span class="qt-dots">${QT_SLOTS.map(([k,l])=>{const s=(ap&&ap[k]&&ap[k].state)||'pending';return `<i class="${s}" title="${l}: ${s}">${k==='super_admin'?'SA':l[0]}</i>`}).join('')}</span>`;
+const qIco={plus:'<path d="M12 5v14M5 12h14"/>',scan:'<path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M8 8v8M11 8v8M14 8v8M17 8v8"/>',user:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',x:'<path d="M6 6l12 12M18 6 6 18"/>',ok:'<path d="m5 12 4 4 10-10"/>',no:'<path d="M6 6l12 12M18 6 6 18"/>',wait:'<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',print:'<path d="M7 9V4h10v5M7 17H5a1 1 0 0 1-1-1v-5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v5a1 1 0 0 1-1 1h-2"/><rect x="7" y="14" width="10" height="6" rx="1"/>',box:'<path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',truck:'<path d="M3 6h11v10H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>',inv:'<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/>',back:'<path d="m15 18-6-6 6-6"/>'};
+const qi=(k,s=16)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${qIco[k]||''}</svg>`;
+
+// same money rules as the server (api/_quotes.js priceQuote); the server recalculates on save
+function qDisc(base,d){if(!d||d.type==='none')return 0;const v=Math.max(0,Number(d.value)||0);if(d.type==='percent')return Math.round(base*Math.min(100,v))/100;if(d.type==='amount')return Math.round(Math.min(base,v)*100)/100;return 0}
+function qPrice(lines,od){const r2=n=>Math.round(n*100)/100;const ls=lines.map(l=>{const base=r2((Number(l.price)||0)*(Number(l.qty)||0)),disc=qDisc(base,l.discount);return {...l,base,disc,net:r2(base-disc)}});const subtotal=r2(ls.reduce((a,l)=>a+l.net,0)),lineDisc=r2(ls.reduce((a,l)=>a+l.disc,0)),orderDisc=qDisc(subtotal,od);return {lines:ls,gross:r2(ls.reduce((a,l)=>a+l.base,0)),lineDisc,subtotal,orderDisc,discountTotal:r2(lineDisc+orderDisc),total:r2(subtotal-orderDisc)}}
+const qBlank=()=>({id:null,no:'',status:'draft',customer:null,lines:[],discount:{type:'none',value:0},notes:'',currency:''});
+const qFrom=q=>({id:q.id,no:q.no,status:q.status,createdAt:q.createdAt,customer:q.customer&&q.customer.name?q.customer:null,lines:q.lines.map(l=>({pid:l.pid,name:l.name,code:l.code,barcode:l.barcode,listPrice:l.listPrice,price:l.price,qty:l.qty,discount:l.discount||{type:'none',value:0}})),discount:q.discount||{type:'none',value:0},notes:q.notes||'',currency:q.currency});
+
+function qtEnter(){
+  const r=S.route,L=$('#live');if(!L)return;
+  if(r==='quotes'){qtRender();qtLoadList()}
+  else if(r==='quote')qtOpen(S.param||'new');
+  else if(r==='invoices'){qtRender();qtLoadInvs()}
+  else if(r==='invoice')qtLoadInv(S.param);
+  else if(r==='warehouse'){qtRender();qtLoadWh()}
+}
+function qtRender(){
+  const L=$('#live');if(!L||!qtRoutes.includes(S.route))return;
+  const r=S.route;
+  if(r==='quotes')L.innerHTML=qtListHTML();
+  else if(r==='quote'){L.innerHTML=S.qt.draft?qtBuilderHTML():S.qt.cur?qtViewHTML():S.qt.err?empty('Could not open this quotation',esc(S.qt.err)):'<div class="qt-load">Loading quotation…</div>';if(S.qt.draft)qtSum()}
+  else if(r==='invoices')L.innerHTML=qtInvListHTML();
+  else if(r==='invoice')L.innerHTML=S.qt.inv?qtInvHTML():S.qt.err?empty('Could not open this invoice',esc(S.qt.err)):'<div class="qt-load">Loading invoice…</div>';
+  else if(r==='warehouse')L.innerHTML=qtWhHTML();
+}
+async function qtLoadList(){try{const j=await api('GET','/api/data?q=list');S.qt.list=j.quotes;S.qt.me=j.me;S.qt.err=''}catch(e){S.qt.err=e.message}if(S.route==='quotes')qtRender()}
+async function qtOpen(id){
+  S.qt.err='';S.qt.arm='';S.qt.ps=[];S.qt.psMsg='';S.qt.csOpen=false;
+  if(id==='new'){if(!qtCreate()){S.qt.err='You cannot create quotations.';S.qt.draft=null;S.qt.cur=null;qtRender();return}S.qt.cur=null;S.qt.draft=qBlank();S.qt.dirty=false;qtRender();setTimeout(()=>$('#qt-cs')?.focus(),0);qtWarm();return}
+  S.qt.cur=null;S.qt.draft=null;qtRender();
+  try{const j=await api('GET','/api/data?q=get&id='+encodeURIComponent(id));S.qt.cur=j.quote;if(j.quote.currency)S.qt.currency=j.quote.currency;
+    if(j.quote.can.edit&&j.quote.status==='draft'){S.qt.draft=qFrom(j.quote);S.qt.dirty=false;qtWarm()}}
+  catch(e){S.qt.err=e.message}
+  if(S.route==='quote')qtRender();
+}
+async function qtWarm(){try{const j=await api('GET','/api/data?q=products&s=');if(j.currency)S.qt.currency=j.currency;if(!j.total)S.qt.psMsg='Odoo products could not be loaded. You can still add items by hand.'}catch(e){S.qt.psMsg='Odoo products could not be loaded ('+e.message+'). You can still add items by hand.'}}
+
+// ---------- list
+function qtListHTML(){
+  const Q=S.qt,list=Q.list,slot=qtSlot(),can=qtCreate();
+  const head=`<div class="head"><div><h1>Quotations</h1><p>Quotes for distributors and customers. Finance, the CEO and the Super Admin each approve, in any order. All three are needed before a quote can become an invoice.</p></div>${can?`<button class="btn primary" data-act="go" data-route="quote" data-param="new">${qi('plus')}New quotation</button>`:''}</div>`;
+  if(!list)return head+(Q.err?empty('Could not load quotations',esc(Q.err)):'<div class="qt-load">Loading quotations…</div>');
+  const mine=q=>slot&&q.status==='pending'&&q.approvals&&q.approvals[slot]&&q.approvals[slot].state==='pending';
+  const F=[['all','All',()=>true],...(slot?[['mine','Needs your approval',mine]]:[]),['draft','Drafts',q=>q.status==='draft'],['pending','Pending approval',q=>q.status==='pending'],['approved','Approved',q=>q.status==='approved'],['rejected','Rejected',q=>q.status==='rejected'],['invoiced','Invoiced',q=>q.status==='invoiced']];
+  const f=F.find(x=>x[0]===Q.f)||F[0];
+  const s=Q.q.trim().toLowerCase();
+  const rows=list.filter(f[2]).filter(q=>!s||(q.no+' '+(q.customer.name||'')+' '+(q.customer.city||'')+' '+q.createdByName).toLowerCase().includes(s));
+  const tiles=`<div class="qt-tiles">${F.map(([k,l,fn])=>{const n=list.filter(fn).length;return `<button class="qt-tile${Q.f===k?' on':''}${k==='mine'&&n?' hot':''}" data-act="qt-f" data-f="${k}"><b>${n}</b><span>${l}</span></button>`}).join('')}</div>`;
+  const bar=`<div class="qt-bar"><input class="input" id="qt-q" placeholder="Search number, customer, city or person…" value="${esc(Q.q)}" autocomplete="off"></div>`;
+  const table=rows.length?`<div class="tablewrap"><table class="dt qt-table"><thead><tr><th>Number</th><th>Date</th><th>Customer</th><th>Created by</th><th class="num">Items</th><th class="num">Total</th><th>Approvals</th><th>Status</th></tr></thead><tbody>${rows.map(q=>`<tr class="qt-row" data-act="go" data-route="quote" data-param="${q.id}" tabindex="0"><td class="mono"><b>${esc(q.no)}</b></td><td>${qDate(q.createdAt)}</td><td><b>${esc(q.customer.name||'')}</b>${q.customer.city?`<small class="muted"> · ${esc(q.customer.city)}</small>`:''}</td><td>${qAv(q.createdBy,q.createdByName)}</td><td class="num">${q.items}<small class="muted"> · ${qNum(q.units)} pcs</small></td><td class="num"><b>${qMoney(q.total,q.currency)}</b>${q.priceChanged?'<small class="qt-flag" title="A price differs from Odoo">price changed</small>':''}</td><td>${qDots(q.approvals)}</td><td>${qPill(q.status)}</td></tr>`).join('')}</tbody></table></div>`:empty(list.length?'Nothing matches':'No quotations yet',list.length?'Change the filter or search.':can?'Press New quotation to make the first one.':'Quotations appear here when the team creates them.');
+  return head+tiles+bar+table;
+}
+
+// ---------- builder
+function qtCustHTML(d){
+  return d.customer?`<div class="qt-cust"><span class="qt-cico">${qi('user',18)}</span><div><b>${esc(d.customer.name)}</b><small>${[d.customer.city,d.customer.phone].filter(Boolean).map(esc).join(' · ')||(d.customer.id?'From Odoo':'Typed by hand, not in Odoo')}</small></div><button class="btn sm ghost" data-act="qt-cust-clear">Change</button></div>`
+    :`<div class="qt-search"><input class="input" id="qt-cs" placeholder="Search customer or distributor by name, city or phone…" autocomplete="off"><div class="qt-drop" id="qt-cs-list" hidden></div></div>`;
+}
+function qtBuilderHTML(){
+  const d=S.qt.draft,isNew=!d.id,cust=qtCustHTML(d);
+  return `<button class="btn ghost back" data-act="go" data-route="quotes">${qi('back')} Quotations</button>
+  <div class="qt-bhead"><div><span class="eyebrow">${isNew?'New quotation':'Quotation · draft'}</span><h1>${isNew?'New quotation':esc(d.no)}</h1><p class="muted">${isNew?'The number is given when you first save.':'Created '+qDate(d.createdAt)} ${qPill('draft')}</p></div>
+    <div class="row"><button class="btn" data-act="qt-save">Save draft</button><button class="btn primary" data-act="qt-submit">Submit for approval</button></div></div>
+  <div class="qt-grid"><div class="qt-main">
+    <section class="qt-card"><h3>Customer or distributor</h3><div id="qt-cust">${cust}</div></section>
+    <section class="qt-card"><div class="qt-ch"><h3>Items</h3><button class="btn sm ghost" data-act="qt-custom">${qi('plus',14)}Add an item by hand</button></div>
+      <div class="qt-search qt-scan"><span class="qt-sico">${qi('scan',20)}</span><input class="input" id="qt-ps" placeholder="Scan a barcode, or type a product name or code, then press Enter" autocomplete="off"><div class="qt-drop" id="qt-ps-list" hidden></div></div>
+      ${S.qt.psMsg?`<p class="qt-warn">${esc(S.qt.psMsg)}</p>`:''}
+      <div id="qt-lines">${qtLinesHTML()}</div></section>
+    <section class="qt-card"><h3>Notes</h3><textarea class="textarea" id="qt-notes" placeholder="Delivery details, payment terms, anything the approvers should know…">${esc(d.notes||'')}</textarea></section>
+  </div><aside class="qt-side">
+    <section class="qt-card qt-totals"><h3>Totals</h3><div id="qt-sum"></div>
+      <div class="qt-od"><label>Discount on the whole quotation</label><div class="qt-dsel">${qDiscCtl('qo','',d.discount)}</div><small class="muted">Discount rules are not final yet: for now enter a percent or an amount.</small></div></section>
+    <section class="qt-card qt-flow"><h3>What happens next</h3><ol><li><b>Submit</b> sends it to Finance, the CEO and the Super Admin at the same time.</li><li>They approve <b>in any order</b>. One rejection sends it back to you with the reason.</li><li>When <b>all three</b> approve, “Convert to invoice” unlocks.</li><li>The invoice goes to the <b>Warehouse</b> queue to be prepared and sent.</li></ol></section>
+    ${d.id?`<button class="btn danger${S.qt.arm==='del'?' armed':''}" data-act="qt-del">${S.qt.arm==='del'?'Click again to delete this draft':'Delete draft'}</button>`:''}
+  </aside></div>`;
+}
+function qDiscCtl(kind,i,dd){
+  const t=(dd&&dd.type)||'none';
+  return `<select class="select" data-${kind}="type" ${i!==''?`data-i="${i}"`:''} aria-label="Discount type"><option value="none" ${t==='none'?'selected':''}>No discount</option><option value="percent" ${t==='percent'?'selected':''}>Percent %</option><option value="amount" ${t==='amount'?'selected':''}>Amount</option></select>${t==='none'?'':`<input class="input" type="number" min="0" step="0.01" ${t==='percent'?'max="100"':''} data-${kind}="value" ${i!==''?`data-i="${i}"`:''} value="${dd.value||''}" placeholder="${t==='percent'?'%':'0.00'}" aria-label="Discount value">`}`;
+}
+function qtLinesHTML(){
+  const d=S.qt.draft,P=qPrice(d.lines,d.discount);
+  if(!d.lines.length)return `<div class="qt-empty">${qi('scan',28)}<b>No items yet</b><span>Scan a barcode or search above. Scanning the same product again adds one more.</span></div>`;
+  return `<div class="tablewrap"><table class="dt qt-lines"><thead><tr><th>#</th><th>Product</th><th class="num">Unit price</th><th class="num">Quantity</th><th>Discount</th><th class="num">Line total</th><th></th></tr></thead><tbody>${P.lines.map((l,i)=>{
+    const changed=l.listPrice!=null&&Math.abs(l.listPrice-l.price)>0.004;
+    return `<tr data-row="${i}"><td class="muted">${i+1}</td>
+    <td class="qt-pcell">${l.pid?`<b>${esc(l.name)}</b>`:`<input class="input qt-name" data-ql="name" data-i="${i}" value="${esc(l.name)}" placeholder="Item name">`}<small class="mono">${[l.code,l.barcode].filter(Boolean).map(esc).join(' · ')||(l.pid?'':'Not in Odoo')}</small></td>
+    <td class="num"><input class="input qt-in" type="number" min="0" step="0.01" data-ql="price" data-i="${i}" value="${l.price}">${changed?`<small class="qt-flag">Odoo price ${qMoney(l.listPrice)} <button class="qt-mini" data-act="qt-reset" data-i="${i}">reset</button></small>`:''}</td>
+    <td class="num"><div class="qt-qty"><button class="qt-step" data-act="qt-qty" data-i="${i}" data-d="-1" aria-label="One less">−</button><input class="input qt-in" type="number" min="0" step="1" data-ql="qty" data-i="${i}" value="${l.qty}"><button class="qt-step" data-act="qt-qty" data-i="${i}" data-d="1" aria-label="One more">+</button></div></td>
+    <td><div class="qt-dsel">${qDiscCtl('ql',i,l.discount)}</div></td>
+    <td class="num" id="qt-lt-${i}">${qLineTot(l)}</td>
+    <td><button class="qt-x" data-act="qt-rm" data-i="${i}" aria-label="Remove ${esc(l.name)}">${qi('x',15)}</button></td></tr>`}).join('')}</tbody></table></div>`;
+}
+const qLineTot=l=>`<b>${qMoney(l.net)}</b>${l.disc?`<small class="muted"><s>${qMoney(l.base)}</s></small>`:''}`;
+function qtSum(){
+  const d=S.qt.draft,el=$('#qt-sum');if(!d||!el)return;const P=qPrice(d.lines,d.discount);
+  el.innerHTML=`<dl class="qt-dl"><dt>Items</dt><dd>${d.lines.length} · ${qNum(d.lines.reduce((a,l)=>a+(Number(l.qty)||0),0))} pcs</dd><dt>Before discounts</dt><dd>${qMoney(P.gross)}</dd>${P.lineDisc?`<dt>Item discounts</dt><dd>− ${qMoney(P.lineDisc)}</dd>`:''}<dt>Subtotal</dt><dd>${qMoney(P.subtotal)}</dd>${P.orderDisc?`<dt>Quotation discount</dt><dd>− ${qMoney(P.orderDisc)}</dd>`:''}</dl><div class="qt-total"><span>Total</span><b>${qMoney(P.total)}</b></div>`;
+  P.lines.forEach((l,i)=>{const c=$('#qt-lt-'+i);if(c)c.innerHTML=qLineTot(l)});
+}
+function qtLinesRedraw(){const el=$('#qt-lines');if(el)el.innerHTML=qtLinesHTML();qtSum()}
+function qtAddProduct(p){
+  const d=S.qt.draft;if(!d)return;
+  const i=d.lines.findIndex(l=>l.pid&&l.pid===p.pid);
+  if(i>=0)d.lines[i].qty=(Number(d.lines[i].qty)||0)+1;
+  else d.lines.push({pid:p.pid,name:p.name,code:p.code||'',barcode:p.barcode||'',listPrice:p.price,price:p.price,qty:1,discount:{type:'none',value:0}});
+  S.qt.dirty=true;qtLinesRedraw();
+  const row=document.querySelector(`[data-row="${i>=0?i:d.lines.length-1}"]`);if(row){row.classList.add('qt-flash');setTimeout(()=>row.classList.remove('qt-flash'),900)}
+  const inp=$('#qt-ps');if(inp){inp.value='';inp.focus()}const dl=$('#qt-ps-list');if(dl)dl.hidden=true;
+  toast(i>=0?`${p.name}: quantity ${d.lines[i].qty}`:`Added ${p.name}`);
+}
+let qtPT=null,qtCT=null;
+async function qtProdSearch(s,enter){
+  const dl=$('#qt-ps-list');if(!dl)return;
+  try{
+    const j=await api('GET','/api/data?q=products&s='+encodeURIComponent(s));
+    if(j.currency)S.qt.currency=j.currency;S.qt.ps=j.products||[];
+    if(enter&&j.exact){qtAddProduct(j.exact);return}
+    if(enter&&S.qt.ps.length===1){qtAddProduct(S.qt.ps[0]);return}
+    if($('#qt-ps')&&$('#qt-ps').value.trim()!==s&&!enter)return;
+    dl.innerHTML=S.qt.ps.length?S.qt.ps.map((p,k)=>`<button type="button" class="qt-opt${k===0?' first':''}" data-act="qt-pick-p" data-k="${k}"><span><b>${esc(p.name)}</b><small class="mono">${[p.code,p.barcode].filter(Boolean).map(esc).join(' · ')}</small></span><em>${qMoney(p.price,j.currency)}</em></button>`).join(''):`<div class="qt-none">No product matches “${esc(s)}”. <button type="button" class="qt-mini" data-act="qt-custom" data-name="${esc(s)}">Add it by hand</button></div>`;
+    dl.hidden=false;
+  }catch(e){dl.innerHTML=`<div class="qt-none">${esc(e.message)}</div>`;dl.hidden=false}
+}
+async function qtCustSearch(s){
+  const dl=$('#qt-cs-list');if(!dl)return;
+  try{const j=await api('GET','/api/data?q=customers&s='+encodeURIComponent(s));S.qt.cs=j.customers||[];
+    if($('#qt-cs')&&$('#qt-cs').value.trim()!==s)return;
+    dl.innerHTML=S.qt.cs.map((c,k)=>`<button type="button" class="qt-opt" data-act="qt-pick-c" data-k="${k}"><span><b>${esc(c.name)}</b><small>${[c.city,c.phone].filter(Boolean).map(esc).join(' · ')}</small></span>${c.company?'<em>Company</em>':''}</button>`).join('')+(s?`<button type="button" class="qt-opt new" data-act="qt-pick-c" data-k="-1"><span><b>Use “${esc(s)}”</b><small>A customer typed by hand (not in Odoo)</small></span></button>`:'')+(!S.qt.cs.length&&!s?'<div class="qt-none">Type to search Odoo contacts.</div>':'');
+    dl.hidden=false;}
+  catch(e){dl.innerHTML=`<div class="qt-none">${esc(e.message)}</div>${s?`<button type="button" class="qt-opt new" data-act="qt-pick-c" data-k="-1"><span><b>Use “${esc(s)}”</b><small>Typed by hand</small></span></button>`:''}`;dl.hidden=false}
+}
+function qtPayload(){const d=S.qt.draft;return {id:d.id||undefined,customer:d.customer||{},lines:d.lines,discount:d.discount,notes:($('#qt-notes')?.value??d.notes)||'',currency:S.qt.currency}}
+async function qtSave(silent){
+  const d=S.qt.draft;if(!d)return null;d.notes=$('#qt-notes')?.value??d.notes;
+  const j=await api('POST','/api/data?q=1',{action:'save',...qtPayload()});
+  S.qt.draft=qFrom(j.quote);S.qt.cur=j.quote;S.qt.dirty=false;S.param=j.quote.id;
+  try{history.replaceState(null,'','#quote-'+j.quote.id)}catch(e){}
+  if(!silent){qtRender();toast(`Saved ${j.quote.no}`)}
+  return j.quote;
+}
+
+// ---------- view (pending, approved, rejected, invoiced)
+function qtViewHTML(){
+  const q=S.qt.cur,slot=qtSlot(),ap=q.approvals||{},nOk=QT_SLOTS.filter(([k])=>ap[k]&&ap[k].state==='approved').length;
+  const rej=QT_SLOTS.find(([k])=>ap[k]&&ap[k].state==='rejected');
+  const actions=[
+    q.can.convert?`<button class="btn primary qt-big" data-act="qt-convert">${qi('inv',18)}Convert to invoice</button>`:'',
+    q.invoiceId?`<button class="btn primary" data-act="go" data-route="invoice" data-param="${q.invoiceId}">${qi('inv')}Open invoice ${esc(q.invoiceNo||'')}</button>`:'',
+    q.status==='rejected'&&q.can.edit?`<button class="btn primary" data-act="qt-fix">Fix and resubmit</button>`:'',
+    q.can.withdraw?`<button class="btn" data-act="qt-withdraw">Take back to edit</button>`:'',
+    `<button class="btn ghost" data-act="qt-print">${qi('print')}Print</button>`].join('');
+  const banner=q.status==='approved'?`<div class="qt-banner ok">${qi('ok',18)}<div><b>All three approved.</b> ${q.can.convert?'You can now convert it to an invoice.':'The creator, Finance, the CEO or the Super Admin can now convert it to an invoice.'}</div></div>`
+    :q.status==='rejected'&&rej?`<div class="qt-banner bad">${qi('no',18)}<div><b>Rejected by ${esc(ap[rej[0]].byName)} (${rej[1]})</b> on ${qTime(ap[rej[0]].at)}.<br>Reason: “${esc(ap[rej[0]].note)}”${q.can.edit?'<br>Fix it and submit again: all three approvals start over.':''}</div></div>`
+    :q.status==='pending'?`<div class="qt-banner wait">${qi('wait',18)}<div><b>Waiting for approval: ${nOk} of 3 done.</b> Finance, the CEO and the Super Admin can approve in any order.</div></div>`
+    :q.status==='invoiced'?`<div class="qt-banner inv">${qi('inv',18)}<div><b>Converted to invoice ${esc(q.invoiceNo||'')}.</b> It is now in the warehouse queue.</div></div>`:'';
+  const card=([k,l])=>{const a=ap[k]||{state:'pending'},me=slot===k&&q.can.approve;
+    return `<div class="qt-ap ${a.state}${me?' me':''}"><div class="qt-aph"><span class="qt-apico">${qi(a.state==='approved'?'ok':a.state==='rejected'?'no':'wait',18)}</span><div><b>${l}</b><small>${a.state==='approved'?'Approved':a.state==='rejected'?'Rejected':q.status==='pending'?'Waiting':q.status==='draft'?'Not sent yet':'–'}</small></div></div>
+      ${a.by?`<div class="qt-apby">${qAv(a.by,a.byName)}<small>${qTime(a.at)}</small></div>`:''}${a.note?`<p class="qt-apnote">“${esc(a.note)}”</p>`:''}
+      ${me?`<div class="qt-apdo"><button class="btn primary" data-act="qt-approve">${qi('ok')}Approve</button><textarea class="textarea" id="qt-note" placeholder="Note (needed to reject, optional to approve)"></textarea><button class="btn danger" data-act="qt-reject">Reject with this reason</button></div>`:''}</div>`};
+  const P=q.totals;
+  return `<button class="btn ghost back qt-noprint" data-act="go" data-route="quotes">${qi('back')} Quotations</button>
+  <div class="qt-bhead"><div><span class="eyebrow">Quotation</span><h1>${esc(q.no)} ${qPill(q.status)}</h1><p class="muted">${esc(q.customer.name||'')}${q.customer.city?' · '+esc(q.customer.city):''} · created ${qDate(q.createdAt)} by ${esc(q.createdByName)}${q.submittedAt?' · submitted '+qTime(q.submittedAt):''}</p></div><div class="row qt-noprint">${actions}</div></div>
+  ${banner}
+  <section class="qt-card"><div class="qt-ch"><h3>Approvals</h3><span class="qt-prog"><i style="width:${nOk/3*100}%"></i></span><small class="muted">${nOk} of 3 · any order</small></div><div class="qt-aps">${QT_SLOTS.map(card).join('')}</div></section>
+  <div class="qt-grid"><div class="qt-main">
+  <section class="qt-card"><h3>Items</h3><div class="tablewrap"><table class="dt"><thead><tr><th>#</th><th>Product</th><th>Barcode</th><th class="num">Unit price</th><th class="num">Qty</th><th>Discount</th><th class="num">Total</th></tr></thead><tbody>${P.lines.map((l,i)=>{const ch=l.listPrice!=null&&Math.abs(l.listPrice-l.price)>0.004;return `<tr><td class="muted">${i+1}</td><td><b>${esc(l.name)}</b>${l.code?`<small class="mono muted"> ${esc(l.code)}</small>`:''}${l.pid?'':' <small class="qt-flag">not in Odoo</small>'}</td><td class="mono">${esc(l.barcode||'–')}</td><td class="num">${qMoney(l.price,q.currency)}${ch?`<small class="qt-flag">Odoo price ${qMoney(l.listPrice,q.currency)}</small>`:''}</td><td class="num">${qNum(l.qty)}</td><td>${l.discount&&l.discount.type!=='none'?(l.discount.type==='percent'?l.discount.value+'%':qMoney(l.discount.value,q.currency)):'–'}</td><td class="num"><b>${qMoney(l.net,q.currency)}</b></td></tr>`}).join('')}</tbody></table></div></section>
+  ${q.notes?`<section class="qt-card"><h3>Notes</h3><p class="qt-notes">${esc(q.notes)}</p></section>`:''}
+  </div><aside class="qt-side"><section class="qt-card qt-totals"><h3>Totals</h3><dl class="qt-dl"><dt>Before discounts</dt><dd>${qMoney(P.gross,q.currency)}</dd>${P.lineDisc?`<dt>Item discounts</dt><dd>− ${qMoney(P.lineDisc,q.currency)}</dd>`:''}<dt>Subtotal</dt><dd>${qMoney(P.subtotal,q.currency)}</dd>${P.orderDisc?`<dt>Quotation discount</dt><dd>− ${qMoney(P.orderDisc,q.currency)}</dd>`:''}</dl><div class="qt-total"><span>Total</span><b>${qMoney(P.total,q.currency)}</b></div></section>
+  <section class="qt-card"><h3>History</h3><ol class="qt-hist">${[...q.history].reverse().map(h=>`<li><b>${esc(h.byName||'')}</b> ${esc(h.action)}${h.note?` <q>${esc(h.note)}</q>`:''}<small>${qTime(h.at)}</small></li>`).join('')}</ol></section></aside></div>`;
+}
+async function qtAct(action,extra={}){
+  const q=S.qt.cur;if(!q)return;
+  try{const j=await api('POST','/api/data?q=1',{action,id:q.id,...extra});
+    if(action==='convert'){toast(`Invoice ${j.invoiceNo} created and sent to the warehouse`);go('invoice',j.invoiceId);sync();return}
+    S.qt.cur=j.quote;if(j.quote.can.edit&&j.quote.status==='draft'){S.qt.draft=qFrom(j.quote);qtWarm()}qtRender();sync();
+    toast({approve:'Approved',reject:'Rejected: the creator will see your reason',withdraw:'Taken back: you can edit it now',submit:'Submitted for approval'}[action]||'Saved');
+  }catch(e){toast(e.message)}
+}
+
+// ---------- invoices
+function qtInvListHTML(){
+  const I=S.qt.invs,head=`<div class="head"><div><h1>Invoices</h1><p>Made from fully approved quotations. Each one goes to the warehouse to be prepared and sent to the distributor.</p></div></div>`;
+  if(!I)return head+(S.qt.err?empty('Could not load invoices',esc(S.qt.err)):'<div class="qt-load">Loading invoices…</div>');
+  if(!I.length)return head+empty('No invoices yet','When an approved quotation is converted, its invoice appears here.');
+  const money=S.qt.invMe&&S.qt.invMe.money;
+  const cnt=k=>I.filter(i=>i.whStatus===k).length;
+  return head+`<div class="qt-tiles">${Object.entries(WH_ST).map(([k,[l,c]])=>`<div class="qt-tile" style="--qc:${c}"><b>${cnt(k)}</b><span>${l}</span></div>`).join('')}${money?`<div class="qt-tile"><b>${qMoney(I.reduce((a,i)=>a+(i.totals?i.totals.total:0),0),I[0].currency)}</b><span>Total invoiced</span></div>`:''}</div>
+  <div class="tablewrap"><table class="dt qt-table"><thead><tr><th>Invoice</th><th>From quote</th><th>Date</th><th>Customer</th><th class="num">Items</th>${money?'<th class="num">Total</th>':''}<th>Warehouse</th></tr></thead><tbody>${I.map(i=>`<tr class="qt-row" data-act="go" data-route="invoice" data-param="${i.id}" tabindex="0"><td class="mono"><b>${esc(i.no)}</b></td><td class="mono muted">${esc(i.quoteNo)}</td><td>${qDate(i.createdAt)}</td><td><b>${esc(i.customer.name||'')}</b>${i.customer.city?`<small class="muted"> · ${esc(i.customer.city)}</small>`:''}</td><td class="num">${i.items}<small class="muted"> · ${qNum(i.units)} pcs</small></td>${money?`<td class="num"><b>${qMoney(i.totals.total,i.currency)}</b></td>`:''}<td>${qPill(i.whStatus,WH_ST)}</td></tr>`).join('')}</tbody></table></div>`;
+}
+async function qtLoadInvs(){try{const j=await api('GET','/api/data?q=invoices');S.qt.invs=j.invoices;S.qt.invMe=j.me;S.qt.err=''}catch(e){S.qt.err=e.message}if(S.route==='invoices')qtRender()}
+async function qtLoadInv(id){S.qt.inv=null;S.qt.err='';qtRender();try{const j=await api('GET','/api/data?q=invoice&id='+encodeURIComponent(id||''));S.qt.inv=j.invoice}catch(e){S.qt.err=e.message}if(S.route==='invoice')qtRender()}
+function qtInvHTML(){
+  const i=S.qt.inv,P=i.totals,ap=i.approvals||{},steps=Object.keys(WH_ST),at=steps.indexOf(i.whStatus);
+  const stepBar=`<div class="qt-steps">${steps.map((k,n)=>`<div class="qt-step-i${n<=at?' done':''}${n===at?' now':''}"><i>${qi(n===0?'inv':n===1?'box':'truck',16)}</i><span>${WH_ST[k][0]}</span>${(i.whHistory.filter(h=>h.status===k).pop()||{}).at?`<small>${qTime(i.whHistory.filter(h=>h.status===k).pop().at)}</small>`:''}</div>`).join('')}</div>`;
+  const move=i.can.move?qtWhButtons(i):'';
+  return `<button class="btn ghost back qt-noprint" data-act="go" data-route="invoices">${qi('back')} Invoices</button>
+  <div class="row qt-noprint" style="justify-content:space-between;margin-bottom:12px">${stepBar}<div class="row">${move}<button class="btn" data-act="qt-print">${qi('print')}Print</button></div></div>
+  <article class="qt-doc">
+    <header class="qt-doch"><div class="au-logo"><i class="au-bf"></i><span><b>BLESS</b><small>Invoice</small></span></div><div class="qt-docno"><h1>${esc(i.no)}</h1><p>Date ${qDate(i.createdAt)}<br>From quotation <span class="mono">${esc(i.quoteNo)}</span></p></div></header>
+    <div class="qt-docp"><div><span class="eyebrow">Bill to</span><b>${esc(i.customer.name||'')}</b><p>${[i.customer.city,i.customer.phone].filter(Boolean).map(esc).join('<br>')}</p></div><div><span class="eyebrow">Prepared by</span><b>${esc(i.quoteByName||'')}</b><p>Converted by ${esc(i.createdByName||'')}</p></div><div><span class="eyebrow">Warehouse</span>${qPill(i.whStatus,WH_ST)}</div></div>
+    <table class="qt-doct"><thead><tr><th>#</th><th>Product</th><th>Barcode</th><th class="num">Qty</th>${P?'<th class="num">Unit price</th><th class="num">Discount</th><th class="num">Total</th>':''}</tr></thead><tbody>${i.lines.map((l,n)=>`<tr><td>${n+1}</td><td><b>${esc(l.name)}</b>${l.code?`<small> ${esc(l.code)}</small>`:''}</td><td class="mono">${esc(l.barcode||'–')}</td><td class="num">${qNum(l.qty)}</td>${P?`<td class="num">${qMoney(l.price,i.currency)}</td><td class="num">${l.disc?'− '+qMoney(l.disc,i.currency):'–'}</td><td class="num"><b>${qMoney(l.net,i.currency)}</b></td>`:''}</tr>`).join('')}</tbody></table>
+    <div class="qt-docf"><div class="qt-docap"><span class="eyebrow">Approved by</span>${QT_SLOTS.map(([k,l])=>ap[k]&&ap[k].state==='approved'?`<p><b>${l}</b> ${esc(ap[k].byName)} <small>${qTime(ap[k].at)}</small></p>`:'').join('')}${i.notes?`<span class="eyebrow" style="margin-top:10px">Notes</span><p>${esc(i.notes)}</p>`:''}</div>
+    ${P?`<dl class="qt-dl qt-docsum"><dt>Items</dt><dd>${i.items} · ${qNum(i.units)} pcs</dd><dt>Before discounts</dt><dd>${qMoney(P.gross,i.currency)}</dd>${P.discountTotal?`<dt>Discounts</dt><dd>− ${qMoney(P.discountTotal,i.currency)}</dd>`:''}<dt class="tot">Total</dt><dd class="tot">${qMoney(P.total,i.currency)}</dd></dl>`:`<p class="muted">${i.items} items · ${qNum(i.units)} pcs</p>`}</div>
+  </article>`;
+}
+function qtWhButtons(i){
+  if(i.whStatus==='ready')return `<button class="btn primary" data-act="qt-wh" data-id="${i.id}" data-s="preparing">${qi('box')}Start preparing</button>`;
+  if(i.whStatus==='preparing')return `<button class="btn ghost" data-act="qt-wh" data-id="${i.id}" data-s="ready">Back to ready</button><button class="btn primary" data-act="qt-wh" data-id="${i.id}" data-s="transferred">${qi('truck')}Mark transferred</button>`;
+  return `<button class="btn ghost" data-act="qt-wh" data-id="${i.id}" data-s="preparing">Undo: back to preparing</button>`;
+}
+
+// ---------- warehouse board
+async function qtLoadWh(){try{const j=await api('GET','/api/data?q=wh');S.qt.wh=j.invoices;S.qt.whMe=j.me;S.qt.err=''}catch(e){S.qt.err=e.message}if(S.route==='warehouse')qtRender()}
+function qtWhHTML(){
+  const W=S.qt.wh,head=`<div class="head"><div><h1>Warehouse</h1><p>Invoices to prepare and send to distributors. Tick items off the picking list as you pack, then move the order along.</p></div><button class="btn" data-act="qt-wh-reload">Refresh</button></div>`;
+  if(!W)return head+(S.qt.err?empty('Could not load the warehouse queue',esc(S.qt.err)):'<div class="qt-load">Loading the queue…</div>');
+  const col=k=>{const list=W.filter(i=>i.whStatus===k);return `<section class="qt-col" style="--qc:${WH_ST[k][1]}"><header><b>${WH_ST[k][0]}</b><span>${list.length}</span></header>${list.length?list.map(qtWhCard).join(''):`<div class="qt-colempty">${k==='transferred'?'Orders sent in the last 30 days show here.':'Nothing here.'}</div>`}</section>`};
+  return head+`<div class="qt-board">${Object.keys(WH_ST).map(col).join('')}</div>`;
+}
+function qtWhCard(i){
+  const open=S.qt.whOpen.has(i.id),picked=S.qt.pick[i.id]||new Set(),n=picked.size;
+  const lastAt=(i.whHistory[i.whHistory.length-1]||{}).at;
+  return `<article class="qt-wcard"><div class="qt-wtop"><b class="mono">${esc(i.no)}</b><small>${qDate(i.createdAt)}</small></div>
+    <h4>${esc(i.customer.name||'')}</h4><p class="muted">${[i.customer.city,i.customer.phone].filter(Boolean).map(esc).join(' · ')}</p>
+    <div class="qt-wmeta"><span>${i.items} products</span><span>${qNum(i.units)} pcs</span>${i.whStatus==='preparing'?`<span class="qt-pk">${n}/${i.items} picked</span>`:''}</div>
+    <button class="qt-wlist" data-act="qt-wh-open" data-id="${i.id}" aria-expanded="${open}">${open?'Hide':'Show'} picking list</button>
+    ${open?`<ul class="qt-pick">${i.lines.map((l,k)=>`<li class="${picked.has(k)?'on':''}"><label><input type="checkbox" data-qpick="${i.id}" data-k="${k}" ${picked.has(k)?'checked':''}><span><b>${esc(l.name)}</b><small class="mono">${esc(l.barcode||l.code||'')}</small></span><em>× ${qNum(l.qty)}</em></label></li>`).join('')}</ul>`:''}
+    <div class="qt-wact">${i.can.move?qtWhButtons(i):''}<button class="btn sm ghost" data-act="go" data-route="invoice" data-param="${i.id}">Open invoice</button></div>
+    ${lastAt?`<small class="muted">Last change ${qTime(lastAt)}</small>`:''}</article>`;
+}
+async function qtWhMove(id,status){
+  try{const j=await api('POST','/api/data?q=1',{action:'wh',id,status});
+    if(S.qt.inv&&S.qt.inv.id===id)S.qt.inv=j.invoice;
+    if(S.qt.wh){const k=S.qt.wh.findIndex(x=>x.id===id);if(k>=0)S.qt.wh[k]=j.invoice}
+    qtRender();sync();toast(`${j.invoice.no}: ${WH_ST[status][0]}`);
+  }catch(e){toast(e.message)}
+}
+
+// ---------- events
+document.addEventListener('click',async e=>{
+  const b=e.target.closest('[data-act]');
+  // close drop-downs when clicking elsewhere
+  if(!e.target.closest('.qt-search')){document.querySelectorAll('.qt-drop').forEach(d=>d.hidden=true)}
+  if(!b||!b.dataset.act.startsWith('qt-'))return;
+  const a=b.dataset.act,d=S.qt.draft;
+  if(a!=='qt-del')S.qt.arm='';
+  if(a==='qt-f'){S.qt.f=b.dataset.f;qtRender()}
+  else if(a==='qt-pick-p'){const p=S.qt.ps[+b.dataset.k];if(p)qtAddProduct(p)}
+  else if(a==='qt-pick-c'){const k=+b.dataset.k,s=($('#qt-cs')?.value||'').trim();d.customer=k<0?{id:null,name:s,city:'',phone:''}:S.qt.cs[k];S.qt.dirty=true;$('#qt-cust').innerHTML=qtCustHTML(d);setTimeout(()=>$('#qt-ps')?.focus(),0)}
+  else if(a==='qt-cust-clear'){d.customer=null;S.qt.dirty=true;qtRender();setTimeout(()=>$('#qt-cs')?.focus(),0)}
+  else if(a==='qt-custom'){d.lines.push({pid:null,name:b.dataset.name||'',code:'',barcode:'',listPrice:null,price:0,qty:1,discount:{type:'none',value:0}});S.qt.dirty=true;qtLinesRedraw();const ins=document.querySelectorAll('.qt-name');ins[ins.length-1]?.focus()}
+  else if(a==='qt-qty'){const l=d.lines[+b.dataset.i];l.qty=Math.max(0,(Number(l.qty)||0)+Number(b.dataset.d));if(l.qty===0&&Number(b.dataset.d)<0){d.lines.splice(+b.dataset.i,1)}S.qt.dirty=true;qtLinesRedraw()}
+  else if(a==='qt-rm'){d.lines.splice(+b.dataset.i,1);S.qt.dirty=true;qtLinesRedraw()}
+  else if(a==='qt-reset'){const l=d.lines[+b.dataset.i];l.price=l.listPrice;S.qt.dirty=true;qtLinesRedraw()}
+  else if(a==='qt-save'){try{await qtSave()}catch(x){toast(x.message)}}
+  else if(a==='qt-submit'){
+    if(!d.customer){toast('Choose a customer or distributor first.');$('#qt-cs')?.focus();return}
+    if(!d.lines.length){toast('Add at least one item first.');$('#qt-ps')?.focus();return}
+    b.disabled=true;try{const q=await qtSave(true);S.qt.cur=q;await qtAct('submit');S.qt.draft=null;qtRender()}catch(x){toast(x.message);b.disabled=false}
+  }
+  else if(a==='qt-del'){if(S.qt.arm!=='del'){S.qt.arm='del';qtRender();return}S.qt.arm='';try{await api('POST','/api/data?q=1',{action:'delete',id:d.id});toast('Draft deleted');S.qt.list=null;go('quotes')}catch(x){toast(x.message)}}
+  else if(a==='qt-approve'){b.disabled=true;await qtAct('approve',{note:$('#qt-note')?.value||''})}
+  else if(a==='qt-reject'){const note=($('#qt-note')?.value||'').trim();if(!note){toast('Write the reason first, so it can be fixed.');$('#qt-note')?.focus();return}b.disabled=true;await qtAct('reject',{note})}
+  else if(a==='qt-withdraw')await qtAct('withdraw');
+  else if(a==='qt-fix'){S.qt.draft=qFrom(S.qt.cur);S.qt.draft.status='draft';S.qt.dirty=true;qtWarm();qtRender()}
+  else if(a==='qt-convert'){b.disabled=true;await qtAct('convert')}
+  else if(a==='qt-print')window.print();
+  else if(a==='qt-wh')qtWhMove(b.dataset.id,b.dataset.s);
+  else if(a==='qt-wh-open'){const id=b.dataset.id;S.qt.whOpen.has(id)?S.qt.whOpen.delete(id):S.qt.whOpen.add(id);qtRender()}
+  else if(a==='qt-wh-reload'){S.qt.wh=null;qtRender();qtLoadWh()}
+});
+document.addEventListener('input',e=>{
+  const t=e.target;if(!t||!qtRoutes.includes(S.route))return;
+  if(t.id==='qt-q'){S.qt.q=t.value;const L=$('#live');const pos=t.selectionStart;L.innerHTML=qtListHTML();const n=$('#qt-q');n.focus();try{n.setSelectionRange(pos,pos)}catch(x){}return}
+  const d=S.qt.draft;if(!d)return;
+  if(t.id==='qt-ps'){clearTimeout(qtPT);const s=t.value.trim();if(!s){$('#qt-ps-list').hidden=true;return}qtPT=setTimeout(()=>qtProdSearch(s,false),220);return}
+  if(t.id==='qt-cs'){clearTimeout(qtCT);const s=t.value.trim();qtCT=setTimeout(()=>qtCustSearch(s),220);return}
+  if(t.id==='qt-notes'){d.notes=t.value;S.qt.dirty=true;return}
+  if(t.dataset.ql){const l=d.lines[+t.dataset.i];if(!l)return;const f=t.dataset.ql;
+    if(f==='name')l.name=t.value;else if(f==='price')l.price=Math.max(0,Number(t.value)||0);else if(f==='qty')l.qty=Math.max(0,Number(t.value)||0);else if(f==='value')l.discount={...l.discount,value:Math.max(0,Number(t.value)||0)};
+    S.qt.dirty=true;qtSum();return}
+  if(t.dataset.qo==='value'){d.discount={...d.discount,value:Math.max(0,Number(t.value)||0)};S.qt.dirty=true;qtSum()}
+});
+document.addEventListener('change',e=>{
+  const t=e.target;if(!t||!qtRoutes.includes(S.route))return;
+  if(t.dataset.qpick){const id=t.dataset.qpick,k=+t.dataset.k;const set=S.qt.pick[id]||(S.qt.pick[id]=new Set());t.checked?set.add(k):set.delete(k);qtRender();return}
+  const d=S.qt.draft;if(!d)return;
+  if(t.dataset.ql==='type'){const l=d.lines[+t.dataset.i];l.discount={type:t.value,value:0};S.qt.dirty=true;qtLinesRedraw()}
+  else if(t.dataset.ql==='price'){qtLinesRedraw()}
+  else if(t.dataset.qo==='type'){d.discount={type:t.value,value:0};S.qt.dirty=true;const box=t.closest('.qt-dsel');box.innerHTML=qDiscCtl('qo','',d.discount);qtSum()}
+});
+document.addEventListener('keydown',e=>{
+  const t=e.target;if(!t)return;
+  if(t.id==='qt-ps'&&e.key==='Enter'){e.preventDefault();clearTimeout(qtPT);const s=t.value.trim();if(s)qtProdSearch(s,true)}
+  if(t.id==='qt-cs'&&e.key==='Enter'){e.preventDefault()}
+  if(t.classList&&t.classList.contains('qt-row')&&e.key==='Enter')t.click();
+});
+document.addEventListener('focusin',e=>{if(e.target&&e.target.id==='qt-cs'&&S.qt.draft&&!S.qt.draft.customer)qtCustSearch(e.target.value.trim())});
+window.addEventListener('beforeunload',e=>{if(S.route==='quote'&&S.qt.draft&&S.qt.dirty){e.preventDefault();e.returnValue=''}});

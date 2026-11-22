@@ -5,14 +5,14 @@ import bcrypt from 'bcryptjs';
 /** Reports the Super Admin can switch on for any individual user (User privileges). */
 // Odoo tabs that can be granted one by one ('odoo:<tab>'); 'odoo' alone means every tab. Growth radar and Order forecast stay Super Admin only.
 export const ODOO_GRANT_TABS = ['brief', 'suppliers', 'raw', 'packaging', 'finished', 'inventory', 'sales', 'distributors', 'people', 'profit', 'in', 'out', 'trial', 'pnl', 'balance', 'hr'];
-export const GRANTABLE = ['dash', 'shop', 'odoo', 'meta', 'act', 'sheet', ...ODOO_GRANT_TABS.map((t) => 'odoo:' + t)];
+export const GRANTABLE = ['dash', 'shop', 'odoo', 'meta', 'act', 'sheet', 'quote', ...ODOO_GRANT_TABS.map((t) => 'odoo:' + t)];
 /** Can this user open this Odoo tab? */
 export function odooTabAllowed(u, tab) {
   if (u.role === 'super_admin' || u.role === 'ceo') return true;
   const have = Array.isArray(u.reports) ? u.reports : [];
   return have.includes('dash') || have.includes('odoo') || have.includes('odoo:' + tab);
 }
-export const ROLES = ['super_admin', 'graphic_designer', 'media_buyer', 'content_creator', 'moderator', 'pr', 'ecommerce', 'salesperson', 'ceo'];
+export const ROLES = ['super_admin', 'graphic_designer', 'media_buyer', 'content_creator', 'moderator', 'pr', 'ecommerce', 'salesperson', 'ceo', 'finance', 'warehouse'];
 export const COOKIE = 'hub_session';
 const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
