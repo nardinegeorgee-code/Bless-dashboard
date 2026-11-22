@@ -147,8 +147,8 @@ function togglePw(b){
 // ---------- Avatar maker: everyone builds their own character the first time they sign in ----------
 const AV_TABS=[
   ['body','Body',[['g','Gender'],['skin','Skin tone','c'],['face','Face shape','head']]],
-  ['eyes','Eyes',[['eyes','Eyes','eyes'],['eyeC','Eye colour','c'],['brows','Eyebrows','eyes']]],
-  ['face','Nose & mouth',[['nose','Nose','mouth'],['mouth','Mouth','mouth'],['lips','Lip colour','c'],['cheeks','Cheeks','face']]],
+  ['eyes','Eyes',[['eyes','Eyes','eyes'],['eyeC','Eye colour','c'],['brows','Eyebrows','eyes'],['makeup','Eye makeup','eyes'],['makeC','Eyeshadow colour','c']]],
+  ['face','Nose, mouth & skin',[['nose','Nose','face'],['mouth','Mouth','mouth'],['lips','Lip colour','c'],['cheeks','Cheeks','face'],['marks','Face details','face']]],
   ['hair','Hair',[['hair','Hairstyle','head'],['hairC','Hair colour','c']]],
   ['facial','Moustache & beard',[['stache','Moustache','lower'],['beard','Beard','lower']]],
   ['outfit','Outfit',[['outfit','Outfit','body'],['outC','Outfit colour','c']]],
@@ -157,7 +157,7 @@ const AV_TABS=[
 function avGender(g){
   const c=S.av.cfg;
   if(g==='f'){c.stache='none';c.beard='none';if(['short','side','quiff','buzz','bald'].includes(c.hair))c.hair='long'}
-  else{c.lips='';c.ears='none';if(c.head==='hijab')c.head='none';if(['long','wavy','bob','bun','pony','pixie'].includes(c.hair))c.hair='short';if(c.outfit==='top')c.outfit='tee'}
+  else{c.lips='';c.ears='none';c.makeup='none';if(c.head==='hijab')c.head='none';if(['long','wavy','bob','bun','pony','pixie'].includes(c.hair))c.hair='short';if(c.outfit==='top')c.outfit='tee'}
 }
 function showAvatarMaker(first){
   S.screen='avatar';
