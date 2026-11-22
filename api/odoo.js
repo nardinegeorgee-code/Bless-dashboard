@@ -1,4 +1,4 @@
-import { route, allow, serveCached, sendCached, requireViewer, requireAdmin } from './_lib.js';
+import { route, allow, serveCached, sendCached, requireViewer, requireAdmin, odooTabAllowed } from './_lib.js';
 import { loadTargets, saveTarget, monthsIn } from './_targets.js';
 import { loadNotes, saveNote } from './_notes.js';
 import { forecastSections, monthBuyers } from './_forecast.js';
@@ -928,7 +928,10 @@ export default route(async (req, res) => {
     await saveTarget(req.body.rep, req.body.amount);
     return res.json({ ok: true });
   }
-  await requireViewer(req, 'odoo');
+  const viewer = await requireViewer(req, 'odoo');
+  // tab-by-tab access: people may be given only some Odoo tabs
+  const askedTab = TABS.includes(req.query.tab) ? req.query.tab : 'suppliers';
+  if (!req.query.notes && !req.query.fcmonth && !odooTabAllowed(viewer, askedTab)) return res.status(403).json({ error: 'You do not have access to this Odoo tab. Ask your Super Admin.' });
   if (req.query.tab === 'growth' || req.query.tab === 'forecast') await requireAdmin(req); // the Growth radar is for the Super Admin only
   if (req.query.notes) { await requireAdmin(req); res.setHeader('Cache-Control', 'no-store'); return res.json({ notes: await loadNotes() }); }
   if (req.query.fcmonth) {
