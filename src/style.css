@@ -1813,3 +1813,102 @@ h1{font-weight:600;font-size:1.95rem}h2,h3{font-weight:600}
 @keyframes auShake{0%,100%{transform:none}20%{transform:translateX(-8px)}40%{transform:translateX(7px)}60%{transform:translateX(-5px)}80%{transform:translateX(3px)}}
 @media (max-width:480px){.au-card{padding:28px 20px 24px;border-radius:18px}.au-word{font-size:1.6rem}}
 @media (prefers-reduced-motion:reduce){.au-glow,.au-fly,.au-bf,.au-emblem::before,.au-card,.au-card.shake{animation:none}.au-fly{opacity:.3}}
+
+/* ===== Sign-in v2: frosted panel, form left, character stage right ===== */
+.au{padding-block:32px}
+.au-panel{position:relative;width:min(1120px,100%);display:grid;grid-template-columns:minmax(330px,420px) 1fr;align-items:center;gap:clamp(20px,4vw,60px);padding:clamp(22px,4vw,56px);border-radius:32px;animation:auIn .6s cubic-bezier(.2,.8,.2,1) both}
+:root:not([data-theme="light"]) .au-panel{background:linear-gradient(150deg,rgba(255,255,255,.07),rgba(255,255,255,.02));border:1px solid rgba(232,180,200,.14);backdrop-filter:blur(26px) saturate(1.2);-webkit-backdrop-filter:blur(26px) saturate(1.2);box-shadow:0 50px 120px -40px rgba(0,0,0,.6)}
+:root[data-theme="light"] .au-panel{background:rgba(255,255,255,.38);border:1px solid rgba(255,255,255,.7);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);box-shadow:0 40px 100px -40px rgba(143,74,87,.35)}
+.au-panel .au-card{animation:none;max-width:none}
+.au-ghost{position:absolute;left:-6%;bottom:-14%;width:min(720px,80vw);opacity:.22;filter:blur(14px) saturate(1.1);transition:opacity .6s}
+:root[data-theme="light"] .au-ghost{opacity:.28}
+.au-csvg{display:block;width:100%;height:auto}
+.au-logo{display:flex;align-items:center;gap:10px}
+.au-logo .au-bf{width:34px;animation:auFlap 3.2s ease-in-out infinite}
+.au-logo b{display:block;font-family:"Bricolage Grotesque",var(--f-display);font-weight:700;letter-spacing:.14em;font-size:1.05rem;line-height:1;background:linear-gradient(90deg,var(--au-a),var(--au-b));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.au-logo small{display:block;font-family:var(--f-mono);font-size:.6rem;letter-spacing:.3em;text-transform:uppercase;color:var(--au-dim);margin-top:3px}
+.au-panel .au-title{text-align:left;gap:8px}
+.au-panel .au-title h1{font-size:clamp(2rem,3.4vw,2.6rem);line-height:1.05}
+.au-foot{font-size:.8rem;color:var(--au-dim);text-align:center;line-height:1.5}
+.au-stage{position:relative;display:grid;place-items:center;min-height:440px}
+.au-halo{position:absolute;width:78%;aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--au-a) 45%,transparent) 0%,color-mix(in srgb,var(--au-b) 25%,transparent) 45%,transparent 70%);filter:blur(6px);animation:auBreath 7s ease-in-out infinite}
+.au-char{grid-area:1/1;width:min(400px,90%);opacity:0;transform:translateY(16px) scale(.94);transition:opacity .7s ease,transform .7s cubic-bezier(.2,.8,.2,1);filter:drop-shadow(0 30px 40px rgba(60,10,40,.35))}
+.au-char.on{opacity:1;transform:none;animation:auBob 4.5s ease-in-out infinite}
+.au-char svg{border-radius:0}
+@keyframes auBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+.au-sf{position:absolute;width:30px;aspect-ratio:176/138;-webkit-mask:url('/bless-butterfly.png') center/contain no-repeat;mask:url('/bless-butterfly.png') center/contain no-repeat;background:linear-gradient(135deg,var(--au-a),var(--au-b));animation:auHover 5s ease-in-out infinite;filter:drop-shadow(0 4px 10px rgba(0,0,0,.2))}
+.au-sf.s1{left:10%;top:14%;width:38px}.au-sf.s2{right:12%;top:8%;width:26px;animation-delay:-1s}.au-sf.s3{right:4%;top:52%;width:34px;animation-delay:-2.2s}.au-sf.s4{left:4%;top:60%;width:22px;animation-delay:-3s}.au-sf.s5{left:30%;bottom:8%;width:18px;animation-delay:-4s}
+@keyframes auHover{0%,100%{transform:translate(0,0) rotate(-8deg) scaleX(1)}25%{transform:translate(6px,-10px) rotate(4deg) scaleX(.6)}50%{transform:translate(0,-16px) rotate(-4deg) scaleX(1)}75%{transform:translate(-6px,-8px) rotate(6deg) scaleX(.65)}}
+.au-cap{position:absolute;bottom:0;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:.8rem;font-weight:600;color:var(--au-ink);padding:7px 14px;border-radius:999px;background:color-mix(in srgb,var(--au-a) 18%,transparent);border:1px solid color-mix(in srgb,var(--au-a) 30%,transparent);backdrop-filter:blur(8px)}
+.au-fly.f7{left:58%;top:92%;width:22px;animation-delay:-3s;animation-duration:25s}.au-fly.f8{left:34%;top:80%;width:30px;animation-delay:-13s;animation-duration:23s}
+@media (max-width:860px){.au-panel{grid-template-columns:1fr;max-width:460px;padding:16px;border-radius:26px}.au-stage{order:-1;min-height:0;height:190px}.au-char{width:180px}.au-cap,.au-sf.s4,.au-sf.s5{display:none}.au-ghost{display:none}}
+
+/* butterflies instead of password dots */
+.au-in .input.au-pw[type=password]{color:transparent;caret-color:transparent;letter-spacing:normal}
+.au-in .input.au-pw[type=password]::selection{background:transparent}
+.au-mask{position:absolute;left:44px;right:50px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:3px;overflow:hidden;pointer-events:none;height:22px}
+.au-in.shown .au-mask{display:none}
+.au-mask i{flex:none;width:17px;height:14px;-webkit-mask:url('/bless-butterfly.png') center/contain no-repeat;mask:url('/bless-butterfly.png') center/contain no-repeat;background:linear-gradient(135deg,var(--au-a),var(--au-b));animation:auPop .35s cubic-bezier(.3,1.6,.5,1) both}
+.au-mask i:last-of-type{animation:auPop .35s cubic-bezier(.3,1.6,.5,1) both,auFlap 2.4s .4s ease-in-out infinite}
+.au-mask b{flex:none;width:2px;height:20px;border-radius:2px;background:var(--au-a);opacity:0;margin-left:2px}
+.au-in:focus-within .au-mask b{animation:auCaret 1s steps(1) infinite}
+@keyframes auPop{from{transform:scale(0) rotate(-30deg);opacity:0}to{transform:none;opacity:1}}
+@keyframes auCaret{0%,49%{opacity:1}50%,100%{opacity:0}}
+
+/* avatar in the sidebar and on the home page */
+.me .who{display:flex;align-items:center;gap:10px;min-width:0}
+.me-nm{display:grid;gap:3px;min-width:0}.me-nm b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.me-av,.hub-av{flex:none;padding:0;border:2px solid color-mix(in srgb,var(--accent) 45%,transparent);border-radius:50%;overflow:hidden;cursor:pointer;background:var(--surface-2);transition:transform .2s,box-shadow .2s}
+.me-av{width:44px;height:44px}.hub-av{width:68px;height:68px}
+.me-av:hover,.hub-av:hover{transform:scale(1.06);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 22%,transparent)}
+.me-av svg,.hub-av svg{display:block;width:100%;height:100%}
+.hub-hi{display:flex;align-items:center;gap:16px}
+body.side-min .me .who{justify-content:center}body.side-min .me-av{width:36px;height:36px}
+
+/* ===== Avatar maker ===== */
+.avm{min-height:100vh;display:block;padding:28px max(16px,env(safe-area-inset-left,0px)) 40px}
+.avm-wrap{width:min(1160px,100%);margin:0 auto;display:grid;gap:22px;animation:auIn .6s cubic-bezier(.2,.8,.2,1) both}
+.avm-head{display:grid;gap:18px}
+.avm-head h1{font-size:clamp(1.8rem,3vw,2.4rem)}
+.avm-head p{margin-top:6px;max-width:60ch}
+.avm-grid{display:grid;grid-template-columns:minmax(260px,360px) 1fr;gap:22px;align-items:start}
+.avm-prev,.avm-panel{border-radius:24px;padding:22px}
+:root:not([data-theme="light"]) :is(.avm-prev,.avm-panel){background:linear-gradient(165deg,rgba(44,24,52,.72),rgba(22,12,28,.8));border:1px solid rgba(232,180,200,.16);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
+:root[data-theme="light"] :is(.avm-prev,.avm-panel){background:rgba(255,255,255,.75);border:1px solid rgba(183,110,121,.2);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+.avm-prev{position:sticky;top:20px;display:grid;justify-items:center;gap:14px}
+.avm-big{width:100%;max-width:300px;aspect-ratio:1;border-radius:50%;overflow:hidden;box-shadow:0 0 0 6px color-mix(in srgb,var(--au-a) 22%,transparent),0 30px 60px -20px rgba(80,20,60,.6);animation:auBob 5s ease-in-out infinite}
+.avm-big svg{display:block;width:100%;height:100%}
+.avm-who{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center}.avm-who b{font-size:1.1rem}
+.avm-pbtns{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.avm-pbtns .btn svg{width:17px;height:17px}
+.avm-panel{display:grid;gap:18px;min-width:0}
+.avm-tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
+.avm-tab{flex:none;border:1px solid transparent;background:transparent;color:var(--au-dim);padding:8px 14px;border-radius:999px;font-weight:600;font-size:.88rem;cursor:pointer;transition:all .2s}
+.avm-tab:hover{color:var(--au-ink);background:color-mix(in srgb,var(--au-a) 10%,transparent)}
+.avm-tab.on{color:#2A1220;background:linear-gradient(135deg,var(--au-a),var(--au-b));box-shadow:0 6px 18px -6px color-mix(in srgb,var(--au-a) 70%,transparent)}
+:root[data-theme="light"] .avm-tab.on{color:#fff}
+.avm-opts{display:grid;gap:22px;min-height:300px}
+.avm-grp h4{margin:0 0 10px;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase;color:var(--au-dim);font-family:var(--f-mono);font-weight:500}
+.avm-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:10px}
+.avm-t{display:grid;gap:6px;padding:8px 8px 9px;border-radius:16px;border:1.5px solid color-mix(in srgb,var(--au-a) 14%,transparent);background:color-mix(in srgb,var(--au-a) 5%,transparent);cursor:pointer;color:var(--au-ink);transition:transform .15s,border-color .15s,background .15s}
+.avm-t:hover{transform:translateY(-2px);border-color:color-mix(in srgb,var(--au-a) 45%,transparent)}
+.avm-t.on{border-color:var(--au-a);background:color-mix(in srgb,var(--au-a) 16%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--au-a) 20%,transparent)}
+.avm-ti{display:block;aspect-ratio:1;border-radius:12px;overflow:hidden;background:color-mix(in srgb,var(--au-b) 12%,transparent)}
+.avm-ti svg{display:block;width:100%;height:100%}
+.avm-tl{font-size:.78rem;font-weight:600;text-align:center}
+.avm-sw{display:flex;flex-wrap:wrap;gap:10px}
+.avm-c{width:36px;height:36px;border-radius:50%;border:2px solid rgba(255,255,255,.25);background:var(--c);cursor:pointer;transition:transform .15s;box-shadow:inset 0 -3px 0 rgba(0,0,0,.12)}
+.avm-c:hover{transform:scale(1.1)}
+.avm-c.on{box-shadow:0 0 0 3px var(--surface),0 0 0 5px var(--au-a);transform:scale(1.08)}
+.avm-c.none{background:repeating-linear-gradient(45deg,transparent 0 5px,color-mix(in srgb,var(--au-dim) 40%,transparent) 5px 7px)}
+.avm-seg{display:flex;gap:10px;flex-wrap:wrap}
+.avm-seg button{display:flex;align-items:center;gap:10px;padding:6px 18px 6px 6px;border-radius:999px;border:1.5px solid color-mix(in srgb,var(--au-a) 18%,transparent);background:transparent;color:var(--au-ink);font-weight:600;cursor:pointer}
+.avm-seg button.on{border-color:var(--au-a);background:color-mix(in srgb,var(--au-a) 16%,transparent)}
+.avm-gico{width:40px;height:40px;border-radius:50%;background:color-mix(in srgb,var(--au-b) 18%,transparent)}
+.avm-note{font-size:.8rem;color:var(--au-dim);margin-top:8px}
+.avm-foot{display:flex;align-items:center;gap:10px;justify-content:flex-end;flex-wrap:wrap;border-top:1px solid color-mix(in srgb,var(--au-a) 14%,transparent);padding-top:16px}
+.avm-foot .err{flex:1;text-align:left;margin:0}
+.avm-foot .au-go{height:48px;padding:0 22px}
+@media (max-width:820px){.avm-grid{grid-template-columns:1fr}.avm-prev{position:relative;top:0}.avm-big{max-width:200px}.avm-foot{position:sticky;bottom:0;background:inherit}}
+@media (prefers-reduced-motion:reduce){.au-char.on,.au-halo,.au-sf,.avm-big,.au-logo .au-bf,.au-mask i{animation:none}}
+.au-char svg,.au-ghost svg{-webkit-mask-image:linear-gradient(180deg,#000 72%,transparent 99%);mask-image:linear-gradient(180deg,#000 72%,transparent 99%)}
