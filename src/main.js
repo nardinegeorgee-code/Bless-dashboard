@@ -28,8 +28,9 @@ const isAdmin=()=>S.me&&S.me.role==='super_admin';
 const isCeo=()=>S.me&&S.me.role==='ceo';
 const GRANT=[['dash','Dashboards','Shopify, Odoo and Meta Ads together'],['shop','Shopify','Sales, funnel, products, customers'],['odoo','Odoo','Supply, sales, stock and finance'],['meta','Meta Ads','Facebook and Instagram ad results'],['act','Activity','Who used the hub and for how long'],['sheet','Edit courier sheet','Add, change and delete orders in the courier sheet (Shopify profit)']];
 const myReports=()=>(S.me&&Array.isArray(S.me.reports)?S.me.reports:[]);
-const canSee=k=>isAdmin()||(isCeo()&&['dash','shop','odoo','meta'].includes(k))||(!isCeo()&&myReports().includes(k))||(isCeo()&&k==='act'&&myReports().includes('act'));
-const hasGrants=()=>!isAdmin()&&!isCeo()&&GRANT.some(g=>g[0]!=='sheet'&&myReports().includes(g[0]));
+const odooAny=()=>myReports().some(k=>k==='odoo'||k.startsWith('odoo:'));
+const canSee=k=>(k==='odoo'&&!isAdmin()&&!isCeo()&&odooAny())||isAdmin()||(isCeo()&&['dash','shop','odoo','meta'].includes(k))||(!isCeo()&&myReports().includes(k))||(isCeo()&&k==='act'&&myReports().includes('act'));
+const hasGrants=()=>!isAdmin()&&!isCeo()&&(odooAny()||GRANT.some(g=>g[0]!=='sheet'&&myReports().includes(g[0])));
 const canEditSheet=()=>isAdmin()||myReports().includes('sheet');
 const roleChip=k=>{const r=ROLE[k]||{label:k,tok:'--muted'};return `<span class="chip" style="--rc:var(${r.tok})">${esc(r.label)}</span>`};
 const fmtDate=ms=>{if(!ms)return'';const d=new Date(ms);return d.toLocaleDateString(undefined,{month:'short',day:'numeric'})+', '+d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})};
@@ -354,7 +355,7 @@ function update(){
   else if(r==='send')updateSend();
   else if(r==='content')updateContent();
   else if(r==='users')L.innerHTML=usersHTML();
-  else if(r==='priv')L.innerHTML=privHTML();
+  else if(r==='priv'){L.innerHTML=privHTML();prFilter()}
   else if(r==='act')renderAct();
   else if(r==='shop')renderShop();
   else if(r==='odoo')renderOdoo();
@@ -770,14 +771,113 @@ function updateContent(){
   const list=S.subs.filter(s=>(!S.fRole||s.role===S.fRole)&&(!S.fUser||s.userId===S.fUser)&&(!S.fKind||(S.fKind==='resp'?!!s.instructionId:!s.instructionId)));
   $('#live').innerHTML=listOrEmpty(list,'Nothing matches','Change the filters, or wait for your team to upload.');
 }
+// ---------- User privileges: detailed, per person, down to single Odoo tabs ----------
+const PR_ODOO=[
+  ['brief','Executive brief','Management report',[['brief','Executive brief','Health score, priorities, growth, cash and the statements in one report']]],
+  ['supply','Supply','Buying and stock',[['suppliers','Suppliers','Who you buy from, how much and price changes'],['raw','Raw materials','Raw material stock and use'],['packaging','Packaging','Packaging stock and use'],['finished','Finished goods','Finished product stock and cover'],['inventory','All stock','Every product in stock with value']]],
+  ['sales','Sales','Customers and team',[['sales','Sales','Sales, top products and top customers'],['distributors','Distributors','Each distributor\'s orders and trend'],['people','Salespeople','Each salesperson\'s results and targets']]],
+  ['finance','Finance','Money and statements',[['profit','Cost & profit','Margins by product and customer'],['in','Money in','Customer invoices and what is owed'],['out','Money out','Supplier bills and payments'],['trial','Trial balance','Every account\'s balance'],['pnl','Profit & loss','Income statement'],['balance','Balance sheet','Assets, debts and equity']]],
+  ['team','Team','People',[['hr','Employees','Staff list from Odoo']]],
+];
+const PR_TABS=PR_ODOO.flatMap(g=>g[3].map(t=>t[0]));
+const PR_TOP=[
+  ['dash','Dashboards','All together page: Shopify, Odoo and Meta Ads side by side. Includes all three reports.','dash'],
+  ['shop','Shopify','Online store sales, funnel, products, customers and profit.','shop'],
+  ['meta','Meta Ads','Facebook and Instagram campaigns, spend and results.','meta'],
+];
+const PR_PRESETS=[
+  ['sales','Sales view',['odoo:brief','odoo:sales','odoo:distributors','odoo:people']],
+  ['supply','Supply view',['odoo:suppliers','odoo:raw','odoo:packaging','odoo:finished','odoo:inventory']],
+  ['finance','Finance view',['odoo:brief','odoo:profit','odoo:in','odoo:out','odoo:trial','odoo:pnl','odoo:balance']],
+  ['marketing','Marketing view',['shop','meta']],
+  ['all','Everything',['dash','shop','odoo','meta','act']],
+];
+const PR_ALWAYS=[['Instructions','Their inbox, replies and uploads'],['Catalogue','View products, codes and design files'],['Bless Game','Play and see the leaderboard'],['Notifications','Comments on their work'],['Their avatar','Make and edit it']];
+const PR_ADMIN=[['Team overview','Everyone\'s work and progress'],['Evaluation','Monthly ratings'],['All content','Every file uploaded'],['Users & privileges','Accounts, roles and passwords'],['Growth radar','Hidden sales opportunities'],['Order forecast','What to order and how much'],['Catalogue editing','Change products and files']];
+S.pr=S.pr||{open:new Set(),q:'',role:''};
+// what a person can open, worked out from their saved list
+function prState(u){
+  const have=new Set(Array.isArray(u.reports)?u.reports:[]),ceo=u.role==='ceo';
+  const dash=ceo||have.has('dash'),odooAll=dash||have.has('odoo');
+  const tab=t=>odooAll||have.has('odoo:'+t);
+  return {have,ceo,dash,odooAll,tab,shop:dash||have.has('shop'),meta:dash||have.has('meta'),act:have.has('act'),sheet:have.has('sheet'),nTabs:PR_TABS.filter(tab).length};
+}
+// keep the stored list tidy: every tab ticked becomes plain 'odoo'
+function prNormal(set){
+  const tabs=PR_TABS.filter(t=>set.has('odoo:'+t));
+  if(set.has('odoo')||tabs.length===PR_TABS.length){PR_TABS.forEach(t=>set.delete('odoo:'+t));set.add('odoo')}
+  return [...set];
+}
+function prToggle(u,key,on){
+  const st=prState(u),set=new Set(st.have);
+  const expandOdoo=()=>{if(set.has('odoo')){set.delete('odoo');PR_TABS.forEach(t=>set.add('odoo:'+t))}};
+  if(key==='odoo'){PR_TABS.forEach(t=>set.delete('odoo:'+t));on?set.add('odoo'):set.delete('odoo')}
+  else if(key.startsWith('grp:')){const g=PR_ODOO.find(x=>x[0]===key.slice(4));expandOdoo();g[3].forEach(([t])=>on?set.add('odoo:'+t):set.delete('odoo:'+t))}
+  else if(key.startsWith('odoo:')){expandOdoo();on?set.add(key):set.delete(key)}
+  else on?set.add(key):set.delete(key);
+  privSave(u.id,prNormal(set));
+}
+const PR_ICO={dash:'<path d="M4 13h6V4H4zM14 20h6v-9h-6zM14 4v4h6V4zM4 20h6v-4H4z"/>',shop:'<path d="M5 8h14l-1.4 11.2a2 2 0 0 1-2 1.8H8.4a2 2 0 0 1-2-1.8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',meta:'<path d="M3 12c2-5 5-6 7-2s5 7 8 2 1-7-2-5-6 9-9 9-4-2-4-4z"/>',odoo:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>',act:'<path d="M3 12h4l3 7 4-14 3 7h4"/>',sheet:'<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.500 4 4"/>',lock:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',ok:'<path d="m5 12 4 4 10-10"/>'};
+const prIco=k=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${PR_ICO[k]||''}</svg>`;
+function prSwitch(u,key,on,locked,title,desc,ico,warn){
+  return `<label class="pr-sw${on?' on':''}${locked?' locked':''}${warn?' warn':''}"><span class="pr-ic">${prIco(ico)}</span><span class="pr-tx"><b>${title}</b><small>${desc}</small></span><input type="checkbox" data-pr="${u.id}" data-k="${key}" ${on?'checked':''} ${locked?'disabled':''}><i class="pr-tg" aria-hidden="true"></i></label>`;
+}
+function prCard(u){
+  const st=prState(u),open=S.pr.open.has(u.id);
+  const chips=[];
+  if(st.dash)chips.push(['Dashboards','dash']);else{if(st.shop)chips.push(['Shopify','shop']);if(st.meta)chips.push(['Meta Ads','meta'])}
+  if(!st.dash&&st.nTabs)chips.push([st.odooAll?'Odoo: all tabs':`Odoo: ${st.nTabs} of ${PR_TABS.length} tabs`,'odoo']);
+  if(st.act)chips.push(['Activity','act']);if(st.sheet)chips.push(['Edits courier sheet','sheet']);
+  const total=3+PR_TABS.length+2,got=(st.shop?1:0)+(st.meta?1:0)+(st.dash?1:0)+st.nTabs+(st.act?1:0)+(st.sheet?1:0);
+  const pct=Math.round(got/total*100);
+  const head=`<button type="button" class="pr-head" data-act="pr-open" data-id="${u.id}" aria-expanded="${open}">
+    <span class="pr-av">${avatarSVG(u.avatar)}</span>
+    <span class="pr-who"><span class="row" style="gap:8px"><b>${esc(u.username)}</b>${roleChip(u.role)}</span>
+      <span class="pr-chips">${chips.length?chips.map(([t,k])=>`<span class="pr-chip k-${k}">${prIco(k)}${t}</span>`).join(''):'<span class="pr-none">No reports yet: only the everyday pages</span>'}</span></span>
+    <span class="pr-meter"><span class="pr-ring" style="--p:${pct}"><b>${got}</b></span><small>of ${total} items</small></span>
+    <span class="pr-chev" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+  </button>`;
+  if(!open)return `<section class="pr-card" data-name="${esc(u.username.toLowerCase())}" data-role="${u.role}">${head}</section>`;
+  const ceoNote=st.ceo?'Included with the CEO role':'';
+  const odooGroups=PR_ODOO.map(([g,label,sub,tabs])=>{
+    const n=tabs.filter(([t])=>st.tab(t)).length,all=n===tabs.length,some=n&&!all;
+    return `<div class="pr-og${n?' on':''}"><label class="pr-ogh"><input type="checkbox" data-pr="${u.id}" data-k="grp:${g}" ${all?'checked':''} ${st.dash?'disabled':''} ${some?'data-mixed="1"':''}><span><b>${label}</b><small>${sub} · ${n} of ${tabs.length}</small></span></label>
+      <div class="pr-tabs">${tabs.map(([t,tl,td])=>`<label class="pr-tab${st.tab(t)?' on':''}" title="${esc(td)}"><input type="checkbox" data-pr="${u.id}" data-k="odoo:${t}" ${st.tab(t)?'checked':''} ${st.dash?'disabled':''}><span class="pr-box">${prIco('ok')}</span><span><b>${tl}</b><small>${td}</small></span></label>`).join('')}</div></div>`;
+  }).join('');
+  const others=S.users.filter(x=>x.id!==u.id&&x.role!=='super_admin');
+  return `<section class="pr-card open" data-name="${esc(u.username.toLowerCase())}" data-role="${u.role}">${head}
+  <div class="pr-body">
+    <div class="pr-tools">
+      <div class="pr-presets"><span class="eyebrow">Quick set</span>${PR_PRESETS.map(([k,l])=>`<button type="button" class="pr-pre" data-act="pr-preset" data-id="${u.id}" data-p="${k}" ${st.ceo&&k!=='all'?'disabled':''}>${l}</button>`).join('')}<button type="button" class="pr-pre clear" data-act="pr-preset" data-id="${u.id}" data-p="none">Clear all</button></div>
+      ${others.length?`<label class="pr-copy"><span class="eyebrow">Copy from</span><select class="select" data-prcopy="${u.id}"><option value="">Choose a person…</option>${others.map(x=>`<option value="${x.id}">${esc(x.username)}</option>`).join('')}</select></label>`:''}
+    </div>
+    <div class="pr-sec"><h4>Business reports <span>view only</span></h4><div class="pr-sws">
+      ${PR_TOP.map(([k,t,d,ic])=>prSwitch(u,k,k==='dash'?st.dash:st[k],st.ceo||(k!=='dash'&&st.dash),t,st.ceo?ceoNote:(k!=='dash'&&st.dash?'Included with Dashboards':d),ic)).join('')}
+    </div></div>
+    <div class="pr-sec"><div class="pr-sech"><h4>Odoo <span>${st.nTabs} of ${PR_TABS.length} tabs · view only</span></h4>${prSwitch(u,'odoo',st.odooAll,st.ceo||st.dash,'Every Odoo tab',st.ceo?ceoNote:st.dash?'Included with Dashboards':'Also gives tabs added later','odoo')}</div>
+      <div class="pr-ogs">${odooGroups}</div>
+      <p class="pr-lock">${prIco('lock')}Growth radar and Order forecast stay Super Admin only.</p></div>
+    <div class="pr-two"><div class="pr-sec"><h4>Team</h4><div class="pr-sws">${prSwitch(u,'act',st.act,false,'Activity','Who used the hub, when, on which device and for how long.','act')}</div></div>
+    <div class="pr-sec"><h4>Editing rights <span class="w">can change data</span></h4><div class="pr-sws">${prSwitch(u,'sheet',st.sheet,false,'Edit courier sheet','Add, change and delete orders in the courier sheet (Shopify profit). Give this only to the person who manages deliveries.','sheet',true)}</div></div></div>
+    <div class="pr-fixed"><div><h4>${prIco('ok')}Always open to everyone</h4><ul>${PR_ALWAYS.map(([a,b])=>`<li><b>${a}</b><small>${b}</small></li>`).join('')}</ul></div><div><h4>${prIco('lock')}Super Admin only</h4><ul>${PR_ADMIN.map(([a,b])=>`<li><b>${a}</b><small>${b}</small></li>`).join('')}</ul></div></div>
+  </div></section>`;
+}
 function privHTML(){
   const people=S.users.filter(u=>u.role!=='super_admin');
   if(!people.length)return empty('No users yet','Add people in Users, then choose what they can open here.');
-  const inherent=(u,k)=>u.role==='ceo'&&['dash','shop','odoo','meta'].includes(k);
-  return `<p class="muted pv-note">Super Admins always see everything. Team overview, Evaluation and All content stay Super Admin only because they hold everyone's files and ratings. Everyone with a report can only view it, never change anything.</p><div class="pv-list">${people.map(u=>{
-    const have=Array.isArray(u.reports)?u.reports:[];const n=GRANT.filter(g=>inherent(u,g[0])||have.includes(g[0])).length;
-    return `<section class="pv-card"><div class="pv-top"><div class="row" style="gap:8px"><span class="mono">${esc(u.username)}</span>${roleChip(u.role)}</div><div class="row" style="gap:6px"><span class="muted">${n} of ${GRANT.length} reports</span><button class="btn sm ghost" data-act="priv-all" data-id="${u.id}">Select all</button><button class="btn sm ghost" data-act="priv-none" data-id="${u.id}">Clear</button></div></div>
-    <div class="pv-grid">${GRANT.map(g=>{const on=inherent(u,g[0])||have.includes(g[0]);return `<label class="pv-opt${on?' on':''}"><input type="checkbox" data-priv="${u.id}" data-k="${g[0]}" ${on?'checked':''} ${inherent(u,g[0])?'disabled':''}><span><b>${g[1]}</b><small>${inherent(u,g[0])?'Included with the CEO role':g[2]}</small></span></label>`}).join('')}</div></section>`}).join('')}</div>`;
+  const P=S.pr,roles=[...new Set(people.map(u=>u.role))];
+  const withAny=people.filter(u=>{const st=prState(u);return st.dash||st.shop||st.meta||st.nTabs||st.act||st.sheet}).length;
+  const editors=people.filter(u=>prState(u).sheet).length,odooP=people.filter(u=>prState(u).nTabs).length;
+  const stats=[[people.length,'People'],[withAny,'Can open reports'],[odooP,'See Odoo'],[editors,'Can edit data']];
+  return `<div class="pr-top"><div class="pr-stats">${stats.map(([n,l])=>`<div><b>${n}</b><small>${l}</small></div>`).join('')}</div>
+    <div class="pr-filter"><input class="input" id="pr-q" placeholder="Search people…" value="${esc(P.q)}" autocomplete="off"><select class="select" id="pr-role"><option value="">All roles</option>${roles.map(r=>`<option value="${r}" ${P.role===r?'selected':''}>${esc((ROLE[r]||{}).label||r)}</option>`).join('')}</select><button type="button" class="btn sm" data-act="pr-expand">${P.open.size>=people.length?'Collapse all':'Expand all'}</button></div></div>
+    <p class="muted pv-note">Super Admins always see everything. Everyone with a report can only view it, except the courier sheet editing right. Changes save at once and apply the next time the person opens the hub or reloads.</p>
+    <div class="pr-list">${people.map(prCard).join('')}</div>`;
+}
+function prFilter(){
+  const q=S.pr.q.trim().toLowerCase(),r=S.pr.role;
+  document.querySelectorAll('.pr-card').forEach(c=>{c.hidden=!!((q&&!c.dataset.name.includes(q))||(r&&c.dataset.role!==r))});
+  document.querySelectorAll('.pr-ogh input[data-mixed]').forEach(i=>i.indeterminate=true);
 }
 async function privSave(id,list){
   const u=userById(id);if(!u)return;const old=u.reports;u.reports=list;update();
@@ -2635,12 +2735,13 @@ function anReps(sec){
 const OD_GROUPS=[['brief','Executive brief',[['brief','Executive brief']]],['supply','Supply',[['suppliers','Suppliers'],['raw','Raw materials'],['packaging','Packaging'],['finished','Finished goods'],['inventory','All stock'],['forecast','Order forecast']]],['sales','Sales',[['sales','Sales'],['distributors','Distributors'],['people','Salespeople'],['growth','Growth radar']]],['finance','Finance',[['profit','Cost & profit'],['in','Money in'],['out','Money out'],['trial','Trial balance'],['pnl','Profit & loss'],['balance','Balance sheet']]],['team','Team',[['hr','Employees']]]];
 /* The Growth radar is for the Super Admin only: everyone else does not get the tab. */
 const OD_ADMIN=new Set(['growth','forecast']);
-const odGroups=()=>isAdmin()?OD_GROUPS:OD_GROUPS.map(([g,l,ps])=>[g,l,ps.filter(x=>!OD_ADMIN.has(x[0]))]);
+const odTabOk=t=>isAdmin()||isCeo()||myReports().includes('dash')||myReports().includes('odoo')||myReports().includes('odoo:'+t);
+const odGroups=()=>isAdmin()?OD_GROUPS:OD_GROUPS.map(([g,l,ps])=>[g,l,ps.filter(x=>!OD_ADMIN.has(x[0])&&odTabOk(x[0]))]).filter(g=>g[2].length);
 const odGroup=t=>odGroups().find(g=>g[2].some(x=>x[0]===t))||odGroups()[0];
 S.od={tab:'brief',month:'',cache:{},loading:false,err:'',data:null};
 async function loadOdoo(_m,refresh){
   const od=S.od;
-  if(OD_ADMIN.has(od.tab)&&!isAdmin())od.tab='brief';
+  if((OD_ADMIN.has(od.tab)||!odTabOk(od.tab))&&!isAdmin()){const f=odGroups()[0];od.tab=f?f[2][0][0]:'brief'}
   const pq=OD_ADMIN.has(od.tab)?'':perQuery(),key=od.tab+'|'+pq;
   if(!refresh&&od.cache[key]){od.data=od.cache[key];renderOdoo();return}
   od.loading=true;od.err='';renderOdoo();
@@ -2900,6 +3001,9 @@ document.addEventListener('click',async e=>{
   else if(a==='ov-tab'){const id=b.dataset.sec,el=document.getElementById(id);if(!el)return;ovLock=Date.now()+900;ovMark(id);ovSetHash(id);el.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'})}
   else if(a==='logout')logout();
   else if(a==='pw-toggle')togglePw(b);
+  else if(a==='pr-open'){const id=b.dataset.id;S.pr.open.has(id)?S.pr.open.delete(id):S.pr.open.add(id);update()}
+  else if(a==='pr-expand'){const ppl=S.users.filter(u=>u.role!=='super_admin');if(S.pr.open.size>=ppl.length)S.pr.open.clear();else ppl.forEach(u=>S.pr.open.add(u.id));update()}
+  else if(a==='pr-preset'){const u=userById(b.dataset.id);if(u){const p=PR_PRESETS.find(x=>x[0]===b.dataset.p);const keep=(u.reports||[]).filter(k=>k==='sheet');privSave(u.id,p?prNormal(new Set([...p[2],...keep])):[])}}
   else if(a==='avatar-edit')showAvatarMaker(false);
   else if(a==='av-tab'){S.av.tab=b.dataset.t;renderAv()}
   else if(a==='av-set'){S.av.cfg[b.dataset.k]=b.dataset.v;if(b.dataset.k==='g')avGender(b.dataset.v);renderAv()}
@@ -3051,6 +3155,9 @@ document.addEventListener('change',async e=>{
   else if(t.id==='f-role'){S.fRole=t.value;update()}
   else if(t.id==='f-user'){S.fUser=t.value;update()}
   else if(t.id==='f-kind'){S.fKind=t.value;update()}
+  else if(t.dataset.pr){const u=userById(t.dataset.pr);if(u)prToggle(u,t.dataset.k,t.checked)}
+  else if(t.dataset.prcopy){const u=userById(t.dataset.prcopy),src=userById(t.value);if(u&&src){privSave(u.id,[...(src.reports||[])]);toast(`Copied ${src.username}'s access`)}}
+  else if(t.id==='pr-role'){S.pr.role=t.value;prFilter()}
   else if(t.dataset.priv){const u=userById(t.dataset.priv);if(u){const set=new Set(Array.isArray(u.reports)?u.reports:[]);t.checked?set.add(t.dataset.k):set.delete(t.dataset.k);privSave(u.id,[...set])}}
   else if(t.dataset.act==='set-role'){const u=userById(t.dataset.id);try{await api('PATCH','/api/users',{id:t.dataset.id,role:t.value});await sync();toast(`${u.username} is now ${ROLE[t.value].label}`)}catch(x){toast(x.message||'Could not change the role');update()}}
 });
@@ -3268,3 +3375,4 @@ document.addEventListener('submit',async e=>{
 document.addEventListener('input',e=>{const t=e.target;if(t&&t.dataset&&t.dataset.tgq){S.tg.q=t.value;S.tg.n=15;tgRefresh()}if(t&&t.dataset&&t.dataset.grdq){S.grDrop.q=t.value;S.grDrop.n=8;grDropRefresh()}});
 
 document.addEventListener('change',e=>{const t=e.target;if(t&&t.dataset&&t.dataset.grtm){S.grTm[t.dataset.grtm]=t.value;grTmRefresh(true)}});
+document.addEventListener('input',e=>{const t=e.target;if(t&&t.id==='pr-q'){S.pr.q=t.value;prFilter()}});

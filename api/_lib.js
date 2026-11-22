@@ -3,7 +3,15 @@ import { SignJWT, jwtVerify } from 'jose';
 import bcrypt from 'bcryptjs';
 
 /** Reports the Super Admin can switch on for any individual user (User privileges). */
-export const GRANTABLE = ['dash', 'shop', 'odoo', 'meta', 'act', 'sheet'];
+// Odoo tabs that can be granted one by one ('odoo:<tab>'); 'odoo' alone means every tab. Growth radar and Order forecast stay Super Admin only.
+export const ODOO_GRANT_TABS = ['brief', 'suppliers', 'raw', 'packaging', 'finished', 'inventory', 'sales', 'distributors', 'people', 'profit', 'in', 'out', 'trial', 'pnl', 'balance', 'hr'];
+export const GRANTABLE = ['dash', 'shop', 'odoo', 'meta', 'act', 'sheet', ...ODOO_GRANT_TABS.map((t) => 'odoo:' + t)];
+/** Can this user open this Odoo tab? */
+export function odooTabAllowed(u, tab) {
+  if (u.role === 'super_admin' || u.role === 'ceo') return true;
+  const have = Array.isArray(u.reports) ? u.reports : [];
+  return have.includes('dash') || have.includes('odoo') || have.includes('odoo:' + tab);
+}
 export const ROLES = ['super_admin', 'graphic_designer', 'media_buyer', 'content_creator', 'moderator', 'pr', 'ecommerce', 'salesperson', 'ceo'];
 export const COOKIE = 'hub_session';
 const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
@@ -213,7 +221,8 @@ export async function requireViewer(req, key) {
   const u = await requireUser(req);
   if (u.role === 'super_admin' || u.role === 'ceo') return u;
   const have = Array.isArray(u.reports) ? u.reports : [];
-  const ok = key ? have.includes(key) || have.includes('dash') : have.some((k) => ['dash', 'shop', 'odoo', 'meta'].includes(k));
+  const odooAny = have.some((k) => k === 'odoo' || k.startsWith('odoo:'));
+  const ok = key ? have.includes(key) || have.includes('dash') || (key === 'odoo' && odooAny) : odooAny || have.some((k) => ['dash', 'shop', 'meta'].includes(k));
   if (!ok) throw new HttpError(403, 'You do not have access to that page.');
   return u;
 }
