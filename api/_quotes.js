@@ -48,6 +48,10 @@ export function ensureQuotes() {
       await q`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS tax JSONB NOT NULL DEFAULT '{}'`;
       await q`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS valid_until BIGINT`;
       await q`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS tax JSONB NOT NULL DEFAULT '{}'`;
+      await q`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS example BOOLEAN NOT NULL DEFAULT false`;
+      await q`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS example BOOLEAN NOT NULL DEFAULT false`;
+      await q`CREATE SEQUENCE IF NOT EXISTS example_no_seq`;
+      await q`CREATE SEQUENCE IF NOT EXISTS example_inv_seq`;
       await q`CREATE INDEX IF NOT EXISTS quotes_status_idx ON quotes (status)`;
       await q`CREATE INDEX IF NOT EXISTS invoices_wh_idx ON invoices (wh_status)`;
     })().catch((e) => { ready = null; throw e; });
@@ -138,20 +142,20 @@ function quoteOut(r, u) {
   return {
     id: r.id, no: r.no, createdAt: Number(r.created_at), updatedAt: Number(r.updated_at), submittedAt: r.submitted_at ? Number(r.submitted_at) : 0,
     createdBy: r.created_by, createdByName: r.created_by_name, customer: J(r.customer, {}), lines: priced.lines, discount: cleanDiscount(J(r.discount, {})),
-    notes: r.notes, tax: cleanTax(J(r.tax, {})), totals: priced, currency: r.currency, status: r.status, expired, validUntil: r.valid_until ? Number(r.valid_until) : 0, approvals: ap, history: J(r.history, []), invoiceId: r.invoice_id || null,
+    example: !!r.example, notes: r.notes, tax: cleanTax(J(r.tax, {})), totals: priced, currency: r.currency, status: r.status, expired, validUntil: r.valid_until ? Number(r.valid_until) : 0, approvals: ap, history: J(r.history, []), invoiceId: r.invoice_id || null,
     can: u ? { edit: canEditQuote(u, r), convert: r.status === 'approved' && !expired && canConvert(u, r), approve: r.status === 'pending' && !expired && !!slotOf(u) && ap[slotOf(u)] && ap[slotOf(u)].state === 'pending', withdraw: (r.status === 'pending' || (r.status === 'approved' && expired)) && (r.created_by === u.id || u.role === 'super_admin'), extend: ['pending', 'approved'].includes(r.status) && canExtend(u), del: canEditQuote(u, r) && r.status === 'draft' } : {},
   };
 }
 function quoteSummary(r, u) {
   const o = quoteOut(r, u);
-  return { id: o.id, no: o.no, createdAt: o.createdAt, updatedAt: o.updatedAt, createdBy: o.createdBy, createdByName: o.createdByName, customer: o.customer, items: o.lines.length, units: o.lines.reduce((a, l) => a + l.qty, 0), total: o.totals.total, taxMode: o.tax.mode, currency: o.currency, status: o.status, expired: o.expired, validUntil: o.validUntil, approvals: o.approvals, invoiceId: o.invoiceId, priceChanged: o.lines.some((l) => l.listPrice != null && Math.abs(l.listPrice - l.price) > 0.004), can: o.can };
+  return { id: o.id, no: o.no, createdAt: o.createdAt, updatedAt: o.updatedAt, createdBy: o.createdBy, createdByName: o.createdByName, customer: o.customer, items: o.lines.length, units: o.lines.reduce((a, l) => a + l.qty, 0), total: o.totals.total, example: o.example, taxMode: o.tax.mode, currency: o.currency, status: o.status, expired: o.expired, validUntil: o.validUntil, approvals: o.approvals, invoiceId: o.invoiceId, priceChanged: o.lines.some((l) => l.listPrice != null && Math.abs(l.listPrice - l.price) > 0.004), can: o.can };
 }
 function invoiceOut(r, u) {
   const hideMoney = u && isWarehouse(u);
   const priced = priceQuote(J(r.lines, []), J(r.discount, {}), J(r.tax, {}));
   const lines = priced.lines.map((l) => (hideMoney ? { pid: l.pid, name: l.name, code: l.code, barcode: l.barcode, qty: l.qty } : l));
   return {
-    id: r.id, no: r.no, quoteId: r.quote_id, quoteNo: r.quote_no, createdAt: Number(r.created_at), updatedAt: Number(r.updated_at), createdByName: r.created_by_name, quoteByName: r.quote_by_name,
+    id: r.id, no: r.no, example: !!r.example, quoteId: r.quote_id, quoteNo: r.quote_no, createdAt: Number(r.created_at), updatedAt: Number(r.updated_at), createdByName: r.created_by_name, quoteByName: r.quote_by_name,
     customer: J(r.customer, {}), lines, items: lines.length, units: lines.reduce((a, l) => a + l.qty, 0), totals: hideMoney ? null : priced, currency: r.currency, notes: r.notes,
     approvals: J(r.approvals, {}), whStatus: r.wh_status, whHistory: J(r.wh_history, []), can: { move: !!u && canMoveWarehouse(u) },
   };
@@ -325,6 +329,15 @@ export async function quotesApi(req, res) {
     return res.json({ quote: quoteOut(r2, u) });
   }
 
+  if (a === 'examples' || a === 'examples-clear') {
+    if (u.role !== 'super_admin') throw new HttpError(403, 'Only the Super Admin can add or remove examples.');
+    await q`DELETE FROM invoices WHERE example`;
+    await q`DELETE FROM quotes WHERE example`;
+    if (a === 'examples-clear') return res.json({ ok: true });
+    const made = await makeExamples(q, u);
+    return res.json({ ok: true, made });
+  }
+
   if (a === 'delete') {
     const r = await load(body.id);
     if (!canEditQuote(u, r) || r.status !== 'draft') throw new HttpError(409, 'Only a draft can be deleted.');
@@ -339,16 +352,16 @@ export async function quotesApi(req, res) {
     if (!SLOTS.every((s) => ap[s] && ap[s].state === 'approved')) throw new HttpError(409, 'All three approvals are needed before converting to an invoice.');
     if (!canConvert(u, r)) throw new HttpError(403, 'You cannot convert this quotation.');
     if (isExpired(r)) throw new HttpError(409, 'This quotation has expired. The Super Admin or the CEO can extend it first.');
-    const [{ n }] = await q`SELECT nextval('invoice_no_seq')::int AS n`;
-    const no = `INV-${new Date(now).getFullYear()}-${String(n).padStart(4, '0')}`, id = rid('i');
+    const [{ n }] = r.example ? await q`SELECT nextval('example_inv_seq')::int AS n` : await q`SELECT nextval('invoice_no_seq')::int AS n`;
+    const no = r.example ? `EX-INV-${String(n).padStart(4, '0')}` : `INV-${new Date(now).getFullYear()}-${String(n).padStart(4, '0')}`, id = rid('i');
     // claim the quote first so it can never become two invoices
     const claimed = await q`UPDATE quotes SET status = 'invoiced', invoice_id = ${id}, updated_at = ${now} WHERE id = ${r.id} AND status = 'approved' RETURNING id`;
     if (!claimed.length) throw new HttpError(409, 'This quotation was already converted.');
     const lines = J(r.lines, []), discount = J(r.discount, {}), tax = cleanTax(J(r.tax, {})), priced = priceQuote(lines, discount, tax);
     const whh = [{ at: now, by: u.id, byName: u.username, status: 'ready', note: 'Invoice created' }];
-    await q`INSERT INTO invoices (id, no, quote_id, quote_no, created_at, updated_at, created_by, created_by_name, quote_by, quote_by_name, customer, lines, discount, tax, notes, subtotal, discount_total, total, currency, approvals, wh_status, wh_history)
+    await q`INSERT INTO invoices (id, no, quote_id, quote_no, created_at, updated_at, created_by, created_by_name, quote_by, quote_by_name, customer, lines, discount, tax, notes, subtotal, discount_total, total, currency, approvals, wh_status, wh_history, example)
       VALUES (${id}, ${no}, ${r.id}, ${r.no}, ${now}, ${now}, ${u.id}, ${u.username}, ${r.created_by}, ${r.created_by_name}, ${JSON.stringify(r.customer)}::jsonb, ${JSON.stringify(lines)}::jsonb, ${JSON.stringify(discount)}::jsonb, ${JSON.stringify(tax)}::jsonb, ${r.notes},
-      ${priced.subtotal}, ${priced.discountTotal}, ${priced.total}, ${r.currency}, ${JSON.stringify(ap)}::jsonb, 'ready', ${JSON.stringify(whh)}::jsonb)`;
+      ${priced.subtotal}, ${priced.discountTotal}, ${priced.total}, ${r.currency}, ${JSON.stringify(ap)}::jsonb, 'ready', ${JSON.stringify(whh)}::jsonb, ${!!r.example})`;
     const hist = [...J(r.history, []), ev(u, `converted to invoice ${no}`)].slice(-200);
     await q`UPDATE quotes SET history = ${JSON.stringify(hist)}::jsonb WHERE id = ${r.id}`;
     return res.json({ invoiceId: id, invoiceNo: no });
@@ -370,6 +383,73 @@ export async function quotesApi(req, res) {
   throw new HttpError(400, 'Unknown action.');
 }
 
+// ---------- examples: one of every step of the cycle, clearly marked, separate numbers, removable
+const SAMPLE_PRODUCTS = [
+  { pid: null, name: 'Shea Butter Shampoo 400ml', code: 'SH-400', barcode: '6224000000011', price: 185 },
+  { pid: null, name: 'Argan Oil Hair Serum 100ml', code: 'AR-100', barcode: '6224000000028', price: 240 },
+  { pid: null, name: 'Vitamin E Leave-in Cream 250ml', code: 'VE-250', barcode: '6224000000035', price: 165 },
+  { pid: null, name: 'Coconut Conditioner 400ml', code: 'CO-400', barcode: '6224000000042', price: 175 },
+  { pid: null, name: 'Activator Curl Gel 300ml', code: 'AC-300', barcode: '6224000000059', price: 150 },
+  { pid: null, name: 'Sulfate Free Shampoo 400ml', code: 'SF-400', barcode: '6224000000066', price: 210 },
+];
+async function makeExamples(q, admin) {
+  let prods = [];
+  try { prods = (await products()).list.filter((p) => p.price > 0 && p.name).slice(0, 12); } catch (e) { prods = []; }
+  if (prods.length < 6) prods = SAMPLE_PRODUCTS;
+  const users = await q`SELECT id, username, role FROM users`;
+  const who = (role, label) => users.find((x) => x.role === role) || { id: '', username: `${label} (example)`, role };
+  const sales = users.find((x) => x.role === 'salesperson') || admin;
+  const fin = who('finance', 'Finance'), ceo = who('ceo', 'CEO'), sa = users.find((x) => x.id === admin.id) || admin;
+  const now = Date.now(), H = 36e5;
+  const line = (k, qty, disc) => { const p = prods[k % prods.length]; return { pid: p.pid, name: p.name, code: p.code || '', barcode: p.barcode || '', listPrice: p.price, price: p.price, qty, discount: cleanDiscount(disc || {}) }; };
+  const A = (x, state, at, note = '') => ({ state, by: x.id, byName: x.username, at, note });
+  const P = { state: 'pending', by: '', byName: '', at: 0, note: '' };
+  const E = (x, at, action, note = '') => ({ at, by: x.id, byName: x.username, role: x.role, action, note });
+  const scen = [
+    { cust: ['Giza Beauty Store', 'Giza', '0101 111 2222'], lines: [line(0, 12), line(2, 6)], status: 'draft', created: now - 2 * H, notes: 'Still collecting the full order from the shop owner.' },
+    { cust: ['Nile Distribution', 'Cairo', '0100 123 4567'], lines: [line(0, 48, { type: 'percent', value: 5 }), line(1, 24), line(3, 36)], status: 'pending', created: now - 26 * H, sub: now - 24 * H, ap: { finance: P, ceo: A(ceo, 'approved', now - 20 * H, 'Good distributor, approved.'), super_admin: P } },
+    { cust: ['Delta Beauty Supplies', 'Tanta', '0122 333 4444'], lines: [line(4, 60), line(5, 30, { type: 'amount', value: 300 })], discount: { type: 'percent', value: 3 }, status: 'pending', created: now - 70 * H, sub: now - 67 * H, ap: { finance: A(fin, 'approved', now - 60 * H), ceo: P, super_admin: A(sa, 'approved', now - 50 * H) } },
+    { cust: ['Alexandria Care Center', 'Alexandria', '0111 555 6666'], lines: [line(1, 20), line(2, 40), line(5, 20)], status: 'approved', created: now - 40 * H, sub: now - 38 * H, ap: { finance: A(fin, 'approved', now - 30 * H), ceo: A(ceo, 'approved', now - 28 * H), super_admin: A(sa, 'approved', now - 26 * H) }, notes: 'Ready to convert: all three approved.' },
+    { cust: ['Red Sea Pharmacies', 'Hurghada', '0155 777 8888'], lines: [line(0, 100, { type: 'percent', value: 20 }), line(3, 50, { type: 'percent', value: 20 })], status: 'rejected', created: now - 30 * H, sub: now - 29 * H, ap: { finance: A(fin, 'rejected', now - 22 * H, 'Discount too high for this distributor: 10% maximum. Please lower it and resubmit.'), ceo: P, super_admin: P } },
+    { cust: ['Upper Egypt Traders', 'Assiut', '0106 999 0000'], lines: [line(2, 36), line(4, 24)], status: 'pending', created: now - 110 * H, sub: now - 100 * H, valid: now - 28 * H, ap: { finance: A(fin, 'approved', now - 90 * H), ceo: P, super_admin: P }, notes: 'Example of an expired quotation: not approved within 3 days.' },
+    { cust: ['Mansoura Beauty House', 'Mansoura', '0109 121 3434'], lines: [line(0, 24), line(1, 12), line(2, 24)], status: 'invoiced', created: now - 50 * H, sub: now - 48 * H, wh: 'ready' },
+    { cust: ['Zagazig Cosmetics', 'Zagazig', '0128 565 7878'], lines: [line(3, 60), line(5, 36)], status: 'invoiced', created: now - 80 * H, sub: now - 78 * H, wh: 'preparing' },
+    { cust: ['Ismailia Salon Supplies', 'Ismailia', '0114 242 5656'], lines: [line(1, 30), line(4, 30)], tax: { mode: 'excluded', rate: 14 }, status: 'invoiced', created: now - 140 * H, sub: now - 136 * H, wh: 'transferred', notes: 'Example of a quotation without VAT (prices divided by 1.14).' },
+  ];
+  const made = [];
+  for (const sc of scen) {
+    const [{ n }] = await q`SELECT nextval('example_no_seq')::int AS n`;
+    const no = `EX-Q-${String(n).padStart(4, '0')}`, id = rid('q');
+    const customer = { id: null, name: sc.cust[0], city: sc.cust[1], phone: sc.cust[2] };
+    const discount = cleanDiscount(sc.discount || {}), tax = cleanTax(sc.tax || {}), priced = priceQuote(sc.lines, discount, tax);
+    const full = sc.status === 'approved' || sc.status === 'invoiced';
+    const ap = sc.ap || (full || sc.status === 'invoiced' ? { finance: A(fin, 'approved', sc.sub + 6 * H), ceo: A(ceo, 'approved', sc.sub + 9 * H), super_admin: A(sa, 'approved', sc.sub + 12 * H) } : blankApprovals());
+    const hist = [E(sales, sc.created, 'created')];
+    if (sc.sub) hist.push(E(sales, sc.sub, `submitted for approval (valid until ${new Date(sc.valid || sc.sub + VALID_DAYS * DAY).toISOString().slice(0, 10)})`));
+    for (const s of SLOTS) if (ap[s].state !== 'pending') hist.push({ at: ap[s].at, by: ap[s].by, byName: ap[s].byName, role: s, action: `${ap[s].state} as ${SLOT_LABEL[s]}`, note: ap[s].note });
+    if (full) hist.push({ at: ap.super_admin.at, by: '', byName: 'Hub', role: '', action: 'fully approved: ready to convert to an invoice', note: '' });
+    hist.sort((x, y) => x.at - y.at);
+    let invoiceId = null;
+    const validUntil = sc.sub ? (sc.valid || (sc.status === 'approved' ? now + 30 * H : sc.sub + VALID_DAYS * DAY)) : null;
+    if (sc.status === 'invoiced') {
+      const [{ m }] = await q`SELECT nextval('example_inv_seq')::int AS m`;
+      const ino = `EX-INV-${String(m).padStart(4, '0')}`, iid = rid('i'), at = ap.super_admin.at + 2 * H;
+      const steps = WH_STEPS.slice(0, WH_STEPS.indexOf(sc.wh) + 1).map((st, k) => ({ at: at + k * 5 * H, by: k ? '' : sales.id, byName: k ? 'Warehouse (example)' : sales.username, status: st, note: k ? '' : 'Invoice created' }));
+      hist.push(E(sales, at, `converted to invoice ${ino}`));
+      await q`INSERT INTO invoices (id, no, quote_id, quote_no, created_at, updated_at, created_by, created_by_name, quote_by, quote_by_name, customer, lines, discount, tax, notes, subtotal, discount_total, total, currency, approvals, wh_status, wh_history, example)
+        VALUES (${iid}, ${ino}, ${id}, ${no}, ${at}, ${steps[steps.length - 1].at}, ${sales.id}, ${sales.username}, ${sales.id}, ${sales.username}, ${JSON.stringify(customer)}::jsonb, ${JSON.stringify(sc.lines)}::jsonb, ${JSON.stringify(discount)}::jsonb, ${JSON.stringify(tax)}::jsonb, ${sc.notes || ''},
+        ${priced.subtotal}, ${priced.discountTotal}, ${priced.total}, ${prodCache.currency || 'EGP'}, ${JSON.stringify(ap)}::jsonb, ${sc.wh}, ${JSON.stringify(steps)}::jsonb, true)`;
+      invoiceId = iid;
+      made.push(ino);
+    }
+    await q`INSERT INTO quotes (id, no, created_at, updated_at, created_by, created_by_name, customer, lines, discount, tax, notes, subtotal, discount_total, total, currency, status, approvals, history, invoice_id, submitted_at, valid_until, example)
+      VALUES (${id}, ${no}, ${sc.created}, ${hist[hist.length - 1].at}, ${sales.id}, ${sales.username}, ${JSON.stringify(customer)}::jsonb, ${JSON.stringify(sc.lines)}::jsonb, ${JSON.stringify(discount)}::jsonb, ${JSON.stringify(tax)}::jsonb, ${sc.notes || ''},
+      ${priced.subtotal}, ${priced.discountTotal}, ${priced.total}, ${prodCache.currency || 'EGP'}, ${sc.status}, ${JSON.stringify(ap)}::jsonb, ${JSON.stringify(hist)}::jsonb, ${invoiceId}, ${sc.sub || null}, ${validUntil}, true)`;
+    made.push(no);
+  }
+  return made;
+}
+
 /** Small counts for the menu badges. */
 export async function quoteCounts(u) {
   try {
@@ -377,8 +457,8 @@ export async function quoteCounts(u) {
     if (!slot && !isWarehouse(u)) return out;
     await ensureQuotes();
     const q = db();
-    if (slot) { const [{ n }] = await q`SELECT COUNT(*)::int AS n FROM quotes WHERE status = 'pending' AND (valid_until IS NULL OR valid_until > ${Date.now()}) AND approvals -> ${slot} ->> 'state' = 'pending'`; out.approve = n; }
-    if (isWarehouse(u) || u.role === 'super_admin') { const [{ n }] = await q`SELECT COUNT(*)::int AS n FROM invoices WHERE wh_status = 'ready'`; out.wh = n; }
+    if (slot) { const [{ n }] = await q`SELECT COUNT(*)::int AS n FROM quotes WHERE status = 'pending' AND NOT example AND (valid_until IS NULL OR valid_until > ${Date.now()}) AND approvals -> ${slot} ->> 'state' = 'pending'`; out.approve = n; }
+    if (isWarehouse(u) || u.role === 'super_admin') { const [{ n }] = await q`SELECT COUNT(*)::int AS n FROM invoices WHERE wh_status = 'ready' AND NOT example`; out.wh = n; }
     return out;
   } catch (e) { return {}; }
 }
