@@ -6,7 +6,8 @@
 // Any rejection sends the quote back to its creator (Rejected); editing it makes it a Draft again and
 // submitting again resets all three approvals.
 //
-// Tax: each quote says whether its prices include or exclude VAT (default 14%).
+// Tax: product prices (Odoo) already INCLUDE VAT. 'included' = charge the price as it is (VAT shown inside);
+// 'excluded' = quote without VAT: every price is divided by (1 + rate), e.g. 120 / 1.14 = 105.26, and no VAT is added.
 // Validity: a submitted quote is valid for 3 days; after that it cannot be approved or converted.
 // The Super Admin or the CEO can extend the date as an exception.
 //
@@ -19,7 +20,7 @@ export const SLOTS = ['finance', 'ceo', 'super_admin'];
 export const SLOT_LABEL = { finance: 'Finance', ceo: 'CEO', super_admin: 'Super Admin' };
 export const WH_STEPS = ['ready', 'preparing', 'transferred'];
 export const VALID_DAYS = 3;
-export const DEFAULT_TAX = { mode: 'excluded', rate: 14 };
+export const DEFAULT_TAX = { mode: 'included', rate: 14 };
 const DAY = 864e5;
 
 let ready;
@@ -86,23 +87,25 @@ export function discountAmount(base, d /* , ctx */) {
   return 0;
 }
 export function cleanTax(t) {
-  const mode = t && t.mode === 'included' ? 'included' : 'excluded';
+  const mode = t && t.mode === 'excluded' ? 'excluded' : 'included';
   const rate = t && t.rate !== undefined && t.rate !== '' && Number.isFinite(Number(t.rate)) ? Math.min(100, Math.max(0, Number(t.rate))) : DEFAULT_TAX.rate;
   return { mode, rate };
 }
 export function priceQuote(lines, orderDiscount, taxIn) {
+  const tax = cleanTax(taxIn), f = tax.mode === 'excluded' ? 1 / (1 + tax.rate / 100) : 1;
+  // l.price is always the VAT-inclusive price; unit is the price shown on this quote
   const out = lines.map((l) => {
-    const base = r2(l.price * l.qty), disc = discountAmount(base, l.discount, { line: l });
-    return { ...l, base, disc, net: r2(base - disc) };
+    const unit = r2(l.price * f), base = r2(l.price * f * l.qty), disc = discountAmount(base, l.discount, { line: l });
+    return { ...l, unit, listUnit: l.listPrice == null ? null : r2(l.listPrice * f), base, disc, net: r2(base - disc) };
   });
   const subtotal = r2(out.reduce((a, l) => a + l.net, 0));
   const lineDisc = r2(out.reduce((a, l) => a + l.disc, 0));
   const orderDisc = discountAmount(subtotal, orderDiscount, { quote: true });
-  const amount = r2(subtotal - orderDisc), tax = cleanTax(taxIn);
-  // excluded: prices are before VAT, VAT is added on top. included: prices already contain VAT, which is shown inside.
+  const amount = r2(subtotal - orderDisc);
+  // included: the customer pays the amount, and the VAT inside it is shown. excluded: prices were already divided, no VAT charged.
   const untaxed = tax.mode === 'excluded' ? amount : r2(amount / (1 + tax.rate / 100));
-  const taxAmount = tax.mode === 'excluded' ? r2(amount * tax.rate / 100) : r2(amount - untaxed);
-  const total = tax.mode === 'excluded' ? r2(amount + taxAmount) : amount;
+  const taxAmount = tax.mode === 'excluded' ? 0 : r2(amount - untaxed);
+  const total = amount;
   return { lines: out, gross: r2(out.reduce((a, l) => a + l.base, 0)), lineDisc, subtotal, orderDisc, discountTotal: r2(lineDisc + orderDisc), afterDiscount: amount, taxMode: tax.mode, taxRate: tax.rate, untaxed, tax: taxAmount, total };
 }
 const str = (v, n) => String(v ?? '').trim().slice(0, n);
