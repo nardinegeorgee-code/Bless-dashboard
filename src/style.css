@@ -2174,3 +2174,12 @@ div.qt-tile b{color:var(--qc)}
 .qt-av-tag{font-style:normal;font-size:.72rem!important;font-weight:700;color:#22A35A;margin-right:8px}.qt-av-tag.out{color:var(--danger)}
 .qt-av-line{display:block;font-size:.72rem;color:#22A35A;font-weight:600}.qt-av-line.short{color:var(--danger)}
 .st-led td.mono{white-space:nowrap}
+/* stock lines: unit or box */
+.st-addsw{display:flex;align-items:center;gap:10px;justify-content:flex-end;font-size:.82rem;color:var(--muted);font-weight:600;margin-bottom:-4px}
+.st-mini{display:inline-grid;grid-template-columns:auto auto;padding:3px;gap:3px;border-radius:10px}
+.st-mini button{padding:6px 12px;font-size:.8rem}
+.st-q{display:flex;align-items:center;gap:6px;justify-content:flex-end;flex-wrap:wrap}.st-q small{font-size:.74rem;color:var(--muted);white-space:nowrap}
+.st-um button{padding:5px 9px;font-size:.74rem}
+.st-q .qt-in{width:74px}.st-q .st-bx{width:66px}
+.st-eq{min-width:84px;text-align:left}.st-eq b{color:var(--ink)}.st-need{color:#E0A24F!important}
+.st-boxtag{font-style:normal;font-size:.7rem!important;font-weight:800;color:#B07CE0;margin-right:8px;text-transform:uppercase;letter-spacing:.04em}

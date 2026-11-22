@@ -3736,7 +3736,7 @@ window.addEventListener('beforeunload',e=>{if(S.route==='quote'&&S.qt.draft&&S.q
 // Inventory & stock (preview until the Super Admin makes it live). Server: api/_stock.js via /api/data?st=...
 // =====================================================================================
 const stToday=()=>new Date().toISOString().slice(0,10);
-S.st={tab:'overview',home:null,err:'',docs:{},doc:null,moves:null,mf:{type:'',loc:'',q:'',from:'',to:''},cmp:null,q:'',loc:'',show:'active',invs:null,arm:'',ps:{},
+S.st={add:{rec:'unit',adj:'unit',trf:'unit',ret:'unit'},tab:'overview',home:null,err:'',docs:{},doc:null,moves:null,mf:{type:'',loc:'',q:'',from:'',to:''},cmp:null,q:'',loc:'',show:'active',invs:null,arm:'',ps:{},
   f:{rec:{loc:'main',sourceType:'supplier',source:'',ref:'',date:stToday(),notes:'',lines:[]},adj:{loc:'main',reason:'',direction:'remove',bucket:'sellable',notes:'',lines:[]},trf:{loc:'main',toLoc:'',notes:'',lines:[]},ret:{source:'customer',invoiceId:'',customer:'',loc:'main',notes:'',lines:[]},cnt:{loc:'main',scope:'all'}}};
 const stLive=()=>!!(S.qtc&&S.qtc.stockLive);
 const stSee=()=>isAdmin()||(stLive()&&!!S.me&&['ceo','finance','warehouse'].includes(S.me.role));
@@ -3794,32 +3794,44 @@ function stOverviewHTML(){
 }
 
 // ---------- shared product picker + lines
-function stPicker(f,label){return `<div class="qt-search qt-scan"><span class="qt-sico">${qi('scan',20)}</span><input class="input" id="st-ps-${f}" data-stps="${f}" placeholder="${label||'Scan a barcode, or type a product name or code, then press Enter'}" autocomplete="off"><div class="qt-drop" id="st-pl-${f}" hidden></div></div>`}
+function stPicker(f,label){const sw=f==='cnt'?'':`<div class="st-addsw"><span>Each scan adds</span><div class="qt-seg st-mini" role="group" aria-label="Each scan adds">${[['unit','1 unit'],['box','1 box']].map(([m,l])=>`<button type="button" class="${S.st.add[f]===m?'on':''}" aria-pressed="${S.st.add[f]===m}" data-act="st-addmode" data-f="${f}" data-m="${m}">${l}</button>`).join('')}</div></div>`;return sw+`<div class="qt-search qt-scan"><span class="qt-sico">${qi('scan',20)}</span><input class="input" id="st-ps-${f}" data-stps="${f}" placeholder="${label||'Scan a barcode, or type a product name or code, then press Enter'}" autocomplete="off"><div class="qt-drop" id="st-pl-${f}" hidden></div></div>`}
 async function stSearch(f,s,enter){
   const dl=$('#st-pl-'+f);if(!dl)return;
   const loc=f==='cnt'?(S.st.doc&&S.st.doc.loc):(S.st.f[f]&&S.st.f[f].loc)||'';
   try{const j=await api('GET',`/api/data?st=products&loc=${encodeURIComponent(loc)}&s=${encodeURIComponent(s)}`);S.st.ps[f]=j.products||[];
     if(enter&&(j.exact||S.st.ps[f].length===1)){stAdd(f,j.exact||S.st.ps[f][0]);return}
-    dl.innerHTML=S.st.ps[f].length?S.st.ps[f].map((p,k)=>`<button type="button" class="qt-opt${k===0?' first':''}" data-act="st-pick" data-f="${f}" data-k="${k}"><span><b>${esc(p.name)}</b><small class="mono">${[p.code,p.barcode].filter(Boolean).map(esc).join(' · ')}</small></span>${p.here!=null?`<em>${stN(p.here)} here</em>`:''}</button>`).join(''):`<div class="qt-none">No product matches “${esc(s)}”.</div>`;dl.hidden=false;
+    dl.innerHTML=S.st.ps[f].length?S.st.ps[f].map((p,k)=>`<button type="button" class="qt-opt${k===0?' first':''}" data-act="st-pick" data-f="${f}" data-k="${k}"><span><b>${esc(p.name)}</b><small class="mono">${[p.code,p.barcode].filter(Boolean).map(esc).join(' · ')}${p.boxQty?` · box of ${stN(p.boxQty)}`:''}</small></span>${p.boxScan?'<em class="st-boxtag">box barcode</em>':''}${p.here!=null?`<em>${stN(p.here)} here</em>`:''}</button>`).join(''):`<div class="qt-none">No product matches “${esc(s)}”.</div>`;dl.hidden=false;
   }catch(e){dl.innerHTML=`<div class="qt-none">${esc(e.message)}</div>`;dl.hidden=false}
 }
 function stAdd(f,p){
   if(f==='cnt'){const d=S.st.doc;let i=d.lines.findIndex(l=>l.pid===p.pid);if(i<0){d.lines.push({key:'o'+p.pid,pid:p.pid,name:p.name,code:p.code,barcode:p.barcode,counted:1,reason:'',systemNow:p.here??0});i=d.lines.length-1}else d.lines[i].counted=(Number(d.lines[i].counted)||0)+1;S.st.dirty=true;stRender();const row=document.querySelector(`[data-strow="${i}"]`);if(row){row.classList.add('qt-flash');row.scrollIntoView({block:'nearest'})}setTimeout(()=>$('#st-ps-cnt')?.focus(),0);toast(`${p.name}: counted ${d.lines[i].counted}`);return}
-  const F=S.st.f[f],i=F.lines.findIndex(l=>l.pid===p.pid&&f!=='ret');
-  if(i>=0)F.lines[i].qty=(Number(F.lines[i].qty)||0)+1;
-  else F.lines.push({pid:p.pid,name:p.name,code:p.code,barcode:p.barcode,qty:1,here:p.here,lot:'',expiry:'',reason:'',cond:f==='ret'?(F.source==='internal'?'damaged':'restock'):''});
-  stRender();setTimeout(()=>{const n=$('#st-ps-'+f);if(n)n.focus()},0);toast(i>=0?`${p.name}: ${F.lines[i].qty}`:`Added ${p.name}`);
+  const F=S.st.f[f];
+  // a box barcode always adds a box; otherwise the "Each scan adds" switch decides
+  let mode=p.boxScan?'box':S.st.add[f]||'unit';
+  let i=F.lines.findIndex(l=>l.pid===p.pid&&l.mode===mode&&f!=='ret');
+  if(i>=0){const l=F.lines[i];if(mode==='box')l.boxes=(Number(l.boxes)||0)+1;else l.qty=(Number(l.qty)||0)+1;stQty(l)}
+  else{F.lines.push(stQty({pid:p.pid,name:p.name,code:p.code,barcode:p.barcode,mode,qty:mode==='box'?0:1,boxes:mode==='box'?1:0,boxQty:p.boxQty||'',here:p.here,lot:'',expiry:'',reason:'',cond:f==='ret'?(F.source==='internal'?'damaged':'restock'):''}));i=F.lines.length-1}
+  const L=F.lines[i];
+  stRender();setTimeout(()=>{if(L.mode==='box'&&!(L.boxQty>0)){const n=document.querySelector(`[data-stl="boxQty"][data-f="${f}"][data-i="${i}"]`);if(n){n.focus();return}}const n=$('#st-ps-'+f);if(n)n.focus()},0);
+  toast(L.mode==='box'?(L.boxQty>0?`${p.name}: ${stN(L.boxes)} ${L.boxes==1?'box':'boxes'} = ${stN(L.qty)} units`:`${p.name}: ${stN(L.boxes)} box. Enter how many units are in one box.`):`${p.name}: ${stN(L.qty)} ${L.qty==1?'unit':'units'}`);
+}
+const stSumTxt=F=>{const bx=F.lines.filter(l=>l.mode==='box').reduce((a,l)=>a+(Number(l.boxes)||0),0);return `${F.lines.length} ${F.lines.length===1?'product':'products'} · ${stN(F.lines.reduce((a,l)=>a+(Number(l.qty)||0),0))} units${bx?` (incl. ${stN(bx)} ${bx===1?'box':'boxes'})`:''}`};
+function stQty(l){if(l.mode==='box')l.qty=Math.round((Number(l.boxes)||0)*(Number(l.boxQty)||0)*1000)/1000;return l}
+function stQtyCell(f,l,i){
+  const seg=`<div class="qt-seg st-mini st-um" role="group" aria-label="Count in">${[['unit','Unit'],['box','Box']].map(([m,t])=>`<button type="button" class="${(l.mode||'unit')===m?'on':''}" aria-pressed="${(l.mode||'unit')===m}" data-act="st-um" data-f="${f}" data-i="${i}" data-m="${m}">${t}</button>`).join('')}</div>`;
+  if(l.mode!=='box')return `<div class="st-q">${seg}<input class="input qt-in" type="number" min="0" step="1" data-stl="qty" data-f="${f}" data-i="${i}" value="${l.qty}" aria-label="Units"><small>units</small></div>`;
+  return `<div class="st-q">${seg}<input class="input qt-in st-bx" type="number" min="0" step="1" data-stl="boxes" data-f="${f}" data-i="${i}" value="${l.boxes}" aria-label="Boxes"><small>boxes ×</small><input class="input qt-in st-bx" type="number" min="0" step="1" data-stl="boxQty" data-f="${f}" data-i="${i}" value="${l.boxQty}" placeholder="per box" aria-label="Units per box"><small id="st-tot-${f}-${i}" class="st-eq">${l.boxQty>0?`= <b>${stN(l.qty)}</b> units`:'<b class="st-need">units per box?</b>'}</small></div>`;
 }
 function stLinesHTML(f,cols){
   const F=S.st.f[f];
   if(!F.lines.length)return `<div class="qt-empty">${qi('scan',26)}<b>No products yet</b><span>Scan or search above. Scanning the same product again adds one.</span></div>`;
   const C=cols;
   return `<div class="tablewrap"><table class="dt st-lines"><thead><tr><th>Product</th>${C.includes('here')?'<th class="num">In stock here</th>':''}<th class="num">Quantity</th>${C.includes('cond')?'<th>Condition</th>':''}${C.includes('reason')?'<th>Reason</th>':''}${C.includes('lot')?'<th>Lot / batch</th><th>Expiry</th>':''}<th></th></tr></thead><tbody>${F.lines.map((l,i)=>`<tr><td><b>${esc(l.name)}</b><small class="mono muted">${[l.code,l.barcode].filter(Boolean).map(esc).join(' · ')}</small></td>${C.includes('here')?`<td class="num">${l.here==null?'–':stN(l.here)}</td>`:''}
-    <td class="num"><input class="input qt-in" type="number" min="0" step="1" data-stl="qty" data-f="${f}" data-i="${i}" value="${l.qty}"></td>
+    <td class="num">${stQtyCell(f,l,i)}</td>
     ${C.includes('cond')?`<td><select class="select st-sel" data-stl="cond" data-f="${f}" data-i="${i}">${Object.entries(S.st.home.conds).filter(([k])=>!(F.source==='internal'&&k==='restock')).map(([k,v])=>`<option value="${k}" ${l.cond===k?'selected':''}>${v}</option>`).join('')}</select></td>`:''}
     ${C.includes('reason')?`<td><input class="input" data-stl="reason" data-f="${f}" data-i="${i}" value="${esc(l.reason||'')}" placeholder="Why?"></td>`:''}
     ${C.includes('lot')?`<td><input class="input st-lot" data-stl="lot" data-f="${f}" data-i="${i}" value="${esc(l.lot||'')}" placeholder="Optional"></td><td><input class="input st-exp" type="date" data-stl="expiry" data-f="${f}" data-i="${i}" value="${esc(l.expiry||'')}"></td>`:''}
-    <td><button class="qt-x" data-act="st-rm" data-f="${f}" data-i="${i}" aria-label="Remove">${qi('x',15)}</button></td></tr>`).join('')}</tbody></table></div><p class="st-sum">${F.lines.length} products · ${stN(F.lines.reduce((a,l)=>a+(Number(l.qty)||0),0))} units</p>`;
+    <td><button class="qt-x" data-act="st-rm" data-f="${f}" data-i="${i}" aria-label="Remove">${qi('x',15)}</button></td></tr>`).join('')}</tbody></table></div><p class="st-sum" id="st-sum-${f}">${stSumTxt(F)}</p>`;
 }
 function stDocList(kinds,title){
   const list=kinds.flatMap(k=>S.st.docs[k]||[]).sort((a,b)=>b.createdAt-a.createdAt);
@@ -3951,7 +3963,7 @@ function stSettingsHTML(){
 
 // ---------- posting helpers
 async function stPostForm(f,b){
-  const F=S.st.f[f],lines=F.lines.map(l=>({pid:l.pid,name:l.name,code:l.code,barcode:l.barcode,qty:l.qty,lot:l.lot,expiry:l.expiry,reason:l.reason,cond:l.cond}));
+  const F=S.st.f[f],lines=F.lines.map(l=>({pid:l.pid,name:l.name,code:l.code,barcode:l.barcode,qty:l.qty,mode:l.mode||'unit',boxes:l.boxes,boxQty:l.boxQty,lot:l.lot,expiry:l.expiry,reason:l.reason,cond:l.cond}));
   const body=f==='rec'?{action:'receipt',loc:F.loc,lines,meta:{sourceType:F.sourceType,source:F.source,ref:F.ref,date:F.date,notes:F.notes}}:f==='adj'?{action:'adjust',loc:F.loc,reason:F.reason,direction:F.direction,bucket:F.bucket,notes:F.notes,lines}:f==='trf'?{action:'transfer',loc:F.loc,toLoc:F.toLoc,notes:F.notes,lines}:{action:'return',source:F.source,invoiceId:F.invoiceId,customer:F.customer,loc:F.loc,notes:F.notes,lines};
   b.disabled=true;
   try{const j=await api('POST','/api/data?st=1',body);
@@ -3978,6 +3990,10 @@ document.addEventListener('click',async e=>{
   else if(a==='st-csv')stCsv();
   else if(a==='st-pick'){const p=(S.st.ps[b.dataset.f]||[])[+b.dataset.k];if(p)stAdd(b.dataset.f,p)}
   else if(a==='st-rm'){S.st.f[b.dataset.f].lines.splice(+b.dataset.i,1);stRender()}
+  else if(a==='st-addmode'){S.st.add[b.dataset.f]=b.dataset.m;stRender();setTimeout(()=>$('#st-ps-'+b.dataset.f)?.focus(),0)}
+  else if(a==='st-um'){const l=S.st.f[b.dataset.f].lines[+b.dataset.i];if(l&&l.mode!==b.dataset.m){
+    // switching keeps the same number of units where possible
+    if(b.dataset.m==='box'){l.mode='box';if(l.boxQty>0){l.boxes=Math.max(1,Math.round((Number(l.qty)||0)/l.boxQty))}else l.boxes=1}else{l.mode='unit'}stQty(l);stRender()}}
   else if(a==='st-post')stPostForm(b.dataset.f,b);
   else if(a==='st-retsrc'){const F=S.st.f.ret;F.source=b.dataset.s;F.lines.forEach(l=>{if(F.source==='internal'&&l.cond==='restock')l.cond='damaged'});stRender()}
   else if(a==='st-retinv'){const F=S.st.f.ret,inv=S.st.invs.find(i=>i.id===F.invoiceId);if(inv)inv.lines.filter(l=>l.pid).forEach(l=>F.lines.push({pid:l.pid,name:l.name,code:l.code||'',barcode:l.barcode||'',qty:l.qty,cond:'restock',reason:'',lot:'',expiry:''}));stRender()}
@@ -4002,7 +4018,7 @@ document.addEventListener('input',e=>{
   if(t.id==='st-q'){S.st.q=t.value;const pos=t.selectionStart;stRender();const n=$('#st-q');n.focus();try{n.setSelectionRange(pos,pos)}catch(x){}return}
   if(t.id==='st-mq'){S.st.mf.q=t.value;const pos=t.selectionStart;stRender();const n=$('#st-mq');n.focus();try{n.setSelectionRange(pos,pos)}catch(x){}return}
   if(t.dataset.stf&&t.tagName!=='SELECT'){const [f,k]=t.dataset.stf.split('.');S.st.f[f][k]=t.value;return}
-  if(t.dataset.stl&&t.tagName!=='SELECT'){const l=S.st.f[t.dataset.f].lines[+t.dataset.i];if(l)l[t.dataset.stl]=t.dataset.stl==='qty'?Math.max(0,Number(t.value)||0):t.value;return}
+  if(t.dataset.stl&&t.tagName!=='SELECT'){const f=t.dataset.f,F=S.st.f[f],l=F.lines[+t.dataset.i];if(!l)return;const k=t.dataset.stl;l[k]=['qty','boxes','boxQty'].includes(k)?(t.value===''?'':Math.max(0,Number(t.value)||0)):t.value;if(k==='boxes'||k==='boxQty'){stQty(l);const c=$(`#st-tot-${f}-${t.dataset.i}`);if(c)c.innerHTML=l.boxQty>0?`= <b>${stN(l.qty)}</b> units`:'<b class="st-need">units per box?</b>'}const sm=$('#st-sum-'+f);if(sm)sm.textContent=stSumTxt(F);return}
   if(t.dataset.stc&&S.st.doc){const l=S.st.doc.lines[+t.dataset.i];if(!l)return;if(t.dataset.stc==='counted'){l.counted=t.value===''?null:Math.max(0,Number(t.value)||0);const v=l.counted==null?null:l.counted-(Number(l.systemNow)||0);const c=$('#st-v-'+t.dataset.i);if(c)c.innerHTML=v==null?'–':v?stSigned(v):'<span class="muted">0</span>'}else l.reason=t.value;return}
   if(t.dataset.stmin){const pid=+t.dataset.stmin,r=S.st.home.rows.find(x=>x.pid===pid);clearTimeout(stMinT[pid]);stMinT[pid]=setTimeout(async()=>{try{await api('POST','/api/data?st=1',{action:'min',pid,name:r.name,code:r.code,barcode:r.barcode,min:t.value});r.min=t.value===''?null:Number(t.value);toast(`Low-stock level for ${r.name} saved`)}catch(x){toast(x.message)}},700)}
 });

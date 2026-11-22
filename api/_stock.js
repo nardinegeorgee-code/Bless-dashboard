@@ -36,6 +36,7 @@ export function ensureStock() {
         location_id TEXT NOT NULL, location_name TEXT NOT NULL DEFAULT '', bucket TEXT NOT NULL, type TEXT NOT NULL, qty NUMERIC NOT NULL, before NUMERIC NOT NULL, after NUMERIC NOT NULL,
         ref_type TEXT NOT NULL DEFAULT '', ref_id TEXT NOT NULL DEFAULT '', ref_no TEXT NOT NULL DEFAULT '', by_id TEXT NOT NULL DEFAULT '', by_name TEXT NOT NULL DEFAULT '',
         reason TEXT NOT NULL DEFAULT '', lot TEXT NOT NULL DEFAULT '', expiry TEXT NOT NULL DEFAULT '')`;
+      await q`ALTER TABLE stock_items ADD COLUMN IF NOT EXISTS box_qty NUMERIC`;
       await q`CREATE INDEX IF NOT EXISTS stock_moves_item_idx ON stock_moves (item_key, at)`;
       await q`CREATE INDEX IF NOT EXISTS stock_moves_at_idx ON stock_moves (at)`;
       // the ledger can only grow: refuse any UPDATE or DELETE
@@ -83,9 +84,14 @@ const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s);
 function cleanLine(l, { allowZero = false, cond = false } = {}) {
   const pid = Number(l.pid);
   if (!Number.isInteger(pid) || pid <= 0) throw new HttpError(400, 'Every line needs a product from Odoo.');
-  const qty = r3(num(l.qty));
+  // quantities can be entered in units or in boxes (boxes x units per box); stock is always kept in units
+  const box = l.mode === 'box';
+  const boxes = box ? r3(num(l.boxes)) : 0, boxQty = box ? r3(num(l.boxQty)) : 0;
+  if (box && !(boxQty > 0)) throw new HttpError(400, `Enter how many units are in one box of ${str(l.name, 80) || 'each product'}.`);
+  if (box && !(boxes > 0)) throw new HttpError(400, `Enter the number of boxes for ${str(l.name, 80) || 'each product'}.`);
+  const qty = box ? r3(boxes * boxQty) : r3(num(l.qty));
   if (allowZero ? qty < 0 : !(qty > 0)) throw new HttpError(400, `Enter a quantity for ${str(l.name, 80) || 'each product'}.`);
-  const out = { key: 'o' + pid, pid, name: str(l.name, 200), code: str(l.code, 60), barcode: str(l.barcode, 40), qty, lot: str(l.lot, 40), expiry: isDate(String(l.expiry || '')) ? l.expiry : '', reason: str(l.reason, 300) };
+  const out = { key: 'o' + pid, pid, name: str(l.name, 200), code: str(l.code, 60), barcode: str(l.barcode, 40), qty, mode: box ? 'box' : 'unit', boxes, boxQty, lot: str(l.lot, 40), expiry: isDate(String(l.expiry || '')) ? l.expiry : '', reason: str(l.reason, 300) };
   if (cond) { out.cond = RET_COND[l.cond] ? l.cond : ''; if (!out.cond) throw new HttpError(400, `Choose the condition for ${out.name}.`); }
   return out;
 }
@@ -103,8 +109,8 @@ async function nextNo(q, kind) {
   return `${KIND_PREFIX[kind]}-${String(n).padStart(4, '0')}`;
 }
 async function touchItems(q, lines) {
-  for (const l of lines) await q`INSERT INTO stock_items (item_key, pid, name, code, barcode, updated_at) VALUES (${l.key}, ${l.pid}, ${l.name}, ${l.code}, ${l.barcode}, ${Date.now()})
-    ON CONFLICT (item_key) DO UPDATE SET name = EXCLUDED.name, code = EXCLUDED.code, barcode = EXCLUDED.barcode, updated_at = EXCLUDED.updated_at`;
+  for (const l of lines) await q`INSERT INTO stock_items (item_key, pid, name, code, barcode, box_qty, updated_at) VALUES (${l.key}, ${l.pid}, ${l.name}, ${l.code}, ${l.barcode}, ${l.boxQty > 0 ? l.boxQty : null}, ${Date.now()})
+    ON CONFLICT (item_key) DO UPDATE SET name = EXCLUDED.name, code = EXCLUDED.code, barcode = EXCLUDED.barcode, box_qty = COALESCE(EXCLUDED.box_qty, stock_items.box_qty), updated_at = EXCLUDED.updated_at`;
 }
 
 /** One ledger row and its balance change, in a single statement (so before/after are always right). */
@@ -116,7 +122,8 @@ function moveQ(q, m) {
     SELECT ${m.at}, ${m.key}, ${m.name || ''}, ${m.code || ''}, ${m.barcode || ''}, ${m.loc}, ${m.locName || ''}, ${m.bucket}, ${m.type}, ${m.d}, b.qty - ${m.d}, b.qty,
       ${m.refType || ''}, ${m.refId || ''}, ${m.refNo || ''}, ${m.by || ''}, ${m.byName || ''}, ${m.reason || ''}, ${m.lot || ''}, ${m.expiry || ''} FROM b`;
 }
-const mv = (l, extra) => ({ key: l.key, name: l.name, code: l.code, barcode: l.barcode, lot: l.lot, expiry: l.expiry, ...extra });
+const packNote = (l) => (l.mode === 'box' && l.boxes ? `${r3(l.boxes)} ${l.boxes === 1 ? 'box' : 'boxes'} of ${r3(l.boxQty)}` : '');
+const mv = (l, extra) => { const m = { key: l.key, name: l.name, code: l.code, barcode: l.barcode, lot: l.lot, expiry: l.expiry, ...extra }; const p = packNote(l); if (p && Math.abs(Math.abs(m.d) - l.qty) < 1e-9) m.reason = [m.reason, p].filter(Boolean).join(' · '); return m; };
 
 /** Check there is enough before taking stock out (sums lines that hit the same product). */
 async function needStock(q, lines, loc, bucket, locName) {
@@ -202,6 +209,23 @@ export async function stockOnDispatch(inv, u, done) {
   ]);
 }
 
+/** Odoo product packaging (boxes): sizes by product, or the product behind a box barcode. Optional: missing model is fine. */
+async function packagings(want) {
+  const out = { byPid: new Map(), hit: null };
+  if (!want) return out;
+  const cfg = odooConfig();
+  if (cfg.missing.length) return out;
+  const dom = want.barcode ? [['barcode', '=', want.barcode]] : [['product_id', 'in', want.pids]];
+  const rows = await call(cfg, 'product.packaging', 'search_read', [dom], { fields: ['product_id', 'qty', 'barcode', 'name'], limit: 300 });
+  for (const r of rows) {
+    const pid = Array.isArray(r.product_id) ? r.product_id[0] : r.product_id, qty = Number(r.qty) || 0;
+    if (!pid || !(qty > 0)) continue;
+    if (!out.byPid.has(pid) || qty > out.byPid.get(pid)) out.byPid.set(pid, qty);
+    if (want.barcode && !out.hit) out.hit = { pid, qty };
+  }
+  return out;
+}
+
 async function odooStock() {
   const cfg = odooConfig();
   if (cfg.missing.length) throw new HttpError(400, 'Odoo is not connected.');
@@ -265,9 +289,19 @@ export async function stockApi(req, res) {
       const exact = s ? list.filter((p) => p.barcode && p.barcode.toLowerCase() === s) : [];
       const words = s.split(/\s+/).filter(Boolean);
       const hits = (s ? list.filter((p) => !exact.includes(p) && words.every((w) => (p.name + ' ' + p.code + ' ' + p.barcode).toLowerCase().includes(w))) : list).slice(0, 30);
-      const out = [...exact, ...hits].slice(0, 30);
-      for (const p of out) { p.here = loc ? await balance(q, 'o' + p.pid, loc, 'sellable') : null; }
-      return res.json({ products: out, exact: exact.length === 1 ? exact[0] : null, total: list.length });
+      // a box barcode (Odoo product packaging) means "one box of this product"
+      let boxHit = null;
+      const pk = await packagings(s && !exact.length ? { barcode: s } : null).catch(() => ({ byPid: new Map(), hit: null }));
+      if (pk.hit) { const p = list.find((x) => x.pid === pk.hit.pid); if (p) boxHit = { ...p, boxScan: true, odooBox: pk.hit.qty }; }
+      const out = (boxHit ? [boxHit] : [...exact, ...hits]).slice(0, 30).map((p) => ({ ...p }));
+      const ids = out.map((p) => p.pid);
+      const saved = ids.length ? new Map((await q`SELECT pid, box_qty FROM stock_items WHERE pid = ANY(${ids}::int[]) AND box_qty IS NOT NULL`).map((r) => [Number(r.pid), Number(r.box_qty)])) : new Map();
+      const odooBoxes = ids.length ? (await packagings({ pids: ids }).catch(() => ({ byPid: new Map() }))).byPid : new Map();
+      for (const p of out) {
+        p.here = loc ? await balance(q, 'o' + p.pid, loc, 'sellable') : null;
+        p.boxQty = p.odooBox || saved.get(p.pid) || odooBoxes.get(p.pid) || null;
+      }
+      return res.json({ products: out, exact: boxHit || exact.length === 1 ? out[0] : null, total: list.length });
     }
     if (k === 'invoices') {
       let rows = [];
