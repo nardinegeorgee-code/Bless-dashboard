@@ -2367,3 +2367,22 @@ body{margin:0}
   .hub-hi h1{font-size:1.5rem}
   .kgrid{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+/* phones: quotation, invoice and warehouse lists as cards */
+@media (max-width:760px){
+  .tablewrap:has(.qt-table){border:0;background:none!important;box-shadow:none!important;overflow:visible}
+  .qt-table,.qt-table tbody{display:block;width:100%}
+  .qt-table thead{display:none}
+  .qt-table tr.qt-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:14px 16px;margin-bottom:10px;border:1px solid var(--line);border-radius:18px;background:var(--card);box-shadow:var(--sh-1)}
+  .qt-table tr.qt-row td{display:block;border:0;padding:0;text-align:left;white-space:normal;font-size:.85rem}
+  .qt-table tr.qt-row td.qt-cu{order:-2;flex:1 1 100%;font-size:1.02rem}
+  .qt-table tr.qt-row td.qt-cu b{font-family:var(--f-serif);font-weight:600}
+  .qt-table tr.qt-row td:first-child{order:-1}
+  .qt-table tr.qt-row td.num b{color:var(--accent-text)}
+  .qt-table tr.qt-row td:last-child{margin-left:auto}
+}
+@media (max-width:760px){
+  .qt-table tr.qt-row td:first-child{order:-3;flex:1 1 auto;font-size:.74rem;color:var(--muted);white-space:normal;overflow-wrap:anywhere}
+  .qt-table tr.qt-row td:last-child{order:-3;margin-left:auto}
+  .qt-table tr.qt-row td *{white-space:normal}
+}
+@media (max-width:760px){.qt-table{min-width:0!important;table-layout:auto}.qt-table tr.qt-row{width:100%;box-sizing:border-box}.qt-table tr.qt-row td{min-width:0;max-width:100%}}
