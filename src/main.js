@@ -2742,15 +2742,16 @@ function anReps(sec){
 /* ---------- Odoo ---------- */
 const OD_GROUPS=[['brief','Executive brief',[['brief','Executive brief']]],['supply','Supply',[['suppliers','Suppliers'],['raw','Raw materials'],['packaging','Packaging'],['finished','Finished goods'],['inventory','All stock'],['forecast','Order forecast']]],['sales','Sales',[['sales','Sales'],['distributors','Distributors'],['people','Salespeople'],['growth','Growth radar']]],['finance','Finance',[['profit','Cost & profit'],['in','Money in'],['out','Money out'],['trial','Trial balance'],['pnl','Profit & loss'],['balance','Balance sheet']]],['team','Team',[['hr','Employees']]]];
 /* The Growth radar is for the Super Admin only: everyone else does not get the tab. */
-const OD_ADMIN=new Set(['growth','forecast']);
+const OD_ADMIN=new Set(['growth']);
+const OD_CEO=new Set(['forecast']); // Super Admin and CEO only
 const odTabOk=t=>isAdmin()||isCeo()||myReports().includes('dash')||myReports().includes('odoo')||myReports().includes('odoo:'+t);
-const odGroups=()=>isAdmin()?OD_GROUPS:OD_GROUPS.map(([g,l,ps])=>[g,l,ps.filter(x=>!OD_ADMIN.has(x[0])&&odTabOk(x[0]))]).filter(g=>g[2].length);
+const odGroups=()=>isAdmin()?OD_GROUPS:OD_GROUPS.map(([g,l,ps])=>[g,l,ps.filter(x=>!OD_ADMIN.has(x[0])&&(!OD_CEO.has(x[0])||isCeo())&&odTabOk(x[0]))]).filter(g=>g[2].length);
 const odGroup=t=>odGroups().find(g=>g[2].some(x=>x[0]===t))||odGroups()[0];
 S.od={tab:'brief',month:'',cache:{},loading:false,err:'',data:null};
 async function loadOdoo(_m,refresh){
   const od=S.od;
-  if((OD_ADMIN.has(od.tab)||!odTabOk(od.tab))&&!isAdmin()){const f=odGroups()[0];od.tab=f?f[2][0][0]:'brief'}
-  const pq=OD_ADMIN.has(od.tab)?'':perQuery(),key=od.tab+'|'+pq;
+  if((OD_ADMIN.has(od.tab)||(OD_CEO.has(od.tab)&&!isCeo())||!odTabOk(od.tab))&&!isAdmin()){const f=odGroups()[0];od.tab=f?f[2][0][0]:'brief'}
+  const pq=OD_ADMIN.has(od.tab)||OD_CEO.has(od.tab)?'':perQuery(),key=od.tab+'|'+pq;
   if(!refresh&&od.cache[key]){od.data=od.cache[key];renderOdoo();return}
   od.loading=true;od.err='';renderOdoo();
   try{
