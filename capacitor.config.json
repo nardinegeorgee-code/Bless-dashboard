@@ -1,0 +1,11 @@
+{
+  "appId": "com.bless.teamhub",
+  "appName": "Bless Team Hub",
+  "webDir": "dist",
+  "server": {
+    "url": "https://bless-dashboard-ochre.vercel.app",
+    "cleartext": false
+  },
+  "ios": { "contentInset": "always" },
+  "android": { "allowMixedContent": false }
+}

@@ -6,17 +6,26 @@
   "scripts": {
     "dev": "vercel dev",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "cap:sync": "cap sync",
+    "cap:android": "cap open android",
+    "cap:ios": "cap open ios"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",
     "@vercel/blob": "^0.27.0",
     "bcryptjs": "^2.4.3",
     "fflate": "^0.8.2",
-    "jose": "^5.9.6"
+    "jose": "^5.9.6",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/ios": "^6.2.0"
   },
   "devDependencies": {
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "@capacitor/cli": "^6.2.0"
   },
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  }
 }
