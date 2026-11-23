@@ -3,7 +3,7 @@ import { SignJWT, jwtVerify } from 'jose';
 import bcrypt from 'bcryptjs';
 
 /** Reports the Super Admin can switch on for any individual user (User privileges). */
-// Odoo tabs that can be granted one by one ('odoo:<tab>'); 'odoo' alone means every tab. Growth radar and Order forecast stay Super Admin only.
+// Odoo tabs that can be granted one by one ('odoo:<tab>'); 'odoo' alone means every tab. Growth radar stays Super Admin only; Order forecast is Super Admin and CEO only.
 export const ODOO_GRANT_TABS = ['brief', 'suppliers', 'raw', 'packaging', 'finished', 'inventory', 'sales', 'distributors', 'people', 'profit', 'in', 'out', 'trial', 'pnl', 'balance', 'hr'];
 export const GRANTABLE = ['dash', 'shop', 'odoo', 'meta', 'act', 'sheet', 'quote', ...ODOO_GRANT_TABS.map((t) => 'odoo:' + t)];
 /** Can this user open this Odoo tab? */

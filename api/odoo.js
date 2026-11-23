@@ -932,10 +932,11 @@ export default route(async (req, res) => {
   // tab-by-tab access: people may be given only some Odoo tabs
   const askedTab = TABS.includes(req.query.tab) ? req.query.tab : 'suppliers';
   if (!req.query.notes && !req.query.fcmonth && !odooTabAllowed(viewer, askedTab)) return res.status(403).json({ error: 'You do not have access to this Odoo tab. Ask your Super Admin.' });
-  if (req.query.tab === 'growth' || req.query.tab === 'forecast') await requireAdmin(req); // the Growth radar is for the Super Admin only
+  if (req.query.tab === 'growth') await requireAdmin(req); // the Growth radar is for the Super Admin only
+  if (req.query.tab === 'forecast' && viewer.role !== 'super_admin' && viewer.role !== 'ceo') return res.status(403).json({ error: 'The Order forecast is for the Super Admin and the CEO.' });
   if (req.query.notes) { await requireAdmin(req); res.setHeader('Cache-Control', 'no-store'); return res.json({ notes: await loadNotes() }); }
   if (req.query.fcmonth) {
-    await requireAdmin(req); res.setHeader('Cache-Control', 'no-store');
+    if (viewer.role !== 'super_admin' && viewer.role !== 'ceo') return res.status(403).json({ error: 'The Order forecast is for the Super Admin and the CEO.' }); res.setHeader('Cache-Control', 'no-store');
     const pid = Number(req.query.pid), ym = String(req.query.m || '');
     if (!Number.isInteger(pid) || pid < 1 || !/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) return res.status(400).json({ error: 'Bad product or month.' });
     const c = odooConfig(); if (c.missing.length) return res.status(400).json({ error: 'Odoo is not configured.' });
