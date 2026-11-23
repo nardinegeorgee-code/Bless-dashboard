@@ -2380,3 +2380,8 @@ body{margin:0}
   .qt-table tr.qt-row td.num b{color:var(--accent-text)}
   .qt-table tr.qt-row td:last-child{margin-left:auto}
 }
+@media (max-width:760px){
+  .qt-table tr.qt-row td:first-child{order:-3;flex:1 1 auto;font-size:.74rem;color:var(--muted);white-space:normal;overflow-wrap:anywhere}
+  .qt-table tr.qt-row td:last-child{order:-3;margin-left:auto}
+  .qt-table tr.qt-row td *{white-space:normal}
+}
