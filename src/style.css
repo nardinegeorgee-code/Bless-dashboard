@@ -2385,3 +2385,4 @@ body{margin:0}
   .qt-table tr.qt-row td:last-child{order:-3;margin-left:auto}
   .qt-table tr.qt-row td *{white-space:normal}
 }
+@media (max-width:760px){.qt-table{min-width:0!important;table-layout:auto}.qt-table tr.qt-row{width:100%;box-sizing:border-box}.qt-table tr.qt-row td{min-width:0;max-width:100%}}
