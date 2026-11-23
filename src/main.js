@@ -255,8 +255,8 @@ const dashSys=()=>!!S.inDash&&['shop','odoo','meta'].includes(S.route);
 function dashTabs(){const cur=S.route;return `<div class="dtbar"><div class="dtabs" role="tablist" aria-label="Dashboards sections">${DASH_TABS.map(([k,l])=>`<button class="dtab${cur===k?' on':''}" role="tab" aria-selected="${cur===k}" data-act="dtab" data-t="${k}">${l}</button>`).join('')}</div><button class="btn sm ghost" data-act="go" data-route="hub">← All reports</button></div>`}
 const SIDE_MIN_KEY='hub_side_min';
 const THEME_KEY='bless-theme';
-function theme(){try{return localStorage.getItem(THEME_KEY)==='light'?'light':'dark'}catch(e){return document.documentElement.dataset.theme==='light'?'light':'dark'}}
-function applyTheme(){document.documentElement.dataset.theme=theme()}
+function theme(){try{return localStorage.getItem(THEME_KEY)==='dark'?'dark':'light'}catch(e){return document.documentElement.dataset.theme==='dark'?'dark':'light'}}
+function applyTheme(){const t=theme();document.documentElement.dataset.theme=t;const m=document.querySelector('meta[name="theme-color"]');if(m)m.content=t==='light'?'#FBF3F1':'#170C17'}
 function toggleTheme(){const n=theme()==='light'?'dark':'light';try{localStorage.setItem(THEME_KEY,n)}catch(e){document.documentElement.dataset.theme=n}applyTheme();try{renderNav()}catch(e){}}
 applyTheme();
 function sideMin(){try{return localStorage.getItem(SIDE_MIN_KEY)==='1'}catch(e){return false}}
@@ -275,14 +275,15 @@ function showApp(){
   S.screen='app';applySideMin();
   $('#app').innerHTML=`<div class="shell"><aside class="side">${brandHTML}<nav class="nav" id="nav" aria-label="Pages"></nav>
     <div class="me"><div class="who"><button type="button" class="me-av" data-act="avatar-edit" title="Edit my avatar" aria-label="Edit my avatar">${avatarSVG(S.me.avatar)}</button><span class="me-nm"><b>${esc(S.me.username)}</b>${roleChip(S.me.role)}</span></div><button class="btn sm so" data-act="logout" title="Sign out"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10"/></svg><span class="nl">Sign out</span></button></div>${pwaBtn()}<button class="sidetog" data-act="theme-toggle" title="Switch between dark and light" aria-label="Switch theme"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.800A9 9 0 1 1 11.200 3a7 7 0 0 0 9.800 9.800z"/></svg><span class="nl">${theme()==='light'?'Dark mode':'Light mode'}</span></button><button class="sidetog" data-act="side-toggle" title="Make the menu smaller or larger" aria-label="Toggle menu size"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m14.500 7-5 5 5 5"/></svg><span class="nl">Make smaller</span></button></aside>
-    <main class="main"><div class="wrap" id="view"></div></main></div>`;
+    <main class="main"><div class="wrap" id="view"></div></main></div><header class="abar" id="abar"></header><nav class="tabbar" id="tabbar" aria-label="Main"></nav><div class="sheet" id="sheet" hidden></div>`;
   mount();
 }
 function renderNav(){
   document.body.classList.toggle('on-hub',S.route==='hub');
-  $('#nav').innerHTML=navItems().map(([k,l,c])=>`<button data-act="go" data-route="${k}" title="${esc(l)}" ${(dashSys()?k==='dash':S.route===k||(S.route==='ins'&&k===(isAdmin()?'send':'home')))?'aria-current="page"':''}>${navIco(k==='home'&&!isAdmin()?'ins':k)}<span class="nl">${l}</span>${c?`<span class="count">${c}</span>`:''}</button>`).join('');
+  try{appChrome()}catch(e){}
+  $('#nav').innerHTML=navItems().map(([k,l,c])=>`<button data-act="go" data-route="${k}" title="${esc(l)}" ${navOn(k)?'aria-current="page"':''}>${navIco(k==='home'&&!isAdmin()?'ins':k)}<span class="nl">${l}</span>${c?`<span class="count">${c}</span>`:''}</button>`).join('');
 }
-function go(route,param,inDash){S.route=route;S.param=param||null;S.inDash=!!inDash;mount();window.scrollTo(0,0);try{history.replaceState(null,'','#'+(route==='ins'?'ins-'+param:(route==='quote'||route==='invoice')&&param?route+'-'+param:route))}catch(e){}}
+function go(route,param,inDash){S.route=route;S.param=param||null;S.inDash=!!inDash;sheetClose();mount();window.scrollTo(0,0);pageIn();try{history.replaceState(null,'','#'+(route==='ins'?'ins-'+param:(route==='quote'||route==='invoice')&&param?route+'-'+param:route))}catch(e){}}
 
 /* ---------- derived ---------- */
 function myInstructions(){return S.instructions.filter(i=>(i.roles||[]).includes(S.me.role)||(i.userIds||[]).includes(S.me.id))}
@@ -2978,7 +2979,9 @@ document.addEventListener('click',e=>{const r=e.target.closest('[data-detail]');
 document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches&&e.target.matches('[data-detail]')){e.preventDefault();toggleDetail(e.target)}else if((e.key==='Enter'||e.key===' ')&&e.target.matches&&e.target.matches('.rkr.jump')){e.preventDefault();e.target.click()}});
 document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
-  if(a==='go'){e.preventDefault();go(b.dataset.route,b.dataset.param)}
+  if(a==='go'){e.preventDefault();if(b.closest('.tabbar')&&navigator.vibrate)try{navigator.vibrate(6)}catch(x){}go(b.dataset.route,b.dataset.param)}
+  else if(a==='sheet-open'){sheetOpen()}
+  else if(a==='sheet-close'){sheetClose()}
   else if(a==='side-toggle')toggleSide();
   else if(a==='pv-retry')b.dataset.k.split(',').forEach(k=>pvRun(k,true));
   else if(a==='dtab'){const t=b.dataset.t;go(t,null,t!=='dash')}
@@ -3009,12 +3012,12 @@ document.addEventListener('click',async e=>{
   else if(a==='ov-reset'){S.ov.role='';S.ov.period='all';ovRender()}
   else if(a==='ov-tab'){const id=b.dataset.sec,el=document.getElementById(id);if(!el)return;ovLock=Date.now()+900;ovMark(id);ovSetHash(id);el.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'})}
   else if(a==='pwa-install')pwaInstall();
-  else if(a==='logout')logout();
+  else if(a==='logout'){document.body.classList.remove('sheet-on');logout()}
   else if(a==='pw-toggle')togglePw(b);
   else if(a==='pr-open'){const id=b.dataset.id;S.pr.open.has(id)?S.pr.open.delete(id):S.pr.open.add(id);update()}
   else if(a==='pr-expand'){const ppl=S.users.filter(u=>u.role!=='super_admin');if(S.pr.open.size>=ppl.length)S.pr.open.clear();else ppl.forEach(u=>S.pr.open.add(u.id));update()}
   else if(a==='pr-preset'){const u=userById(b.dataset.id);if(u){const p=PR_PRESETS.find(x=>x[0]===b.dataset.p);const keep=(u.reports||[]).filter(k=>k==='sheet'||k==='quote');privSave(u.id,p?prNormal(new Set([...p[2],...keep])):[])}}
-  else if(a==='avatar-edit')showAvatarMaker(false);
+  else if(a==='avatar-edit'){document.body.classList.remove('sheet-on');showAvatarMaker(false)}
   else if(a==='av-tab'){S.av.tab=b.dataset.t;renderAv()}
   else if(a==='av-set'){S.av.cfg[b.dataset.k]=b.dataset.v;if(b.dataset.k==='g')avGender(b.dataset.v);renderAv()}
   else if(a==='av-rand'){S.av.cfg=randomAvatar(S.av.cfg.g);renderAv()}
@@ -4051,3 +4054,35 @@ async function pwaInstall(){
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();pwaEv=e;pwaRefresh()});
 window.addEventListener('appinstalled',()=>{pwaEv=null;toast('Bless Hub installed');pwaRefresh()});
 if('serviceWorker' in navigator&&location.protocol==='https:'){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}))}
+
+/* ---- App shell for phones: top app bar, floating tab bar, "More" sheet ---- */
+const TAB_SHORT={'Team overview':'Team','Send instruction':'Send','All content':'Content','Notifications':'Alerts','Quotations':'Quotes','My uploads':'Uploads','Instructions':'Tasks','Team by role':'Team','User privileges':'Access','Bless Game':'Game','Stock · preview':'Stock','Dashboards':'Reports'};
+const AB_ICO={more:'<path d="M5 5h5v5H5zM14 5h5v5h-5zM5 14h5v5H5zM14 14h5v5h-5z"/>',x:'<path d="M6 6l12 12M18 6 6 18"/>',moon:'<path d="M21 12.800A9 9 0 1 1 11.200 3a7 7 0 0 0 9.800 9.800z"/>',sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.900 4.900l1.400 1.400M17.700 17.700l1.400 1.400M2 12h2M20 12h2M4.900 19.100l1.400-1.400M17.700 6.300l1.400-1.400"/>',out:'<path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10"/>',pen:'<path d="M4 20h4L19 9l-4-4L4 16z"/>'};
+const abIco=k=>`<svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${AB_ICO[k]}</svg>`;
+function navOn(k){return dashSys()?k==='dash':S.route===k||(S.route==='ins'&&k===(isAdmin()?'send':'home'))||(S.route==='quote'&&k==='quotes')||(S.route==='invoice'&&k==='invoices')}
+function hello(){const h=+new Date().toLocaleString('en-GB',{hour:'numeric',hour12:false,timeZone:'Africa/Cairo'});return h<5?'Good night':h<12?'Good morning':h<17?'Good afternoon':'Good evening'}
+function appChrome(){
+  const A=$('#abar'),T=$('#tabbar');if(!A||!T||!S.me)return;
+  const items=navItems(),cur=items.find(([k])=>navOn(k));
+  const first=(S.me.username||'').split(/[\s._-]/)[0];
+  const title=S.route==='hub'?`<span class="ab-hi">Bless</span><b>Team Hub</b>`:!cur?`<span class="ab-hi">${hello()}${first?',':''}</span><b>${esc(first||'Bless Hub')}</b>`:`<span class="ab-hi">Bless Hub</span><b>${esc(cur[1])}</b>`;
+  const unread=(items.find(([k])=>k==='notes')||[])[2]||0;
+  A.innerHTML=`<i class="ab-fly" aria-hidden="true"></i><div class="ab-t">${title}</div>${unread?`<button class="ab-bell" data-act="go" data-route="notes" aria-label="${unread} new notifications"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.300 21a1.940 1.940 0 0 0 3.400 0"/></svg><span>${unread}</span></button>`:''}<button class="ab-av" data-act="sheet-open" aria-label="My account and all pages">${avatarSVG(S.me.avatar)}</button>`;
+  const tabs=items.slice(0,4),moreOn=!tabs.some(([k])=>navOn(k));
+  const moreCount=items.slice(4).reduce((n,x)=>n+(+x[2]||0),0);
+  T.innerHTML=tabs.map(([k,l,c])=>`<button data-act="go" data-route="${k}" ${navOn(k)?'aria-current="page"':''}><span class="tb-i">${navIco(k==='home'&&!isAdmin()?'ins':k)}${c?`<em>${c}</em>`:''}</span><span class="tb-l">${esc(TAB_SHORT[l]||l)}</span></button>`).join('')+
+    `<button data-act="sheet-open" ${moreOn?'aria-current="page"':''}><span class="tb-i">${abIco('more')}${moreCount?`<em>${moreCount}</em>`:''}</span><span class="tb-l">More</span></button>`;
+  const Sh=$('#sheet');if(Sh&&!Sh.hidden)Sh.innerHTML=sheetHTML();
+}
+function sheetHTML(){
+  const items=navItems(),lt=theme()==='light';
+  return `<div class="sh-bg" data-act="sheet-close"></div><div class="sh-card" role="dialog" aria-modal="true" aria-label="All pages"><i class="sh-grab"></i>
+  <div class="sh-me"><button class="sh-av" data-act="avatar-edit" aria-label="Edit my avatar">${avatarSVG(S.me.avatar)}<span>${abIco('pen')}</span></button><div><span class="ab-hi">${hello()}</span><b>${esc(S.me.username)}</b>${roleChip(S.me.role)}</div><button class="sh-x" data-act="sheet-close" aria-label="Close">${abIco('x')}</button></div>
+  <p class="sh-cap">All pages</p>
+  <div class="sh-grid">${items.map(([k,l,c])=>`<button data-act="go" data-route="${k}" ${navOn(k)?'aria-current="page"':''}><span class="sh-i">${navIco(k==='home'&&!isAdmin()?'ins':k)}${c?`<em>${c}</em>`:''}</span><span>${esc(l)}</span></button>`).join('')}</div>
+  <div class="sh-acts"><button data-act="theme-toggle">${abIco(lt?'moon':'sun')}<span>${lt?'Night mode':'Day mode'}</span></button>${pwaEv||pwaIos()?`<button data-act="pwa-install"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7.500 10.500 12 15l4.500-4.500M5 19h14"/></svg><span>Install app</span></button>`:''}<button data-act="logout" class="sh-out">${abIco('out')}<span>Sign out</span></button></div></div>`;
+}
+function sheetOpen(){const Sh=$('#sheet');if(!Sh)return;Sh.innerHTML=sheetHTML();Sh.hidden=false;document.body.classList.add('sheet-on');requestAnimationFrame(()=>Sh.classList.add('on'))}
+function sheetClose(){const Sh=$('#sheet');if(!Sh||Sh.hidden)return;Sh.classList.remove('on');document.body.classList.remove('sheet-on');setTimeout(()=>{if(!Sh.classList.contains('on'))Sh.hidden=true},260)}
+function pageIn(){const v=$('#view');if(!v)return;v.classList.remove('pg-in');void v.offsetWidth;v.classList.add('pg-in')}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')sheetClose()});
