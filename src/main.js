@@ -274,7 +274,7 @@ function showApp(){
   if(S.me&&!S.me.avatar){showAvatarMaker(true);return}
   S.screen='app';applySideMin();
   $('#app').innerHTML=`<div class="shell"><aside class="side">${brandHTML}<nav class="nav" id="nav" aria-label="Pages"></nav>
-    <div class="me"><div class="who"><button type="button" class="me-av" data-act="avatar-edit" title="Edit my avatar" aria-label="Edit my avatar">${avatarSVG(S.me.avatar)}</button><span class="me-nm"><b>${esc(S.me.username)}</b>${roleChip(S.me.role)}</span></div><button class="btn sm so" data-act="logout" title="Sign out"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10"/></svg><span class="nl">Sign out</span></button></div><button class="sidetog" data-act="theme-toggle" title="Switch between dark and light" aria-label="Switch theme"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.800A9 9 0 1 1 11.200 3a7 7 0 0 0 9.800 9.800z"/></svg><span class="nl">${theme()==='light'?'Dark mode':'Light mode'}</span></button><button class="sidetog" data-act="side-toggle" title="Make the menu smaller or larger" aria-label="Toggle menu size"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m14.500 7-5 5 5 5"/></svg><span class="nl">Make smaller</span></button></aside>
+    <div class="me"><div class="who"><button type="button" class="me-av" data-act="avatar-edit" title="Edit my avatar" aria-label="Edit my avatar">${avatarSVG(S.me.avatar)}</button><span class="me-nm"><b>${esc(S.me.username)}</b>${roleChip(S.me.role)}</span></div><button class="btn sm so" data-act="logout" title="Sign out"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10"/></svg><span class="nl">Sign out</span></button></div>${pwaBtn()}<button class="sidetog" data-act="theme-toggle" title="Switch between dark and light" aria-label="Switch theme"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.800A9 9 0 1 1 11.200 3a7 7 0 0 0 9.800 9.800z"/></svg><span class="nl">${theme()==='light'?'Dark mode':'Light mode'}</span></button><button class="sidetog" data-act="side-toggle" title="Make the menu smaller or larger" aria-label="Toggle menu size"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m14.500 7-5 5 5 5"/></svg><span class="nl">Make smaller</span></button></aside>
     <main class="main"><div class="wrap" id="view"></div></main></div>`;
   mount();
 }
@@ -3008,6 +3008,7 @@ document.addEventListener('click',async e=>{
   else if(a==='ov-clear-sub'){S.ov.q='';S.ov.f='';S.ov.who='';S.ov.d='';S.ov.sk='';ovRender()}
   else if(a==='ov-reset'){S.ov.role='';S.ov.period='all';ovRender()}
   else if(a==='ov-tab'){const id=b.dataset.sec,el=document.getElementById(id);if(!el)return;ovLock=Date.now()+900;ovMark(id);ovSetHash(id);el.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'})}
+  else if(a==='pwa-install')pwaInstall();
   else if(a==='logout')logout();
   else if(a==='pw-toggle')togglePw(b);
   else if(a==='pr-open'){const id=b.dataset.id;S.pr.open.has(id)?S.pr.open.delete(id):S.pr.open.add(id);update()}
@@ -4033,3 +4034,20 @@ document.addEventListener('change',e=>{
   else if(t.id==='st-disp'){api('POST','/api/data?st=1',{action:'settings',dispatchLoc:t.value}).then(()=>{toast('Dispatch location saved');stLoadHome()}).catch(x=>toast(x.message))}
 });
 document.addEventListener('keydown',e=>{const t=e.target;if(t&&t.dataset&&t.dataset.stps&&e.key==='Enter'){e.preventDefault();clearTimeout(stPT);const s=t.value.trim();if(s)stSearch(t.dataset.stps,s,true)}});
+
+/* ---- Progressive web app: service worker + install button ---- */
+let pwaEv=null;
+const pwaIos=()=>/iphone|ipad|ipod/i.test(navigator.userAgent)&&!navigator.standalone&&!matchMedia('(display-mode: standalone)').matches;
+function pwaBtn(){
+  if(matchMedia('(display-mode: standalone)').matches||navigator.standalone)return '';
+  if(!pwaEv&&!pwaIos())return '';
+  return `<button class="sidetog" data-act="pwa-install" title="Install the Hub as an app" aria-label="Install the Hub as an app"><svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7.500 10.500 12 15l4.500-4.500M5 19h14"/></svg><span class="nl">Install app</span></button>`;
+}
+function pwaRefresh(){const old=document.querySelector('[data-act="pwa-install"]');if(old)old.remove();const t=document.querySelector('.sidetog[data-act="theme-toggle"]');if(t)t.insertAdjacentHTML('beforebegin',pwaBtn())}
+async function pwaInstall(){
+  if(pwaEv){pwaEv.prompt();try{await pwaEv.userChoice}catch(e){}pwaEv=null;pwaRefresh();return}
+  if(pwaIos())toast('On iPhone/iPad: tap the Share button, then "Add to Home Screen".');
+}
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();pwaEv=e;pwaRefresh()});
+window.addEventListener('appinstalled',()=>{pwaEv=null;toast('Bless Hub installed');pwaRefresh()});
+if('serviceWorker' in navigator&&location.protocol==='https:'){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}))}

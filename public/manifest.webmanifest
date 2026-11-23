@@ -1,0 +1,17 @@
+{
+  "name": "Bless Team Hub",
+  "short_name": "Bless Hub",
+  "description": "Bless team dashboards, quotations, stock and more.",
+  "id": "/",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#D9C9E2",
+  "theme_color": "#5A3577",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
