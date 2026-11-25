@@ -2753,13 +2753,16 @@ async function loadOdoo(_m,refresh){
   const od=S.od;
   if((OD_ADMIN.has(od.tab)||(OD_CEO.has(od.tab)&&!isCeo())||!odTabOk(od.tab))&&!isAdmin()){const f=odGroups()[0];od.tab=f?f[2][0][0]:'brief'}
   const pq=OD_ADMIN.has(od.tab)||OD_CEO.has(od.tab)?'':perQuery(),key=od.tab+'|'+pq;
-  if(!refresh&&od.cache[key]){od.data=od.cache[key];renderOdoo();return}
+  if(!refresh&&od.cache[key]){od.data=od.cache[key];od.loading=false;renderOdoo();return}
+  const want=od.tab; // the tab this request is for: a slow answer must not replace a tab opened after it
   od.loading=true;od.err='';renderOdoo();
   try{
-    const d=await api('GET','/api/odoo?tab='+od.tab+(pq?'&'+pq:''));
-    od.cache[key]=d;od.data=d;
-    if(od.tab==='growth'){try{S.grNotes=(await api('GET','/api/odoo?notes=1')).notes||{}}catch(e){S.grNotes=S.grNotes||{}}}
-  }catch(e){od.err=e.message}
+    const d=await api('GET','/api/odoo?tab='+want+(pq?'&'+pq:''));
+    od.cache[key]=d; // always kept, so coming back to that tab is instant
+    if(od.tab!==want)return;
+    od.data=d;
+    if(want==='growth'){try{S.grNotes=(await api('GET','/api/odoo?notes=1')).notes||{}}catch(e){S.grNotes=S.grNotes||{}}}
+  }catch(e){if(od.tab!==want)return;od.err=e.message}
   od.loading=false;renderOdoo();
 }
 function odooSetup(missing){
