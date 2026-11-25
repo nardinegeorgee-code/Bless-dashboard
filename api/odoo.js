@@ -817,7 +817,14 @@ function build(tab, cfg, ctx) {
         const inc = g('income'), cogs = g('cogs'), exp = g('expense');
         const T = (l, f, f0, fm) => ({ now: l.reduce((a, r) => a + f(r), 0), prev: l.reduce((a, r) => a + f0(r), 0), pm: l.reduce((a, r) => a + fm(r), 0) });
         const I = T(inc, cr, cr0, crm), C = T(cogs, db, db0, dbm), X = T(exp, db, db0, dbm);
-        return { inc, cogs, exp, I, C, X, gross: { now: I.now - C.now, prev: I.prev - C.prev, pm: I.pm - C.pm }, net: { now: I.now - C.now - X.now, prev: I.prev - C.prev - X.prev, pm: I.pm - C.pm - X.pm } };
+        const net = { now: I.now - C.now - X.now, prev: I.prev - C.prev - X.prev, pm: I.pm - C.pm - X.pm };
+        // EBITDA / EBIDA: found by the account NAME (the chart of accounts has no special type for them).
+        const isDA = (r) => /depreciation|amorti[sz]ation/i.test(r.name), isInt = (r) => /interest/i.test(r.name), isTax = (r) => /\btax(es)?\b/i.test(r.name);
+        const DA = T(exp.filter(isDA), db, db0, dbm), INT = T(exp.filter(isInt), db, db0, dbm), INTI = T(inc.filter(isInt), cr, cr0, crm), TAX = T(exp.filter(isTax), db, db0, dbm);
+        const k3 = (f) => ({ now: f('now'), prev: f('prev'), pm: f('pm') });
+        const ebida = k3((k) => net[k] + INT[k] - INTI[k] + DA[k]);   // before interest, depreciation and amortisation (tax already paid)
+        const ebitda = k3((k) => ebida[k] + TAX[k]);                   // and before tax
+        return { inc, cogs, exp, I, C, X, DA, INT, INTI, TAX, ebida, ebitda, gross: { now: I.now - C.now, prev: I.prev - C.prev, pm: I.pm - C.pm }, net };
       };
       return [
         section('kpi', `Profit and loss (${ctx.monthLabel})`, 'kpi', async () => {
@@ -825,8 +832,10 @@ function build(tab, cfg, ctx) {
           return { tiles: [
             tile('Revenue', c.I.now, 'money', { prev: c.I.prev }),
             tile('Gross profit', c.gross.now, 'money', { prev: c.gross.prev, sub: (c.I.now ? pct(c.gross.now, c.I.now) : 0).toFixed(1) + '% of revenue' }),
-            tile('Expenses', c.X.now, 'money', { prev: c.X.prev, goodDown: true, sub: (c.I.now ? pct(c.X.now, c.I.now) : 0).toFixed(1) + '% of revenue' }),
+            tile('EBITDA', c.ebitda.now, 'money', { prev: c.ebitda.prev, sub: (c.I.now ? pct(c.ebitda.now, c.I.now) : 0).toFixed(1) + '% of revenue, before interest, tax and depreciation' }),
             tile('Net profit', c.net.now, 'money', { prev: c.net.prev, sub: (c.I.now ? pct(c.net.now, c.I.now) : 0).toFixed(1) + '% of revenue' }),
+            tile('EBIDA', c.ebida.now, 'money', { prev: c.ebida.prev, sub: (c.I.now ? pct(c.ebida.now, c.I.now) : 0).toFixed(1) + '% of revenue, before interest and depreciation, after tax' }),
+            tile('Expenses', c.X.now, 'money', { prev: c.X.prev, goodDown: true, sub: (c.I.now ? pct(c.X.now, c.I.now) : 0).toFixed(1) + '% of revenue' }),
           ] };
         }, 'Built from the posted journal entries in Odoo Accounting, by account type, for the dates chosen.'),
         section('pl', `Profit and loss statement (${ctx.monthLabel})`, 'table', async () => {
@@ -835,9 +844,13 @@ function build(tab, cfg, ctx) {
           const row = (style, code, name, now, prev, pm) => ({ style, code, name, amount: now, prev, pm, chg: pm ? ((now - pm) / Math.abs(pm)) * 100 : null, share: c.I.now ? pct(now, c.I.now) : null });
           const lines = (list, f, f0, fm) => list.map((r) => row('line', r.code, r.name, f(r), f0(r), fm(r))).filter((r) => Math.abs(r.amount) >= 0.5 || Math.abs(r.prev) >= 0.5 || Math.abs(r.pm) >= 0.5).sort((x, y) => Math.abs(y.amount) - Math.abs(x.amount));
           const head = (name, t) => row('head', '', name, t.now, t.prev, t.pm), total = (name, t) => row('total', '', name, t.now, t.prev, t.pm);
-          const rows = [head('Income', c.I), ...lines(c.inc, cr, cr0, crm), head('Cost of revenue', c.C), ...lines(c.cogs, db, db0, dbm), total('Gross profit', c.gross), head('Expenses', c.X), ...lines(c.exp, db, db0, dbm), total('Net profit', c.net)];
+          const neg = (t) => ({ now: -t.now, prev: -t.prev, pm: -t.pm });
+          const line = (name, t) => row('line', '', name, t.now, t.prev, t.pm);
+          const bridge = [head('From net profit to EBITDA', c.net), line('Add: interest paid on loans and overdrafts', c.INT), line('Less: interest earned', neg(c.INTI)), line('Add: depreciation and amortisation', c.DA),
+            total('EBIDA: before interest and depreciation (tax already deducted)', c.ebida), line('Add: income tax', c.TAX), total('EBITDA: before interest, tax and depreciation', c.ebitda)];
+          const rows = [head('Income', c.I), ...lines(c.inc, cr, cr0, crm), head('Cost of revenue', c.C), ...lines(c.cogs, db, db0, dbm), total('Gross profit', c.gross), head('Expenses', c.X), ...lines(c.exp, db, db0, dbm), total('Net profit', c.net), ...bridge];
           return { columns: cols, rows, empty: 'No income or expense entries in this period.' };
-        }, 'Income and expense accounts only. Accounts with no amount in these periods are left out; the biggest come first.'),
+        }, 'Income and expense accounts only. Accounts with no amount in these periods are left out; the biggest come first. EBITDA and EBIDA are worked out from the account names: "interest" (paid or earned), "depreciation" or "amortisation", and "tax". If your accountant adds accounts with other names, tell the developer.'),
       ];
     }
     // balance sheet as at the last day of the period
