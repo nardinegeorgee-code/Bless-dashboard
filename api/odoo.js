@@ -729,15 +729,26 @@ function build(tab, cfg, ctx) {
     const dmy = (d) => `${Number(d.slice(8, 10))} ${MON[Number(d.slice(5, 7)) - 1]} ${d.slice(0, 4)}`;
     const span = (a, b) => (a === b ? dmy(a) : a.slice(0, 7) === b.slice(0, 7) ? `${Number(a.slice(8, 10))} to ${dmy(b)}` : `${dmy(a)} to ${dmy(b)}`);
     const data = () => once('trial', async () => {
-      const [before, period, prior] = await Promise.all([groups([['date', '<', s]], true), groups([['date', '>=', s], ['date', '<=', e]]), tab === 'pnl' ? groups([['date', '>=', ps], ['date', '<=', pe]]) : new Map()]);
-      const pmGroups = tab === 'pnl' && !sameAsPrev ? await groups([['date', '>=', pmStart], ['date', '<=', pmEnd]]) : prior;
-      let info = new Map();
-      try {
-        const have = await fieldsOf(cfg, 'account.account');
-        const tf = have && have.has('account_type') ? 'account_type' : 'user_type_id';
-        const list = await sr(cfg, 'account.account', [], ['code', 'name', tf], { app: 'Accounting', limit: 8000 });
-        info = new Map(list.map((a) => [a.id, { code: String(a.code || ''), name: a.name || '', type: Array.isArray(a[tf]) ? a[tf][1] : String(a[tf] || '') }]));
-      } catch (err) { /* codes are then read from the account's display name */ }
+      // The account list is read at the same time as the journal totals (it used to wait for them).
+      const infoP = (async () => {
+        try {
+          const have = await fieldsOf(cfg, 'account.account');
+          const tf = have && have.has('account_type') ? 'account_type' : 'user_type_id';
+          const list = await sr(cfg, 'account.account', [], ['code', 'name', tf], { app: 'Accounting', limit: 8000 });
+          return new Map(list.map((a) => [a.id, { code: String(a.code || ''), name: a.name || '', type: Array.isArray(a[tf]) ? a[tf][1] : String(a[tf] || '') }]));
+        } catch (err) { return new Map(); /* codes are then read from the account's display name */ }
+      })();
+      // Profit and loss only needs the movements in its own periods. The total of every entry since the
+      // beginning (for opening balances) is the slowest query, so it is left out of this tab.
+      const none = Promise.resolve(new Map());
+      const [before, period, prior, pmRaw, info] = await Promise.all([
+        tab === 'pnl' ? none : groups([['date', '<', s]], true),
+        groups([['date', '>=', s], ['date', '<=', e]]),
+        tab === 'pnl' ? groups([['date', '>=', ps], ['date', '<=', pe]]) : none,
+        tab === 'pnl' && !sameAsPrev ? groups([['date', '>=', pmStart], ['date', '<=', pmEnd]]) : none,
+        infoP,
+      ]);
+      const pmGroups = tab === 'pnl' && !sameAsPrev ? pmRaw : prior;
       const classOf = (t) => {
         const x = String(t || '').toLowerCase();
         if (/cost.of.revenue|direct.cost/.test(x)) return 'cogs';
